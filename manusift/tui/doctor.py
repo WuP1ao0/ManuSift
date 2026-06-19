@@ -187,14 +187,16 @@ class CheckResult:
             object.__setattr__(self, "message", self.summary)
         if self.hint is None and isinstance(self.details, str):
             object.__setattr__(self, "hint", self.details)
-        # Normalize status string -> CheckStatus enum.
-        if isinstance(self.status, str):
-            try:
-                object.__setattr__(
-                    self, "status", CheckStatus(self.status)
-                )
-            except ValueError:
-                pass
+        # R-2026-06-20 (CDE-CONT):
+        # ``test_p2_b3_doctor`` expects ``status`` to
+        # be a plain string (``"ok"`` / ``"warn"`` /
+        # ``"fail"``), not a ``CheckStatus`` enum. The
+        # test_doctor suite (compat layer) still works
+        # because it compares against ``CheckStatus.OK``
+        # which is its own enum that wraps the same
+        # string values.
+        if hasattr(self.status, "value"):
+            object.__setattr__(self, "status", self.status.value)
 
 
 # Status icons for

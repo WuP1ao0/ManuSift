@@ -429,7 +429,7 @@ def register_diff_command() -> None:
                 "show a unified diff between two files "
                 "or a file and a proposed new content"
             ),
-            category="Help",
+            category="Diagnostics",
             handler=_diff_handler,
             aliases=("d",),
         )

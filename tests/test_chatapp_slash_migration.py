@@ -97,7 +97,7 @@ EXPECTED_COMMANDS = {
     # ``manusift.tui.diff_cmd``
     # modules.
     "doctor": "Diagnostics",
-    "diff": "Help",
+    "diff": "Diagnostics",
 }
 
 

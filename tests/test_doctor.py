@@ -232,20 +232,20 @@ def test_real_settings_load_passes():
     """The default CI environment loads ``Settings()`` cleanly.
     """
     result = doctor_module._check_settings_load()
-    assert result.status in {CheckStatus.OK, CheckStatus.WARN}
-    if result.status is CheckStatus.FAIL:
+    assert result.status in {CheckStatus.OK.value, CheckStatus.WARN.value}
+    if result.status == CheckStatus.FAIL.value:
         pytest.fail(f"settings_load failed: {result.summary} {result.details}")
 
 
 def test_real_openpyxl_passes():
     result = doctor_module._check_openpyxl()
-    assert result.status is CheckStatus.OK
+    assert result.status == CheckStatus.OK.value
     assert "version" in result.details
 
 
 def test_real_pymupdf_passes():
     result = doctor_module._check_pymupdf()
-    assert result.status is CheckStatus.OK
+    assert result.status == CheckStatus.OK.value
 
 
 def test_real_workspace_passes(tmp_path: Path, monkeypatch):
@@ -262,7 +262,7 @@ def test_real_workspace_passes(tmp_path: Path, monkeypatch):
     # production code will use, not a monkey-patched
     # version.
     result = doctor_module._check_workspace()
-    assert result.status is CheckStatus.OK
+    assert result.status == CheckStatus.OK.value
     assert result.details["path"] == str(tmp_path)
 
 
@@ -285,27 +285,27 @@ def test_real_workspace_fails_on_unwritable_path(monkeypatch):
     # Should be FAIL (mkdir fails) or WARN (the env
     # wasn't picked up because of a quirk). We accept
     # both as evidence the path was unwritable.
-    assert result.status in {CheckStatus.FAIL, CheckStatus.WARN}
-    if result.status is CheckStatus.FAIL:
+    assert result.status in {CheckStatus.FAIL.value, CheckStatus.WARN.value}
+    if result.status == CheckStatus.FAIL.value:
         assert result.hint is not None
 
 
 def test_real_trace_id_format_passes():
     result = doctor_module._check_trace_id_format()
-    assert result.status is CheckStatus.OK
+    assert result.status == CheckStatus.OK.value
     assert "sample" in result.details
     assert len(result.details["sample"]) >= 6
 
 
 def test_real_detector_registry_passes():
     result = doctor_module._check_detector_registry()
-    assert result.status is CheckStatus.OK
+    assert result.status == CheckStatus.OK.value
     assert result.details["count"] >= 1
 
 
 def test_real_tool_registry_passes():
     result = doctor_module._check_tool_registry()
-    assert result.status is CheckStatus.OK
+    assert result.status == CheckStatus.OK.value
     assert result.details["count"] >= 1
 
 

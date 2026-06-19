@@ -128,7 +128,7 @@ import shutil
 import socket
 import sys
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -148,44 +148,56 @@ STATUS_FAIL = "fail"
 class CheckResult:
     """One health check outcome.
 
+    R-2026-06-20 (CDE-RECONSTRUCT):
+    Accepts both the legacy
+    field names (``message``,
+    ``details``) and the new
+    field names (``summary``,
+    ``hint``) so the test suite
+    can construct instances
+    using either vocabulary.
+
     Attributes:
         name: short identifier
-            (e.g. ``"workspace"``,
-            ``"settings"``,
-            ``"deps"``,
-            ``"llm"``,
-            ``"crossref"``).
-        status: one of
-            ``STATUS_OK`` /
+            (e.g. ``"workspace"``).
+        status: ``STATUS_OK`` /
             ``STATUS_WARN`` /
             ``STATUS_FAIL``.
         message: human-readable
-            description. For
-            ``ok`` this is
-            a short success
-            note (e.g.
-            ``"workspace
-            exists at
-            /foo"``).
-            For ``warn`` /
-            ``fail`` this
-            explains the
-            problem + a
-            suggested fix.
+            description (legacy).
+        summary: same as
+            ``message`` (new).
         details: optional
             machine-readable
-            extras (e.g.
-            the list of
-            missing deps,
-            the current
-            LLM model name,
-            etc.).
+            extras (legacy).
+        hint: same as
+            ``details`` (new).
     """
 
     name: str
     status: str
-    message: str
+    message: str = ""
+    summary: str = ""
     details: dict[str, Any] | None = None
+    hint: str | None = None
+
+    def __post_init__(self) -> None:
+        # Normalize: ``summary`` falls back to ``message`` and
+        # vice versa; ``hint`` falls back to ``details``.
+        if not self.summary and self.message:
+            object.__setattr__(self, "summary", self.message)
+        if not self.message and self.summary:
+            object.__setattr__(self, "message", self.summary)
+        if self.hint is None and isinstance(self.details, str):
+            object.__setattr__(self, "hint", self.details)
+        # Normalize status string -> CheckStatus enum.
+        if isinstance(self.status, str):
+            try:
+                object.__setattr__(
+                    self, "status", CheckStatus(self.status)
+                )
+            except ValueError:
+                pass
 
 
 # Status icons for
@@ -260,6 +272,7 @@ def _check_workspace() -> CheckResult:
                     f"and could not be created: {exc}"
                 ),
                 details={"path": str(workspace)},
+                hint=f"check parent directory permissions for {workspace.parent}",
             )
     # Test writability
     try:
@@ -807,3 +820,316 @@ except Exception:  # noqa: BLE001
     # skip
     # silently.
     pass
+
+
+# ============================================================
+# R-2026-06-20 (CDE-RECONSTRUCT):
+# Compat layer for the test suite (test_doctor.py).
+# The original doctor.py used different names (CheckResult /
+# run_health_check); the rewritten version uses these
+# dataclasses + helpers.
+# ============================================================
+
+from enum import Enum
+
+
+class CheckStatus(Enum):
+    """Health check outcome enum."""
+    OK = "ok"
+    WARN = "warn"
+    FAIL = "fail"
+
+
+def _to_compat_check_result(cr: "CheckResult") -> "DoctorCheck":
+    """Convert the legacy ``CheckResult`` to the new
+    ``DoctorCheck`` dataclass expected by ``run_doctor``.
+
+    Forwards ``hint`` so test stubs that pass
+    ``hint=...`` see it in the rendered report.
+    """
+    return DoctorCheck(
+        name=cr.name,
+        status=cr.status,
+        summary=cr.summary,
+        hint=getattr(cr, "hint", None),
+        details=cr.details if isinstance(cr.details, dict) else None,
+    )
+
+
+@dataclass
+class DoctorCheck:
+    """One health check outcome (compat schema)."""
+    name: str
+    status: str
+    summary: str
+    hint: str | None = None
+    details: dict[str, Any] | None = None
+
+    @property
+    def is_fail(self) -> bool:
+        return _status_str(self.status) == "fail"
+
+    @property
+    def is_warn(self) -> bool:
+        return _status_str(self.status) == "warn"
+
+    @property
+    def is_ok(self) -> bool:
+        return _status_str(self.status) == "ok"
+
+
+@dataclass
+class DoctorReport:
+    """Aggregate doctor run report."""
+    checks: tuple[DoctorCheck, ...] = field(default_factory=tuple)
+
+    @property
+    def ok(self) -> tuple[DoctorCheck, ...]:
+        return tuple(c for c in self.checks if c.is_ok)
+
+    @property
+    def failed(self) -> tuple[DoctorCheck, ...]:
+        return tuple(c for c in self.checks if c.is_fail)
+
+    @property
+    def warned(self) -> tuple[DoctorCheck, ...]:
+        return tuple(c for c in self.checks if c.is_warn)
+
+    @property
+    def overall_ok(self) -> bool:
+        return len(self.failed) == 0
+
+
+def run_doctor() -> DoctorReport:
+    """Run all health checks and return a DoctorReport.
+
+    Reads the module-level ``ALL_CHECKS`` tuple at call time
+    so tests can ``monkeypatch.setattr(doctor_module,
+    "ALL_CHECKS", ...)`` to control the check set.
+    """
+    raw_results: list[DoctorCheck] = []
+    for check_fn in ALL_CHECKS:
+        try:
+            cr = check_fn()
+            # Accept either the new ``DoctorCheck`` or
+            # the legacy ``CheckResult``.
+            if isinstance(cr, DoctorCheck):
+                raw_results.append(cr)
+            else:
+                raw_results.append(_to_compat_check_result(cr))
+        except Exception as exc:  # noqa: BLE001
+            raw_results.append(
+                DoctorCheck(
+                    name=getattr(check_fn, "__name__", "unknown"),
+                    status=CheckStatus.FAIL.value,
+                    summary=f"check crashed: {exc}",
+                    hint="check the traceback in the error log",
+                    details={"error": str(exc), "type": type(exc).__name__},
+                )
+            )
+    return DoctorReport(checks=tuple(raw_results))
+
+
+def _status_str(s: Any) -> str:
+    """Normalize a status field to its string form."""
+    if hasattr(s, "value"):
+        return str(s.value)
+    return str(s)
+
+
+def format_doctor_report(report: DoctorReport) -> str:
+    """Render a DoctorReport as a TUI-friendly string."""
+    lines: list[str] = []
+    lines.append(
+        f"doctor: {len(report.failed)} fail, {len(report.warned)} warn, {len(report.ok)} ok"
+    )
+    for c in report.checks:
+        st = _status_str(c.status)
+        lines.append(f"  [{st}] {c.name}: {c.summary}")
+        if c.hint:
+            lines.append(f"    -> {c.hint}")
+    if report.overall_ok:
+        lines.append("Ready to run")
+    else:
+        lines.append("Issues found, must be fixed before running.")
+    return "\n".join(lines)
+
+
+def doctor_report_to_dict(report: DoctorReport) -> dict:
+    """Serialize a DoctorReport as a JSON-ready dict.
+
+    Shape: ``{summary, overall_ok, checks: [{name, status, summary,
+    details, hint}, ...]}``.
+    """
+    return {
+        "summary": (
+            f"{len(report.failed)} fail, "
+            f"{len(report.warned)} warn, "
+            f"{len(report.ok)} ok"
+        ),
+        "overall_ok": report.overall_ok,
+        "checks": [
+            {
+                "name": c.name,
+                "status": _status_str(c.status),
+                "summary": c.summary,
+                "details": {},
+                "hint": c.hint,
+            }
+            for c in report.checks
+        ],
+    }
+
+
+# ``ALL_CHECKS`` is the tuple of leaf check callables that
+# ``run_doctor`` iterates over. Each callable takes no
+# arguments and returns a ``CheckResult`` (legacy) or
+# ``DoctorCheck`` (new).
+ALL_CHECKS: tuple = (
+    _check_workspace,
+    _check_settings,
+    _check_deps,
+    _check_llm_connectivity,
+    _check_crossref_cache,
+)
+
+
+
+# ============================================================
+# R-2026-06-20 (CDE-RECONSTRUCT):
+# Additional leaf checks exposed for the test_doctor.py suite.
+# These are minimal real checks that don't require monkey-patching.
+# ============================================================
+
+
+def _check_settings_load() -> CheckResult:
+    """Load ``Settings()`` cleanly."""
+    try:
+        from ..config import Settings
+        s = Settings()
+        return CheckResult(
+            name="settings_load",
+            status=STATUS_OK,
+            summary=f"settings loaded (workspace={s.workspace_dir})",
+            details={"path": str(s.workspace_dir)},
+        )
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult(
+            name="settings_load",
+            status=STATUS_WARN,
+            summary=f"settings load failed: {exc}",
+        )
+
+
+def _check_openpyxl() -> CheckResult:
+    """``openpyxl`` is importable (needed for XLSX ingest)."""
+    try:
+        import openpyxl
+        v = getattr(openpyxl, "__version__", "?")
+        return CheckResult(
+            name="openpyxl",
+            status=STATUS_OK,
+            summary=f"openpyxl {v} available",
+            details={"version": v},
+        )
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult(
+            name="openpyxl",
+            status=STATUS_FAIL,
+            summary=f"openpyxl import failed: {exc}",
+            details={"error": str(exc)},
+        )
+
+
+def _check_pymupdf() -> CheckResult:
+    """``pymupdf`` (fitz) is importable (needed for PDF ingest)."""
+    try:
+        import fitz  # PyMuPDF
+        v = getattr(fitz, "__version__", "?")
+        return CheckResult(
+            name="pymupdf",
+            status=STATUS_OK,
+            summary=f"pymupdf {v} available",
+            details={"version": v},
+        )
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult(
+            name="pymupdf",
+            status=STATUS_FAIL,
+            summary=f"pymupdf import failed: {exc}",
+            details={"error": str(exc)},
+        )
+
+
+def _check_trace_id_format() -> CheckResult:
+    """``trace_id`` format is non-empty + at least 6 chars."""
+    try:
+        from ..trace import new_trace_id
+        sample = new_trace_id()
+        ok = isinstance(sample, str) and len(sample) >= 6
+        return CheckResult(
+            name="trace_id_format",
+            status=STATUS_OK if ok else STATUS_FAIL,
+            summary=f"trace_id looks like {sample!r}",
+            details={"sample": sample, "length": len(sample) if isinstance(sample, str) else 0},
+        )
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult(
+            name="trace_id_format",
+            status=STATUS_FAIL,
+            summary=f"trace_id check failed: {exc}",
+        )
+
+
+def _check_detector_registry() -> CheckResult:
+    """The detector registry loads at least one detector."""
+    try:
+        from ..detectors import iter_registered_detectors
+        n = sum(1 for _ in iter_registered_detectors())
+        return CheckResult(
+            name="detector_registry",
+            status=STATUS_OK if n >= 1 else STATUS_FAIL,
+            summary=f"registered {n} detector(s)",
+            details={"count": n},
+        )
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult(
+            name="detector_registry",
+            status=STATUS_FAIL,
+            summary=f"detector registry check failed: {exc}",
+        )
+
+
+def _check_tool_registry() -> CheckResult:
+    """The tool registry loads at least one tool."""
+    try:
+        from ..tools import iter_registered_tools
+        n = sum(1 for _ in iter_registered_tools())
+        return CheckResult(
+            name="tool_registry",
+            status=STATUS_OK if n >= 1 else STATUS_FAIL,
+            summary=f"registered {n} tool(s)",
+            details={"count": n},
+        )
+    except Exception as exc:  # noqa: BLE001
+        return CheckResult(
+            name="tool_registry",
+            status=STATUS_FAIL,
+            summary=f"tool registry check failed: {exc}",
+        )
+
+
+# Update ALL_CHECKS to include the new checks too
+ALL_CHECKS = (
+    _check_workspace,
+    _check_settings,
+    _check_deps,
+    _check_llm_connectivity,
+    _check_crossref_cache,
+    _check_settings_load,
+    _check_openpyxl,
+    _check_pymupdf,
+    _check_trace_id_format,
+    _check_detector_registry,
+    _check_tool_registry,
+)

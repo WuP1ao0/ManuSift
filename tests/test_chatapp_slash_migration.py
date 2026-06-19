@@ -86,6 +86,18 @@ EXPECTED_COMMANDS = {
     # Phase 0.1 + 0.4)
     "stop": "Session",
     "budget": "Session",
+    # R-2026-06-19 (CDE-C1):
+    # ``/doctor`` and
+    # ``/diff``
+    # auto-register
+    # on chat_app
+    # import via the
+    # ``manusift.tui.doctor``
+    # and
+    # ``manusift.tui.diff_cmd``
+    # modules.
+    "doctor": "Diagnostics",
+    "diff": "Help",
 }
 
 

@@ -1936,7 +1936,7 @@ register(
     SlashCommand(
         name="plan",
         description="show or toggle plan mode",
-        category="Plan",
+        category="Plans",
         handler=lambda app, arg: app._cmd_plan(arg),
     )
 )
@@ -1945,7 +1945,7 @@ register(
     SlashCommand(
         name="go",
         description="execute the plan the agent proposed",
-        category="Plan",
+        category="Plans",
         handler=lambda app, arg: app._cmd_go(arg),
     )
 )
@@ -1954,7 +1954,7 @@ register(
     SlashCommand(
         name="auto-accept",
         description="toggle auto-accept for tool calls",
-        category="Plan",
+        category="Plans",
         handler=lambda app, arg: app._cmd_auto_accept(arg),
     )
 )
@@ -1985,8 +1985,8 @@ register(
             "``/resume new`` to start fresh, ``/resume 1`` for the "
             "most-recent session, or ``/resume <sid-prefix>``)"
         ),
-        category="Session",
-        handler=lambda app, arg: app._cmd_resume(arg),
+        category="Status",
+            handler=lambda app, arg: app._cmd_resume(arg),
     )
 )
 # 12. /model
@@ -2002,17 +2002,17 @@ register(
 register(
     SlashCommand(
         name="tree",
-        description="show a tree of saved sessions",
-        category="Session",
-        handler=lambda app, arg: app._cmd_tree(),
-    )
-)
+                description="show a tree of saved sessions",
+                category="Status",
+            handler=lambda app, arg: app._cmd_tree(),
+            )
+        )
 # 14. /theme
 register(
     SlashCommand(
         name="theme",
         description="cycle through built-in textual themes",
-        category="Status",
+        category="UI",
         handler=lambda app, arg: app._cmd_theme(arg),
     )
 )
@@ -2021,7 +2021,7 @@ register(
     SlashCommand(
         name="help",
         description="show this help message",
-        category="Status",
+        category="UI",
         handler=lambda app, arg: app._cmd_help(),
     )
 )
@@ -2030,7 +2030,7 @@ register(
     SlashCommand(
         name="budget",
         description="show budget caps + consumed",
-        category="Status",
+        category="Session",
         handler=lambda app, arg: app._cmd_budget(),
     )
 )

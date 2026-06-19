@@ -1441,13 +1441,33 @@ class ChatApp(App):
                     ),
                 )
 
-        # ``_run_agent`` runs synchronously (the chat TUI
-        # shows a PulsatingDots placeholder while it
-        # executes). Production code may wrap the call in
-        # a thread + ``call_from_thread`` if a long agent
-        # loop blocks the UI.
-        self._active_worker = None
-        _do_run()
+        # ``_run_agent`` runs the agent loop in a
+        # background ``threading.Thread`` so the
+        # PulsatingDots placeholder keeps animating
+        # while the LLM streams. ``call_from_thread``
+        # posts results back to the main loop so
+        # widget mutations are thread-safe.
+        #
+        # R-2026-06-20 (CDE-ASYNC):
+        # We detect "test mode" by checking whether
+        # the app has been booted into a textual
+        # main loop (i.e. ``_thread_id`` is set).
+        # When called outside the TUI (unit tests),
+        # we run synchronously so assertions after
+        # the call see the side-effects immediately.
+        import threading as _threading
+        is_in_main_loop = getattr(self, "_thread_id", None) is not None
+        if is_in_main_loop:
+            self._active_worker = _threading.Thread(
+                target=_do_run,
+                daemon=True,
+                name="agent_loop",
+            )
+            self._active_worker.start()
+        else:
+            # Test mode: synchronous, no thread.
+            self._active_worker = None
+            _do_run()
 
     def _post(self, callback: Any, *args: Any) -> None:
         """Schedule

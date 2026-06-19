@@ -89,6 +89,11 @@ FAST_TEST_FILES = [
     # Direct-fs error kinds + the file-tool regression.
     "tests/test_direct_fs.py",
     "tests/test_phase1_p17_direct_fs_error_kinds.py",
+    # R-2026-06-20 (CDE-ASYNC):
+    # PulsatingDots must keep animating while
+    # ``_run_agent`` is waiting on the LLM (UI
+    # must not freeze).
+    "tests/test_cde_async_animation.py",
 ]
 
 

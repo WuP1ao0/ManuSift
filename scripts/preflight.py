@@ -94,6 +94,12 @@ FAST_TEST_FILES = [
     # ``_run_agent`` is waiting on the LLM (UI
     # must not freeze).
     "tests/test_cde_async_animation.py",
+    # R-2026-06-20 (CDE-RENDER):
+    # Chat messages must render Rich markup
+    # (``<span class='role-XXX'>``) rather than
+    # literal ``<span>`` characters in the
+    # chat log.
+    "tests/test_cde_render_markup.py",
 ]
 
 

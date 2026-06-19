@@ -403,17 +403,18 @@ class ChatApp(App):
         height: auto;
         min-height: 3;
         max-height: 10;
+        padding: 0 1;
     }
     #input {
-        height: auto;
+        height: 3;
         min-height: 3;
         max-height: 10;
         background: $mocha-mantle;
         color: $mocha-text;
-        border: round $mocha-overlay;
+        border: tall $mocha-overlay;
     }
     #input:focus {
-        border: round $mocha-mauve;
+        border: tall $mocha-mauve;
     }
     .msg-row {
         height: auto;
@@ -606,11 +607,28 @@ class ChatApp(App):
         self._spinner = self.query_one("#tool-status")
         self._detector_count = self.query_one("#detector-count")
         self._cost_bar = self.query_one("#cost-bar")
-        # Banner title
-        try:
-            self.query_one("#banner").border_title = " MANUSIFT "
-        except Exception:  # noqa: BLE001
-            pass
+        # Banner title (R-2026-06-20 CDE-RENDER):
+        # removed -- the block art
+        # already says "MANUSIFT"
+        # in 6 rows of
+        # U+2588 blocks.
+        # Adding a
+        # border_title
+        # made it
+        # visually
+        # duplicate.
+        # The tagline
+        # "MANUSIFT ::
+        # source
+        # tracing //
+        # figure
+        # ghosts //
+        # metadata
+        # drift"
+        # appears
+        # below
+        # the art
+        # instead.
 
         # Initialize the status-line widgets
         self._set_status("ready")
@@ -1223,12 +1241,21 @@ class ChatApp(App):
 
     def _render_message(self, msg: ChatMessage) -> Static:
         """Render one message
-        as a Static widget."""
+        as a Static widget.
+
+        R-2026-06-20 (CDE-RENDER):
+        ``markup=True`` so the
+        ``<span class=...>``
+        markup is rendered by
+        Textual (was: literal
+        text shown).
+        """
         role_class = _css_class(msg.role)
         text = escape(msg.content)
         return Static(
             f"<span class='role-{role_class}'>{msg.role}</span>  {text}",
             classes=f"msg-row msg-{role_class}",
+            markup=True,
         )
 
     def _append_message(self, msg: ChatMessage) -> None:
@@ -1523,7 +1550,19 @@ class ChatApp(App):
                 if isinstance(blk, dict) and blk.get("type") == "text":
                     text += blk.get("text", "")
         if not text:
-            text = "(empty)"
+            # R-2026-06-20 (CDE-RENDER):
+            # don't mount an empty
+            # ``"(empty)"``
+            # message -- just
+            # remove the placeholder
+            # silently so the user
+            # doesn't see a blank
+            # assistant row in the
+            # chat log.
+            self._replace_placeholder_with_message(
+                ChatMessage(role="system", content="(agent produced no text)")
+            )
+            return
         self._replace_placeholder_with_message(
             ChatMessage(role="assistant", content=text)
         )

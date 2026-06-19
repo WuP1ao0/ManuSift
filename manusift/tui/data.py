@@ -11,7 +11,6 @@ from pathlib import Path
 from ..config import get_settings
 from ..workspace import JobPaths
 
-
 SEVERITY_RANK = {"high": 0, "medium": 1, "low": 2, "info": 3}
 
 

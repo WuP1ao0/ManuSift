@@ -67,10 +67,7 @@ Honest limits
 """
 from __future__ import annotations
 
-import io
-import logging
 import os
-from typing import Any
 
 try:
     import fitz  # type: ignore

@@ -60,7 +60,6 @@ from typing import Any
 
 from ..tools.tool import ToolContext
 
-
 _CONVERSATION_STATE_KEY = "conversation_state"
 
 

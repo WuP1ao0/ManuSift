@@ -89,14 +89,12 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Any
 
 from rich.markup import escape as _rich_escape
 from textual.content import Content
 from textual.widgets import Static
 
 from ..contracts import ChatMessage
-
 
 # Role -> TCSS class
 # applied to the

@@ -56,25 +56,23 @@ raw finding list. The DebugDrawer holds the raw output.
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from rich.text import Text
 from textual.widgets import Static
 
 from ..detector_trace import (
+    ALL_DETECTOR_EVENTS,
     DETECTOR_DONE,
     DETECTOR_ERROR,
     DETECTOR_PROGRESS,
     DETECTOR_SKIPPED,
     DETECTOR_STARTED,
-    ALL_DETECTOR_EVENTS,
     DetectorEntry,
     DetectorTrace,
-    write_summary,
 )
 from ..events import Event, get_bus
-
 
 # Status icon table -- matches turn_block.py's convention so the
 # two blocks look consistent in the chat log.

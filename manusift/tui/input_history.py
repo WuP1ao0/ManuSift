@@ -344,7 +344,6 @@ from dataclasses import (
 from pathlib import Path
 from typing import Any
 
-
 # --------------------------------------------------------------------
 # Slash-command autocomplete
 # --------------------------------------------------------------------

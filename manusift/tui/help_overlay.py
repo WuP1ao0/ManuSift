@@ -58,7 +58,6 @@ from textual.containers import Center, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-
 # The key / action table.
 # Each row is ``(key, action)``
 # -- rendered as

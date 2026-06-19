@@ -30,9 +30,8 @@ Contract:
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Callable, Iterable
-
 
 # The handler signature. ``app`` is the
 # ChatApp; ``arg`` is the rest of the user

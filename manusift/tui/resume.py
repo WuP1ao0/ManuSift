@@ -93,7 +93,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 # Pattern: a session id
 # produced by
 # ``uuid.uuid4().hex[:12]``

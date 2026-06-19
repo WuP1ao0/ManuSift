@@ -67,56 +67,29 @@ to flesh out.
 """
 from __future__ import annotations
 
-import asyncio
 import json
-import os
-import shutil
-import sys
 import uuid
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, ClassVar
 
 from rich.markup import escape
 from textual.app import App, ComposeResult
-from textual.content import Content
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.reactive import reactive
+from textual.containers import Horizontal, VerticalScroll
 from textual.widgets import (
-    Footer,
-    Header,
-    Input,
-    LoadingIndicator,
     Static,
     TextArea,
 )
 
 from ..agent import AgentLoop, AgentLoopResult
 from ..config import get_settings
-from ..cost import record_call as _cost_record_call
+from ..contracts import ChatMessage
+from ..detector_trace import ALL_DETECTOR_EVENTS
+from ..events import Event
 from ..llm import MockLLM, get_llm_client
-from ..llm.chat import ChatResponse
-from ..tools import get_tool, iter_registered_tools
+from ..tools import iter_registered_tools
 from ..tools.tool import ToolContext
-from ..trace import bind_trace_id, get_logger, new_trace_id
-from ..workspace import JobPaths
-from ..events import Event, get_bus
-
-from .turn_block import (
-    DebugDrawer,
-    ToolCallCard,
-    ToolEntry,
-    ToolTraceBlock,
-    TOOL_ERROR,
-    TOOL_OK,
-    TOOL_RUNNING,
-    TOOL_SKIPPED,
-    build_entry_summary,
-    dedup_tool_errors,
-)
-from .slash_popover import SlashPopover
-from .i18n import t as _t
+from ..trace import get_logger
 
 # R-2026-06-19 (CDE-C1):
 # ``doctor`` and ``diff_cmd`` auto-register their
@@ -124,15 +97,19 @@ from .i18n import t as _t
 # We import them here (BEFORE the ChatApp class body's
 # 14 ``register(SlashCommand(...))`` calls) so their
 # ``register_*_command()`` side effects fire first.
-from . import history_filter  # noqa: F401
-from . import conversation_state  # noqa: F401
-from . import doctor  # noqa: F401
-from . import diff_cmd  # noqa: F401
-
+from . import (
+    conversation_state,  # noqa: F401
+    diff_cmd,  # noqa: F401
+    doctor,  # noqa: F401
+    history_filter,  # noqa: F401
+)
 from .detector_block import DetectorTraceBlock, install_default_listener
-from ..detector_trace import ALL_DETECTOR_EVENTS
-from ..contracts import ChatMessage
-
+from .i18n import t as _t
+from .slash_popover import SlashPopover
+from .turn_block import (
+    DebugDrawer,
+    ToolTraceBlock,
+)
 
 log = get_logger(__name__)
 
@@ -1025,9 +1002,9 @@ class ChatApp(App):
         switch into a past
         chat session."""
         from .resume import (
+            list_sessions,
             parse_resume_arg,
             render_resume_listing,
-            list_sessions,
         )
         listings = list_sessions()
         arg = (arg or "").strip()
@@ -1452,7 +1429,7 @@ class ChatApp(App):
                     stopped_reason=stopped_reason,
                 )
                 self._post(self._on_finished, result)
-            except Exception as exc:  # noqa: BLE001
+            except Exception:  # noqa: BLE001
                 log.exception("agent loop raised")
                 self._post(
                     self._on_finished,

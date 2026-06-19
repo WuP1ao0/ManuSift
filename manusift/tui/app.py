@@ -33,13 +33,12 @@ from typing import Any, ClassVar
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.widgets import DataTable, Footer, Header, Input, Static
 
 from ..config import get_settings
 from .data import SEVERITY_RANK, JobSummary, list_jobs, load_findings
-
 
 # ---------- filter state ----------
 

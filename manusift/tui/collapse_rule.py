@@ -143,7 +143,6 @@ turn).
 """
 from __future__ import annotations
 
-
 # The
 # threshold
 # is

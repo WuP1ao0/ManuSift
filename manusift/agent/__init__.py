@@ -24,8 +24,8 @@ detector adapter, the e2e runner — keep their
 """
 from __future__ import annotations
 
-import logging
 import json
+import logging
 import math
 import time
 from collections import OrderedDict
@@ -37,6 +37,7 @@ from ..llm.chat import ChatResponse
 from ..tools import ToolContext, ToolResult, get_tool
 from ..trace import get_logger
 from ..tui.path_hooks import build_pre_canned_tool_calls
+
 # R-audit (2026-06-11):
 # re-exported
 # under
@@ -2832,8 +2833,10 @@ tool returns, your final chat line MUST mention the absolute
             # actual tool
             # execution.
             from ..events import (
-                get_bus as _get_bus,
                 Event as _Event,
+            )
+            from ..events import (
+                get_bus as _get_bus,
             )
             _tool_t0 = time.monotonic()
             try:
@@ -3118,8 +3121,10 @@ tool returns, your final chat line MUST mention the absolute
             # tool reported.
             try:
                 from ..events import (
-                    get_bus as _get_bus_f,
                     Event as _EventF,
+                )
+                from ..events import (
+                    get_bus as _get_bus_f,
                 )
                 _artifacts: list[str] = []
                 try:
@@ -3517,8 +3522,10 @@ tool returns, your final chat line MUST mention the absolute
         # try/except.
         try:
             from ..events import (
-                get_bus as _get_bus_f,
                 Event as _EventF,
+            )
+            from ..events import (
+                get_bus as _get_bus_f,
             )
             _t0 = (
                 self._manusift_tc_starts.get(tc_id)

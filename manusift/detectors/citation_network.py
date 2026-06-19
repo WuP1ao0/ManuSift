@@ -62,7 +62,7 @@ from pathlib import Path
 import httpx
 
 from ..config import Settings, get_settings
-from ..retry import ServerError_, classify_status, remote_call
+from ..retry import classify_status, remote_call
 from ..contracts import Finding, ParsedDoc
 from .base import DetectorResult
 

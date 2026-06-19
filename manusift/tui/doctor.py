@@ -124,13 +124,10 @@ Tests:
 from __future__ import annotations
 
 import os
-import shutil
 import socket
-import sys
 import tempfile
 from dataclasses import dataclass, field
 from typing import Any
-
 
 # Status constants -- mirror
 # the 3 states

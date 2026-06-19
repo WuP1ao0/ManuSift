@@ -74,11 +74,7 @@ tool calls.
 """
 from __future__ import annotations
 
-import asyncio
-from typing import Any
-
 from textual.widgets import Static
-
 
 # 10-frame Braille-dot
 # spinner. We rotate

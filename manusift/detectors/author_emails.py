@@ -59,7 +59,6 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter
-from typing import Any
 
 from ..contracts import Finding, ParsedDoc
 from .base import DetectorResult

@@ -67,9 +67,7 @@ four algorithms implement.
 """
 from __future__ import annotations
 
-import io
 import json
-from typing import Any
 
 import imagehash
 from PIL import Image

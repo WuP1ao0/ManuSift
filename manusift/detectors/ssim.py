@@ -72,12 +72,11 @@ Image Processing.
 from __future__ import annotations
 
 import json
-from typing import Any
 
 import numpy as np
 from PIL import Image
 
-from ..contracts import ExtractedImage, Finding, ParsedDoc
+from ..contracts import Finding, ParsedDoc
 from .base import DetectorResult
 
 

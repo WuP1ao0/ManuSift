@@ -177,7 +177,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-
 # Match a Windows or Unix absolute path.
 # The path is captured WITHOUT the surrounding
 # quotes -- the extractor strips them.

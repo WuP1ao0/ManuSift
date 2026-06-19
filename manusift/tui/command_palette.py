@@ -261,7 +261,7 @@ helpers are:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     # The ModalScreen
@@ -929,27 +929,25 @@ def _build_modal():
     ranked candidates
     below.
     """
-    from textual.screen import (
-        ModalScreen,
-    )
-    from textual.widgets import (
-        Input,
-        Label,
-        ListItem,
-        ListView,
-        Static,
-    )
-    from textual.containers import (
-        Center,
-        Middle,
-        Vertical,
-    )
     from textual.app import (
         ComposeResult,
     )
     from textual.binding import (
         Binding,
     )
+    from textual.containers import (
+        Vertical,
+    )
+    from textual.screen import (
+        ModalScreen,
+    )
+    from textual.widgets import (
+        Input,
+        ListItem,
+        ListView,
+        Static,
+    )
+
     from .slash_registry import (
         iter_commands,
     )

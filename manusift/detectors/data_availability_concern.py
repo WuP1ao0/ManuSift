@@ -42,7 +42,6 @@ that appeared in the benchmark's three relevant retractions.
 from __future__ import annotations
 
 import re
-from typing import Any
 
 from ..contracts import Finding, ParsedDoc
 from .base import DetectorResult

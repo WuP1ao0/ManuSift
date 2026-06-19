@@ -82,7 +82,7 @@ from typing import Any
 _HAS_NUMPY = find_spec("numpy") is not None
 _HAS_CV2 = find_spec("cv2") is not None
 
-from ..contracts import ExtractedImage, Finding, ParsedDoc
+from ..contracts import Finding, ParsedDoc
 from .base import DetectorResult
 
 

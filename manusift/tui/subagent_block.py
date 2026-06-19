@@ -73,7 +73,6 @@ from rich.text import Text
 
 from ..events import Event, get_bus
 
-
 # Subagent status icons, mirrored
 # from detector_block.py for
 # visual consistency.

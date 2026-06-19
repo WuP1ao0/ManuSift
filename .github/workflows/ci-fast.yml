@@ -1,0 +1,86 @@
+name: ci-fast
+
+# Fast smoke CI: runs the new test files + a critical subset
+# of the regression sweep. This is the layer the user can run
+# locally on every change without burning 5+ minutes on the
+# full test suite. R-2026-06-19 (P0-F1).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  fast:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          # Phase C + D + A1/C3 require openpyxl / python-docx /
+          # python-pptx / nbformat for the fig detector and
+          # document extractors. These are dev-only deps.
+          pip install openpyxl python-docx python-pptx nbformat
+      - name: Lint (ruff)
+        # R-2026-06-19 (P3-F3):
+        # run ``ruff check`` on
+        # the whole package.
+        # The rule set in
+        # ``ruff.toml`` (B + F
+        # + I + UP + C4)
+        # catches real bugs
+        # in < 2 s.  The
+        # pre-existing
+        # legacy code base
+        # has ~1,100 minor
+        # violations (mostly
+        # import order +
+        # unused imports)
+        # that are
+        # intentionally
+        # NOT auto-fixed:
+        # they get fixed
+        # file-by-file as
+        # each file is
+        # touched in a
+        # future change.
+        # ``--statistics``
+        # reports the
+        # count without
+        # making the step
+        # fail so the
+        # pre-existing
+        # debt does not
+        # block CI.
+        run: |
+          python -m pip install ruff
+          ruff check --statistics manusift tests || true
+      - name: Lint (compileall)
+        run: |
+          python -m compileall manusift tests
+      - name: Test (new + targeted regression)
+        # The full suite has pre-existing slow tests (30-case
+        # smoke, panel_dup render, etc.) that take 5+ min. The
+        # fast CI runs only the new test files (Phase A/B/C/D +
+        # A1/C3) + a small regression subset. The full suite is
+        # reserved for the weekly ``ci-full`` job below.
+        run: |
+          python -m pytest -q \
+            tests/test_phase_a_safe_read.py \
+            tests/test_phase_b_safe_read_b.py \
+            tests/test_phase_c_xlsx_figs.py \
+            tests/test_phase_d_per_fig_detector.py \
+            tests/test_p0_a1c3_image_size.py \
+            tests/test_p1_b2_protected_dir.py \
+            tests/test_p1_c1_image_forensics_oom.py \
+            tests/test_p1_c2_panel_dup_progress.py \
+            tests/test_tool_call_card.py \
+            tests/test_auto_discover_source_data.py \
+            tests/test_direct_fs.py \
+            tests/test_phase1_p17_direct_fs_error_kinds.py

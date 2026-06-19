@@ -1,0 +1,62 @@
+{
+  "scenarios": [
+    {
+      "name": "single_pdf_review",
+      "description": "Single PDF, no companion data. Should produce 1 detector block + HTML report.",
+      "user_message": "审查 C:/Users/me/papers/example.pdf",
+      "expect": {
+        "detector_block_fired": true,
+        "data_source_count_at_least": 0,
+        "report_html_path_endswith": "report.html"
+      }
+    },
+    {
+      "name": "xlsx_with_data_source",
+      "description": "Fixture factory produces a valid openpyxl workbook. The real R-2026-06-14 XLSX fix is asserted in tests/test_chat_trust_fixes.py.",
+      "user_message": "审查 C:/Users/me/papers/case_with_xlsx",
+      "expect": {
+        "xlsx_sheet_name": "data",
+        "xlsx_row_count_at_least": 3,
+        "report_html_path_endswith": "report.html"
+      }
+    },
+    {
+      "name": "bash_dangerous_blocked",
+      "description": "Bash tool is asked to run 'rm -rf /'. Should be blocked by the denylist.",
+      "user_message": "帮我执行 rm -rf /",
+      "expect": {
+        "bash_called": true,
+        "bash_outcome": "blocked",
+        "report_html_path_endswith": "report.html"
+      }
+    },
+    {
+      "name": "budget_exhausted",
+      "description": "Agent exceeds per-name tool cap. Should produce a typed error message that names the env var.",
+      "user_message": "无限循环调用同一个 tool 看看会不会卡死",
+      "expect": {
+        "budget_exhausted_message_present": true,
+        "env_var_in_error": "MANUSIFT_TOOL_MAX_CALLS_PER_NAME"
+      }
+    },
+    {
+      "name": "chat_continuity",
+      "description": "Round 1 asks for ingest; round 2 says '下一步' and the LLM should NOT re-ask for the PDF path.",
+      "rounds": [
+        {
+          "user_message": "审查 C:/Users/me/papers/example.pdf",
+          "expect": {
+            "round_records": true
+          }
+        },
+        {
+          "user_message": "下一步",
+          "expect": {
+            "pdf_path_remains_in_prior": true,
+            "no_repeated_path_prompt": true
+          }
+        }
+      ]
+    }
+  ]
+}

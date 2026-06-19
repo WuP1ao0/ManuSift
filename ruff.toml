@@ -1,0 +1,89 @@
+# R-2026-06-19 (P3-F3)
+# ruff config
+# for ManuSift.
+# R-2026-06-19:
+# keeps line
+# length at 88
+# (matches Black
+# default) and
+# enables a
+# conservative
+# rule set so
+# the existing
+# code base
+# doesn't get
+# re-written
+# by ``ruff
+# check
+# --fix`` all
+# at once.
+# New code is
+# expected to
+# follow these
+# rules; existing
+# code will be
+# linted
+# selectively.
+line-length = 88
+target-version = "py310"
+
+# Conservative
+# rule set:
+# only rules
+# that catch
+# real bugs,
+# not style
+# nits.  Style
+# nits (E, W)
+# are opt-in
+# so the user
+# can enable
+# them later
+# without
+# breaking the
+# pre-existing
+# codebase.
+select = [
+    "F",   # pyflakes (real bugs: undefined names, unused imports)
+    "B",   # bugbear (likely bugs: mutable default args, etc.)
+    "UP",  # pyupgrade (py3k syntax: use Path instead of os.path, etc.)
+    "I",   # isort (import order; cheap and non-controversial)
+    "C4",  # flake8-comprehensions (list/set comprehension)
+]
+ignore = [
+    "B008",  # function call in default argument (Pydantic / FastAPI pattern)
+    "B905",  # zip() without strict= (too aggressive for legacy code)
+    "UP038", # isinstance tuple (stylistic)
+]
+
+# Allow the
+# legacy
+# ``Typing`` /
+# ``typing``
+# imports
+# common in
+# Pydantic v2
+# models.  Auto-fix is OFF so the
+# pre-commit
+# step never
+# silently
+# rewrites the
+# codebase.
+fix = false
+
+# Excludes
+# (run on
+# every file by
+# default; the
+# user can
+# extend this
+# if a vendored
+# library is
+# added).
+exclude = [
+    ".venv",
+    "manusift_benchmarks",
+    "data",
+    "build",
+    "dist",
+]

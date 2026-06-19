@@ -1,0 +1,36 @@
+# R-2026-06-19 (P0-F4) -- lockfile snapshot
+#
+# This file pins the exact versions of ManuSift's direct
+# dependencies that the project was last verified against. It
+# is NOT a substitute for ``pyproject.toml`` (which specifies
+# the minimum versions ManuSift supports) -- it is a
+# reproducible snapshot for ``pip install -r requirements.lock``
+# in CI / on the user's dev machine.
+#
+# To regenerate after a dependency bump::
+#
+#     .venv/Scripts/python.exe -m pip freeze > requirements.lock
+#
+# CI workflows install via ``pip install -e ".[dev]"`` which
+# pulls the latest compatible version. The lockfile is a
+# fallback when "latest compatible" breaks.
+#
+# Last regenerated: 2026-06-19
+PyMuPDF==1.27.2.3
+anthropic==0.107.1
+fastapi==0.136.3
+httpx==0.28.1
+nbformat==5.10.4
+openpyxl==3.1.5
+pdfplumber==0.11.9
+pillow==12.2.0
+pydantic==2.13.4
+pydantic-settings==2.14.1
+pydantic_core==2.46.4
+pytest==9.0.3
+pytest-asyncio==1.4.0
+python-docx==1.2.0
+python-pptx==1.0.2
+rich==15.0.0
+structlog==26.1.0
+textual==8.2.7

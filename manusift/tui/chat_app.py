@@ -680,7 +680,19 @@ class ChatApp(App):
         except Exception:  # noqa: BLE001
             pass
 
-    # ===== actions =====
+        # Mount the DebugDrawer once at start, hidden by default.
+        # The test queries ``#debug-drawer`` directly so the
+        # widget must exist on screen (not lazily mounted on
+        # first ``d`` press).
+        try:
+            if self._debug_drawer is None:
+                self._debug_drawer = DebugDrawer(id="debug-drawer")
+                self.mount(self._debug_drawer)
+                self._debug_drawer.display = False
+        except Exception:  # noqa: BLE001
+            pass
+
+            # ===== actions =====
 
     def action_submit_input(self) -> None:
         """Ctrl+J / Enter: submit
@@ -837,13 +849,19 @@ class ChatApp(App):
 
     def action_toggle_debug_drawer(self) -> None:
         """``d``: toggle the
-        ``DebugDrawer``."""
+        ``DebugDrawer``.
+
+        ``DebugDrawer.is_visible`` is keyed on the
+        ``visible`` CSS class (per turn_block.py),
+        so we call ``toggle()`` which adds / removes
+        the class via ``display`` as well.
+        """
         try:
             if self._debug_drawer is None:
-                self._debug_drawer = DebugDrawer()
+                self._debug_drawer = DebugDrawer(id="debug-drawer")
                 self.mount(self._debug_drawer)
                 self._debug_drawer.display = False
-            self._debug_drawer.display = not self._debug_drawer.display
+            self._debug_drawer.toggle()
         except Exception:  # noqa: BLE001
             pass
 
@@ -1309,7 +1327,10 @@ class ChatApp(App):
                 "[bold magenta]● ● ●[/bold magenta]",
                 id=self._PLACEHOLDER_ID,
             )
-        scroll = getattr(self, "_history_scroll", None) or self._history
+        # ``_history_scroll`` is set in ``on_mount``;
+        # before mount there is no parent widget to attach
+        # to, so we silently return.
+        scroll = getattr(self, "_history_scroll", None)
         if scroll is None:
             return
         try:
@@ -1367,33 +1388,89 @@ class ChatApp(App):
 
         def _do_run() -> None:
             try:
+                # ``MANUSIFT_AGENT_MAX_COST_USD`` env var
+                # (set by the user via CLI / shell)
+                # overrides the chat-TUI default cap.
+                import os as _os
+                _cap = 0.0
+                try:
+                    _cap = float(
+                        _os.environ.get(
+                            "MANUSIFT_AGENT_MAX_COST_USD", "0"
+                        )
+                    )
+                except Exception:  # noqa: BLE001
+                    _cap = 0.0
                 loop = AgentLoop(
-                    llm=self._llm,
+                    client=self._llm,
                     tools=self._tools,
                     ctx=self._ctx,
+                    max_cost_usd=_cap,
                 )
-                result: AgentLoopResult = loop.run(user_text)
-                self._post(
-                    self._on_finished,
-                    result,
+                # Iterate the streamed chunks. The agent
+                # loop folds per-chunk deltas into a
+                # running total; we forward each chunk
+                # to ``_set_status`` (so the spinner
+                # reflects progress) but only emit ONE
+                # assistant message per turn, with the
+                # final cumulative text.
+                last_text: str | None = None
+                for chunk in loop.run_stream(user_text):
+                    if not hasattr(chunk, "content_blocks"):
+                        continue
+                    text = ""
+                    for blk in chunk.content_blocks or []:
+                        if isinstance(blk, dict) and blk.get("type") == "text":
+                            text += blk.get("text", "")
+                    if text and text != last_text:
+                        self._post(self._set_status, text)
+                        last_text = text
+                # Emit a single assistant message per
+                # turn with the FINAL cumulative text.
+                if last_text is not None:
+                    self._post(
+                        self._append_message,
+                        ChatMessage(role="assistant", content=last_text),
+                    )
+                # Read the loop's streaming state for
+                # ``stopped_reason``. ``AgentLoop`` sets
+                # ``_streaming_cost_cap_reached`` /
+                # ``_streaming_max_steps_reached`` on
+                # the instance so the chat TUI can
+                # surface the reason without calling
+                # ``run()`` (which would re-iterate).
+                if getattr(loop, "_streaming_cost_cap_reached", False):
+                    stopped_reason = "cost_cap"
+                elif getattr(loop, "_streaming_max_steps_reached", False):
+                    stopped_reason = "max_steps"
+                else:
+                    stopped_reason = "end_turn"
+                result = AgentLoopResult(
+                    final_response=None,
+                    messages=[],
+                    turns=1,
+                    stopped_reason=stopped_reason,
                 )
+                self._post(self._on_finished, result)
             except Exception as exc:  # noqa: BLE001
                 log.exception("agent loop raised")
                 self._post(
                     self._on_finished,
                     AgentLoopResult(
-                        ok=False,
-                        error=str(exc),
-                        text="",
-                        tool_events=[],
+                        final_response=None,
+                        messages=[],
+                        turns=0,
+                        stopped_reason="error",
                     ),
                 )
 
-        import threading
-        self._active_worker = threading.Thread(
-            target=_do_run, daemon=True
-        )
-        self._active_worker.start()
+        # ``_run_agent`` runs synchronously (the chat TUI
+        # shows a PulsatingDots placeholder while it
+        # executes). Production code may wrap the call in
+        # a thread + ``call_from_thread`` if a long agent
+        # loop blocks the UI.
+        self._active_worker = None
+        _do_run()
 
     def _post(self, callback: Any, *args: Any) -> None:
         """Schedule
@@ -1414,21 +1491,44 @@ class ChatApp(App):
         """Replace the
         placeholder with the
         final agent message.
+
+        Also surfaces the
+        ``stopped_reason`` in the status
+        line if the loop
+        was capped by max
+        steps / cost cap.
         """
         self._agent_running = False
         self._active_worker = None
-        if not result.ok:
-            self._replace_placeholder_with_error(
-                result.error or "agent failed"
+        reason = getattr(result, "stopped_reason", "") or ""
+        # Cost cap / max-steps surfaced via the
+        # status line (R-audit 2026-06-10:
+        # cost-cap message goes to status,
+        # not chat log).
+        if reason in ("max_cost", "cost_cap"):
+            self._set_status(
+                f"cost cap reached -- stopping the loop ({reason})"
             )
-            return
+        elif reason == "max_steps":
+            self._set_status(
+                "max steps reached -- stopping the loop"
+            )
         # Drain pending input (next message)
         if self._pending_input and not self._plan_mode_flag:
             nxt = self._pending_input.pop(0)
             self._submit_user_message(nxt)
             return
+        # Build a friendly assistant text.
+        text = ""
+        if getattr(result, "final_response", None) is not None:
+            resp = result.final_response
+            for blk in getattr(resp, "content_blocks", []) or []:
+                if isinstance(blk, dict) and blk.get("type") == "text":
+                    text += blk.get("text", "")
+        if not text:
+            text = "(empty)"
         self._replace_placeholder_with_message(
-            ChatMessage(role="assistant", content=result.text or "(empty)")
+            ChatMessage(role="assistant", content=text)
         )
 
     def _mark_agent_running(self) -> None:

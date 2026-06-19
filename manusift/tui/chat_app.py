@@ -769,10 +769,20 @@ class ChatApp(App):
             )
             return
         try:
+            # Iterate ``_history_scroll.children`` (the
+            # underlying VerticalScroll), not
+            # ``self._history.children`` (the
+            # ``_HistoryList`` is a Python list and has no
+            # ``children`` attribute).
+            children_source = (
+                self._history_scroll.children
+                if self._history_scroll is not None
+                else self._history
+            )
             last = next(
                 (
                     m
-                    for m in reversed(self._history.children)
+                    for m in reversed(children_source)
                     if getattr(m, "_role", "") == "user"
                 ),
                 None,
@@ -1236,17 +1246,22 @@ class ChatApp(App):
             _append_history(self._session_dir, msg)
         except Exception:  # noqa: BLE001
             pass
-        # Mount on screen
-        if self._history is None:
+        # Mount on screen.
+        # ``self._history`` is the ``_HistoryList`` (Python list);
+        # mount the widget into the underlying
+        # ``#history`` VerticalScroll (``_history_scroll``) instead.
+        scroll = getattr(self, "_history_scroll", None)
+        if scroll is None:
             return
         try:
             widget = self._render_message(msg)
             widget._role = msg.role
             widget._text = msg.content
-            self._history.mount(widget)
-            self._history.scroll_end(animate=False)
+            scroll.mount(widget)
+            scroll.scroll_end(animate=False)
         except Exception:  # noqa: BLE001
             pass
+
     def _submit_user_message(self, text: str) -> None:
         """Send a user message
         to the agent loop."""
@@ -1294,16 +1309,18 @@ class ChatApp(App):
                 "[bold magenta]● ● ●[/bold magenta]",
                 id=self._PLACEHOLDER_ID,
             )
-        if self._history is None:
+        scroll = getattr(self, "_history_scroll", None) or self._history
+        if scroll is None:
             return
         try:
-            self._history.mount(ph)
+            scroll.mount(ph)
         except Exception:  # noqa: BLE001
             pass
         try:
-            self._history.scroll_end(animate=False)
+            scroll.scroll_end(animate=False)
         except Exception:  # noqa: BLE001
             pass
+
     def _replace_placeholder_with_message(self, msg: ChatMessage) -> None:
         """Remove the
         pulsating-dots
@@ -1451,14 +1468,18 @@ class ChatApp(App):
         try:
             block = DetectorTraceBlock()
             self._active_detector_block = block
-            self._history.mount(block)
+            scroll = getattr(self, "_history_scroll", None) or self._history
+            if scroll is not None:
+                scroll.mount(block)
         except Exception:  # noqa: BLE001
             pass
 
     def _mount_trace_block_if_needed(self) -> None:
         try:
             block = ToolTraceBlock()
-            self._history.mount(block)
+            scroll = getattr(self, "_history_scroll", None) or self._history
+            if scroll is not None:
+                scroll.mount(block)
         except Exception:  # noqa: BLE001
             pass
 

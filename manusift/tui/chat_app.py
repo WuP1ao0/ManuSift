@@ -2093,7 +2093,7 @@ register(
         handler=lambda app, arg: app._cmd_theme(arg),
     )
 )
-# 15. /help
+# 15. /help (overrides slash_registry default to put it in UI category)
 register(
     SlashCommand(
         name="help",

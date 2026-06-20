@@ -941,8 +941,75 @@ class ChatApp(App):
         from ..splash import render_mini_splash
 
         with VerticalScroll(id="history"):
+            # R-2026-06-20 (CDE-UI-P0.1 fix-2):
+            # ``render_mini_splash(width=60)``
+            # produces a
+            # 60-char bar
+            # that gets
+            # centered
+            # in a
+            # 76+ char
+            # banner,
+            # leaving the
+            # user staring
+            # at a thin
+            # dim line in
+            # an otherwise
+            # empty banner.
+            # Fix: pass the
+            # app's actual
+            # width minus
+            # padding so
+            # the bar fills
+            # the banner.
+            #
+            # R-2026-06-20 (CDE-UI-P0.1 revert-visual):
+            # user reported
+            # the new splash
+            # "looks like
+            # nothing". The
+            # compact splash
+            # had 6 lines
+            # of wordmark +
+            # tagline (visually
+            # loud, 36% of
+            # 80x24 screen).
+            # The mini splash
+            # has 3 lines but
+            # uses a dim
+            # centered bar.
+            # Compromise:
+            # use the mini
+            # splash BUT
+            # with the
+            # actual banner
+            # width so the
+            # bar + wordmark
+            # fill the
+            # 76-char banner.
+            # We use
+            # ``app.size.width``
+            # at compose
+            # time -- this
+            # is set by
+            # ``run_test``
+            # and by the
+            # user's
+            # terminal at
+            # launch.
+            width = self.size.width if self.size else 76
+            # Cap at
+            # 80 to
+            # match
+            # ``render_compact_splash``
+            # default
+            # and avoid
+            # ridiculous
+            # bars on
+            # huge terminals.
+            width = min(max(width - 4, 40), 80)
             yield Static(
-                render_mini_splash(use_color=False),
+                render_mini_splash(use_color=False, width=width),
                 id="banner",
             )
         with Horizontal(id="input-row"):

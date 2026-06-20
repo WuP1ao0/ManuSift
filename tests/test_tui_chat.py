@@ -685,6 +685,29 @@ async def test_main_runs_app(monkeypatch: pytest.MonkeyPatch) -> None:
     called = {"ran": False}
 
     class FakeApp:
+        # R-2026-06-20 (CDE-BACKEND):
+        # ``main()``
+        # calls
+        # ``ChatApp(session_id=..., llm_client=...)``
+        # so the
+        # fake
+        # must
+        # accept
+        # kwargs
+        # (the
+        # real
+        # ``App.__init__``
+        # is
+        # permissive
+        # because
+        # it
+        # forwards
+        # via
+        # textual's
+        # ``App.__init__``).
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            pass
+
         def run(self) -> None:
             called["ran"] = True
 

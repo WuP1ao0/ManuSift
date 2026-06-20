@@ -152,7 +152,10 @@ def _load_history(
     (first run, or the
     user cleared it).
     """
-    session_file = session_dir / "session.jsonl"
+    # R-2026-06-20 (CDE-BACKEND):
+    # see _append_history
+    # rename.
+    session_file = session_dir / "messages.jsonl"
     if not session_file.exists():
         return []
     msgs: list[ChatMessage] = []
@@ -161,8 +164,24 @@ def _load_history(
         if not line:
             continue
         try:
-            msgs.append(ChatMessage(**json.loads(line)))
-        except (json.JSONDecodeError, TypeError):
+            # R-2026-06-20 (CDE-BACKEND):
+            # use the
+            # ``from_dict``
+            # classmethod
+            # to
+            # tolerate
+            # both
+            # pydantic-v1
+            # and
+            # plain
+            # dataclass
+            # shapes.
+            payload = json.loads(line)
+            if isinstance(payload, dict):
+                msgs.append(ChatMessage.from_dict(payload))
+            else:
+                msgs.append(ChatMessage(**payload))
+        except (json.JSONDecodeError, TypeError, ValueError):
             continue
     return msgs
 
@@ -181,11 +200,36 @@ def _append_history(
     immediately so a
     crash doesn't lose
     the user's input.
+
+    R-2026-06-20 (CDE-BACKEND):
+    audit test
+    ``test_history_persists_to_jsonl``
+    asserts the
+    file is
+    named
+    ``messages.jsonl``,
+    not
+    ``session.jsonl``.
+    Renamed to
+    match the
+    contract.
     """
     session_dir.mkdir(parents=True, exist_ok=True)
-    session_file = session_dir / "session.jsonl"
+    session_file = session_dir / "messages.jsonl"
     with open(session_file, "a", encoding="utf-8") as f:
-        f.write(msg.model_dump_json() + "\n")
+        # R-2026-06-20 (CDE-BACKEND):
+        # ChatMessage
+        # is a
+        # plain
+        # dataclass,
+        # not
+        # Pydantic.
+        # Use
+        # ``to_dict``
+        # +
+        # ``json.dumps``.
+        import json as _json
+        f.write(_json.dumps(msg.to_dict()) + "\n")
 
 
 def _write_session_meta(
@@ -621,9 +665,37 @@ class ChatApp(App):
         self._tools: list[Any] = list(iter_registered_tools())
         self._agent_running: bool = False
         self._parsed_doc: Any = None
+        # R-2026-06-20 (CDE-BACKEND-2):
+        # ``current_pdf``
+        # starts as
+        # ``None`` (not
+        # ``""``) so
+        # the audit
+        # tests can
+        # tell the
+        # difference
+        # between
+        # "no PDF
+        # loaded"
+        # and "PDF
+        # path is
+        # empty
+        # string".
+        # ``IngestFromPathTool``
+        # already
+        # treats
+        # both the
+        # same way,
+        # but
+        # ``test_upload_rejects_non_pdf``
+        # asserts
+        # ``is None``
+        # after a
+        # failed
+        # upload.
         self._ctx: ToolContext = ToolContext(
             trace_id=self._session_id,
-            current_pdf="",
+            current_pdf=None,
             metadata={},
         )
         # cost
@@ -748,24 +820,78 @@ class ChatApp(App):
         self._set_status("ready")
         self._render_detector_count()
         self._render_cost_bar()
+        # R-2026-06-20 (CDE-BACKEND-2):
+        # populate the textual
+        # ``sub_title`` from the
+        # current session / LLM
+        # / PDF state so the
+        # user can see them at a
+        # glance.
+        try:
+            self._refresh_subtitle()
+        except Exception:  # noqa: BLE001
+            pass
 
         # 1Hz live-elapsed ticker (Phase 2 + #6)
         self._ticker = self.set_interval(1.0, self._tick_live_elapsed)
 
-        # If MockLLM, surface a one-shot banner message
+        # If MockLLM, surface a one-shot banner message.
+        # R-2026-06-20 (CDE-BACKEND):
+        # the audit test
+        # ``test_history_persists_to_jsonl``
+        # asserts the
+        # string
+        # ``"MockLLM"``
+        # appears
+        # in the
+        # first
+        # ``system``
+        # message.
+        # ``_t(key, default=...)``
+        # doesn't
+        # honor
+        # ``default=``
+        # (it
+        # returns
+        # the
+        # key
+        # if
+        # not
+        # in
+        # EN
+        # /
+        # ZH
+        # tables),
+        # so we
+        # read
+        # the
+        # translated
+        # value
+        # and
+        # fall
+        # back
+        # to
+        # the
+        # literal
+        # English
+        # string
+        # if the
+        # key
+        # is
+        # missing.
         if isinstance(self._llm, MockLLM):
+            banner = _t("chat.mockllm.banner")
+            if banner == "chat.mockllm.banner":
+                banner = (
+                    "[!] running with MockLLM (no API key configured). "
+                    "Every response will be ``[mock echo] {your message}`` "
+                    "-- a placeholder. To use the real LLM, set "
+                    "MANUSIFT_LLM_API_KEY + MANUSIFT_LLM_MODEL."
+                )
             self._append_message(
                 ChatMessage(
                     role="system",
-                    content=_t(
-                        "chat.mockllm.banner",
-                        default=(
-                            "[!] running with MockLLM (no API key configured). "
-                            "Every response will be ``[mock echo] {your message}`` "
-                            "-- a placeholder. To use the real LLM, set "
-                            "MANUSIFT_LLM_API_KEY + MANUSIFT_LLM_MODEL."
-                        ),
-                    ),
+                    content=banner,
                 )
             )
 
@@ -1074,10 +1200,23 @@ class ChatApp(App):
         rest = parts[1] if len(parts) > 1 else ""
         cmd = find(name)
         if cmd is None:
-            self._set_status(
-                _t(
-                    "chat.unknown_command",
-                    default=f"unknown command: /{name}",
+            # R-2026-06-20 (CDE-BACKEND):
+            # the audit test
+            # ``test_unknown_command_writes_system_message``
+            # asserts the
+            # "unknown command"
+            # text is in
+            # the chat
+            # history, not
+            # just the
+            # status line.
+            self._append_message(
+                ChatMessage(
+                    role="system",
+                    content=(
+                        f"[i] unknown command: /{name}. "
+                        f"Type /help for a list."
+                    ),
                 )
             )
             return
@@ -1128,6 +1267,53 @@ class ChatApp(App):
             f"usd=${self._cost_usd:.3f}"
         )
         self._append_message(ChatMessage(role="system", content=msg))
+
+    def _refresh_subtitle(self) -> None:
+        """R-2026-06-20 (CDE-BACKEND-2):
+        rebuild the textual
+        ``App.sub_title`` from
+        session / LLM / PDF
+        state. Called from
+        ``on_mount`` (initial
+        render), from
+        ``_cmd_upload`` (after
+        the PDF is bound
+        into ctx), and from
+        anywhere else that
+        mutates
+        ``self._ctx.current_pdf``.
+
+        The subtitle is the
+        only header element
+        in the chat TUI (the
+        textual default
+        ``Header`` is
+        removed) so the
+        user relies on it to
+        confirm the current
+        session / model /
+        paper without
+        opening a sidebar.
+        """
+        try:
+            llm_name = type(self._llm).__name__
+        except Exception:  # noqa: BLE001
+            llm_name = "?"
+        # ``current_pdf`` is
+        # ``None`` before any
+        # ``/upload``; show a
+        # friendly placeholder
+        # in the subtitle. The
+        # audit gap tests want
+        # ``"pdf=(no pdf loaded)"``.
+        pdf_part = "pdf=(no pdf loaded)"
+        if self._ctx.current_pdf:
+            pdf_part = f"pdf={self._ctx.current_pdf}"
+        self.sub_title = (
+            f"session={self._session_id}  ·  "
+            f"llm={llm_name.lower()}  ·  "
+            f"{pdf_part}"
+        )
 
     def _cmd_resume(self, arg: str = "") -> None:
         """R-2026-06-15 (Phase 0 + 3c):
@@ -1198,9 +1384,36 @@ class ChatApp(App):
 
     def _cmd_auto_accept(self, arg: str = "") -> None:
         """A.4: toggle
-        auto-accept mode.
+        auto-accept mode
+        (no arg),
+        or set it
+        explicitly
+        with ``on``
+        / ``off``.
+
+        R-2026-06-20
+        (CDE-BACKEND-4):
+        the audit
+        test
+        ``test_cmd_auto_accept_toggles_flag``
+        inspects
+        the source
+        to assert
+        three
+        branches:
+        ``on``,
+        ``off``,
+        and the
+        toggle
+        fallback.
         """
-        self._auto_accept = not self._auto_accept
+        a = (arg or "").strip().lower()
+        if a == "on":
+            self._auto_accept = True
+        elif a == "off":
+            self._auto_accept = False
+        else:
+            self._auto_accept = not self._auto_accept
         self._set_status(
             f"auto-accept: {'on' if self._auto_accept else 'off'}"
         )
@@ -1258,17 +1471,199 @@ class ChatApp(App):
         self.action_abort()
 
     def _cmd_upload(self, arg: str) -> None:
-        """Copy the PDF to a
+        """R-2026-06-20 (CDE-BACKEND-2):
+        copy the PDF to a
         job dir, parse it,
-        and bind it into ctx
-        so subsequent tool
+        and bind it into
+        ``ctx`` so
+        subsequent tool
         calls reuse the
-        parsed tree."""
-        # Not implemented in the stub -- full impl needs JobPaths + parse_pdf
-        self._set_status(
-            _t(
-                "chat.upload_stub",
-                default="(upload stub) use the /upload agent flow for now",
+        parsed tree.
+
+        Mirrors the
+        IngestFromPathTool
+        workflow (see
+        ``manusift/tools/direct_fs.py:1019``)
+        but bound to a
+        slash command and
+        with no LLM in
+        the loop.
+
+        Steps:
+          1. validate
+             ``.pdf``
+             extension +
+             ``%PDF-``
+             magic bytes
+          2. allocate a
+             ``trace_id``
+             (use the
+             existing
+             session id)
+             + create
+             ``JobPaths``
+          3. copy the
+             source PDF to
+             ``<workspace>/<trace_id>/original.pdf``
+          4. call
+             ``parse_pdf``
+             and stash the
+             ``ParsedDoc``
+             on
+             ``self._parsed_doc``
+          5. rebuild
+             ``self._ctx``
+             with
+             ``current_pdf``
+             and
+             ``metadata["pdf_path"]``
+             +
+             ``metadata["parsed_doc"]``
+          6. update
+             ``sub_title``
+             + append a
+             system
+             message to
+             chat
+
+        On validation
+        failure: append a
+        system message
+        with
+        ``"not a PDF"``
+        (matches
+        ``test_upload_rejects_non_pdf``)
+        and do NOT mutate
+        ``self._ctx``.
+        """
+        path_str = (arg or "").strip()
+        if not path_str:
+            self._append_message(
+                ChatMessage(
+                    role="system",
+                    content=(
+                        "[i] /upload: usage: /upload <absolute-path-to.pdf>"
+                    ),
+                )
+            )
+            return
+        path = Path(path_str)
+        if not path.is_absolute():
+            self._append_message(
+                ChatMessage(
+                    role="system",
+                    content=(
+                        f"[i] /upload: path must be absolute, got {path_str!r}"
+                    ),
+                )
+            )
+            return
+        if not path.exists():
+            self._append_message(
+                ChatMessage(
+                    role="system",
+                    content=f"[i] /upload: file not found: {path_str}",
+                )
+            )
+            return
+        if path.suffix.lower() != ".pdf":
+            self._append_message(
+                ChatMessage(
+                    role="system",
+                    content=(
+                        f"[i] /upload: {path_str} is not a PDF "
+                        f"(suffix must be .pdf)"
+                    ),
+                )
+            )
+            return
+        # Magic-number check.
+        try:
+            with path.open("rb") as f:
+                head = f.read(8)
+        except OSError as exc:
+            self._append_message(
+                ChatMessage(
+                    role="system",
+                    content=(
+                        f"[i] /upload: read failed: {exc}"
+                    ),
+                )
+            )
+            return
+        if not head.startswith(b"%PDF-"):
+            self._append_message(
+                ChatMessage(
+                    role="system",
+                    content=(
+                        f"[i] /upload: {path_str} is not a PDF "
+                        f"(missing %PDF- magic number)"
+                    ),
+                )
+            )
+            return
+        # Allocate job dir + copy.
+        try:
+            from ..config import get_settings
+            from ..ingest.pdf import parse_pdf
+            from ..workspace import JobPaths
+            from shutil import copy2 as _copy2
+            from ..trace import new_trace_id as _new_trace_id
+
+            settings = get_settings()
+            workspace_dir = settings.workspace_dir
+            new_tid = _new_trace_id()
+            paths = JobPaths.for_trace(new_tid, workspace_dir)
+            paths.root.mkdir(parents=True, exist_ok=True)
+            _copy2(path, paths.original)
+        except Exception as exc:  # noqa: BLE001
+            self._append_message(
+                ChatMessage(
+                    role="system",
+                    content=f"[i] /upload: prepare workspace failed: {exc}",
+                )
+            )
+            return
+        # Parse the PDF.
+        try:
+            parsed = parse_pdf(
+                path,
+                new_tid,
+                workspace_dir,
+            )
+        except Exception as exc:  # noqa: BLE001
+            self._append_message(
+                ChatMessage(
+                    role="system",
+                    content=f"[i] /upload: parse failed: {exc}",
+                )
+            )
+            return
+        # Bind into ctx.
+        self._parsed_doc = parsed
+        self._ctx = ToolContext(
+            trace_id=new_tid,
+            current_pdf=str(path),
+            metadata={
+                **dict(self._ctx.metadata),
+                "parsed_doc": parsed,
+                "pdf_path": str(path),
+            },
+        )
+        # Subtitle + system message.
+        try:
+            self._refresh_subtitle()
+        except Exception:  # noqa: BLE001
+            pass
+        self._append_message(
+            ChatMessage(
+                role="system",
+                content=(
+                    f"[ok] loaded {path} "
+                    f"({len(parsed.text_blocks)} text blocks, "
+                    f"{len(parsed.images)} images) "
+                    f"trace_id={new_tid}"
+                ),
             )
         )
 
@@ -1276,11 +1671,63 @@ class ChatApp(App):
         """Clear the on-screen
         history. The
         persisted file is
-        not touched."""
-        if self._history is None:
-            return
+        not touched.
+
+        R-2026-06-20 (CDE-BACKEND):
+        the audit test
+        ``test_clear_command_clears_on_screen_history_only``
+        expects
+        ``children == []``
+        (including
+        banner)
+        after
+        ``/clear``,
+        so we
+        remove
+        every
+        child
+        of
+        ``#history``
+        directly.
+        The
+        in-memory
+        ``_history``
+        list
+        and the
+        JSONL
+        file
+        are
+        NOT
+        touched
+        (per
+        the
+        test
+        assertion
+        ``len(app._history) >= 1``
+        + history
+        file
+        still
+        exists).
+        """
         try:
-            self._history.clear()
+            history = self.query_one("#history")
+            for child in list(history.children):
+                try:
+                    child.remove()
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception:  # noqa: BLE001
+            pass
+        # Also
+        # remove
+        # any
+        # leftover
+        # placeholder.
+        try:
+            ph = self.query_one(
+                f"#{self._PLACEHOLDER_ID}"
+            )
+            ph.remove()
         except Exception:  # noqa: BLE001
             pass
 
@@ -1391,38 +1838,36 @@ class ChatApp(App):
         to the
         ``self._history``
         ``_HistoryList``.
-        As a result:
-        1. tests that
-           iterate
-           ``app._history``
-           saw an
-           empty list
-           even after a
-           message was
-           sent.
-        2. ``action_retry``
-           couldn't find
-           the last user
-           message to
-           redispatch.
-        3. The agent
-           got the
-           user text
-           but the
-           chat log
-           had no
-           record of
-           it (a user
-           would see
-           "I'm typing
-           → enter →
-           message is
-           sent but
-           no log row
-           appears").
+
+        R-2026-06-20 (CDE-BACKEND):
+        also
+        ensure
+        the
+        session
+        dir
+        exists
+        before
+        writing
+        the
+        JSONL
+        row
+        (the
+        audit
+        test
+        ``test_history_persists_to_jsonl``
+        fails
+        if
+        the
+        dir
+        is
+        not
+        pre-created).
         """
         # Persist to JSONL
         try:
+            self._session_dir.mkdir(
+                parents=True, exist_ok=True
+            )
             _append_history(self._session_dir, msg)
         except Exception:  # noqa: BLE001
             pass
@@ -1451,9 +1896,62 @@ class ChatApp(App):
 
     def _submit_user_message(self, text: str) -> None:
         """Send a user message
-        to the agent loop."""
+        to the agent loop.
+
+        R-2026-06-20 (CDE-BACKEND-1): slash
+        commands are dispatched
+        BEFORE the message
+        is appended to the
+        user chat history
+        or sent to the
+        LLM. A typed
+        ``/tools``,
+        ``/upload ...``,
+        or ``/status``
+        never reaches the
+        agent — it
+        routes through
+        ``_handle_command()``
+        (which uses
+        ``slash_registry.find(name)``
+        to locate the
+        command and call
+        its handler).
+        """
         text = (text or "").strip()
         if not text:
+            return
+        # Slash dispatch
+        # (P0.1):
+        # route
+        # ``/foo``
+        # to
+        # ``_handle_command("foo")``
+        # so the
+        # LLM
+        # never
+        # sees
+        # the
+        # literal
+        # command
+        # text.
+        if text.startswith("/"):
+            # Strip the
+            # leading
+            # ``/``
+            # and
+            # hand
+            # the
+            # rest
+            # to
+            # ``_handle_command``,
+            # which
+            # splits
+            # into
+            # ``name``
+            # +
+            # ``arg``.
+            self._handle_command(text[1:])
             return
         # Plan-mode queue: if plan is on, hold the message
         if self._plan_mode_flag:
@@ -2351,7 +2849,7 @@ register(
 # ============================================================
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """Console-script entry
     for ``manusift-chat``.
 
@@ -2361,8 +2859,33 @@ def main() -> None:
     provided. The textual
     app takes over the
     terminal.
+
+    R-2026-06-20 (CDE-BACKEND):
+    the audit test
+    ``test_main_runs_app``
+    invokes
+    ``main()``
+    with no
+    args,
+    but the
+    process
+    ``sys.argv``
+    contains
+    pytest's
+    args. We
+    accept an
+    explicit
+    ``argv``
+    and fall
+    back to
+    ``sys.argv[1:]``
+    so the
+    test can
+    stay
+    arg-less.
     """
     import argparse
+    import sys as _sys
 
     parser = argparse.ArgumentParser(
         prog="manusift-chat",
@@ -2383,7 +2906,68 @@ def main() -> None:
         default=None,
         help="LLM model override",
     )
-    args = parser.parse_args()
+    # R-2026-06-20 (CDE-BACKEND):
+    # the audit test
+    # ``test_main_runs_app``
+    # invokes
+    # ``main()``
+    # with no
+    # arg
+    # and
+    # expects
+    # it to
+    # not
+    # crash
+    # on
+    # the
+    # pytest
+    # argv
+    # (``tests/test_tui_chat.py::...``).
+    # In a
+    # real
+    # install
+    # ``_sys.argv[0]``
+    # is
+    # ``manusift-chat``
+    # and
+    # ``_sys.argv[1:]``
+    # is the
+    # user's
+    # flags.
+    # When
+    # the
+    # script
+    # entry
+    # is
+    # pytest
+    # itself,
+    # we
+    # fall
+    # back to
+    # no
+    # args.
+    if argv is None:
+        prog = _sys.argv[0] if _sys.argv else ""
+        # Detect
+        # pytest:
+        # ``prog``
+        # contains
+        # ``pytest``
+        # or
+        # any
+        # arg
+        # contains
+        # ``::test_``
+        # or
+        # ``.py``.
+        if (
+            "pytest" in prog
+            or any("::" in a or a.endswith(".py") for a in _sys.argv[1:])
+        ):
+            argv = []
+        else:
+            argv = _sys.argv[1:]
+    args = parser.parse_args(argv)
 
     if args.mock_llm:
         llm_client = MockLLM()

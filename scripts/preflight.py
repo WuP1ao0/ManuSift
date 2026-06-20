@@ -119,6 +119,21 @@ FAST_TEST_FILES = [
     # the commands and checks
     # side-effects).
     "tests/test_slash_commands_behavior.py",
+    # R-2026-06-20 (CDE-RENDER-2):
+    # the three
+    # bugs shown
+    # in the 14:36
+    # screenshot:
+    # (1) literal
+    # ``<span>``
+    # markup, (2)
+    # ``assistant``
+    # label not
+    # shown as
+    # ``ManuSift``,
+    # (3) message
+    # duplication.
+    "tests/test_cde_render_v2.py",
 ]
 
 

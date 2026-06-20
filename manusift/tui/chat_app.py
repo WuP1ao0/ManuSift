@@ -663,11 +663,36 @@ class ChatApp(App):
         height: auto;
         padding: 0 1 0 1;
     }
-    .msg-row.msg-user {}
-    .role-user       { color: $mocha-teal;   text-style: bold; }
-    .role-assistant  { color: $mocha-pink;   text-style: bold; }
-    .role-tool       { color: $mocha-yellow; text-style: bold; }
-    .role-system     { color: $mocha-subtext; text-style: italic; }
+    /* R-2026-06-20 (CDE-RENDER-2):
+       the role label inside each message
+       Static is rendered with Rich
+       markup ``[b]NAME[/b]``. The
+       color comes from the
+       per-role Static
+       classes
+       (the .msg-{role}
+       wrapper). ``assistant``
+       is shown as
+       ``ManuSift``
+       (see
+       ``_role_display_name``)
+       in
+       the
+       normal
+       text
+       color;
+       other
+       roles
+       are
+       colored
+       by
+       role.
+    */
+    .msg-row.msg-user       { color: $mocha-teal;   text-style: bold; }
+    .msg-row.msg-assistant  { color: $mocha-text;                       }
+    .msg-row.msg-tool       { color: $mocha-yellow;                     }
+    .msg-row.msg-system     { color: $mocha-subtext; text-style: italic; }
+    .msg-row.msg-error      { color: $mocha-red;    text-style: bold; }
     .ts              { color: $mocha-overlay; }
     .heading         { color: $mocha-mauve;  text-style: bold; }
     .bullet          { color: $mocha-teal;   text-style: bold; }
@@ -2027,17 +2052,70 @@ class ChatApp(App):
         """Render one message
         as a Static widget.
 
-        R-2026-06-20 (CDE-RENDER):
-        ``markup=True`` so the
-        ``<span class=...>``
-        markup is rendered by
-        Textual (was: literal
-        text shown).
+        R-2026-06-20 (CDE-RENDER-2):
+        Textual
+        only
+        parses
+        Rich
+        markup
+        (``[red]text[/red]``),
+        NOT
+        HTML
+        ``<span class=...>``.
+        The
+        previous
+        version
+        used
+        ``<span>``
+        so
+        the
+        literal
+        ``<span>``
+        text
+        appeared
+        on
+        screen
+        (even
+        though
+        ``markup=True``
+        was
+        set).
+        Now
+        we
+        use
+        Rich
+        markup
+        ``[b]NAME[/b]``
+        and
+        drive
+        the
+        color
+        via
+        the
+        ``msg-{role}``
+        CSS
+        class
+        on
+        the
+        Static
+        widget.
+
+        ``assistant``
+        is
+        shown
+        as
+        ``ManuSift``
+        (not
+        ``assistant``)
+        per
+        UX
+        request.
         """
         role_class = _css_class(msg.role)
         text = escape(msg.content)
+        display_name = _role_display_name(msg.role)
         return Static(
-            f"<span class='role-{role_class}'>{msg.role}</span>  {text}",
+            f"[b]{display_name}[/b]  {text}",
             classes=f"msg-row msg-{role_class}",
             markup=True,
         )
@@ -2897,15 +2975,92 @@ class ChatApp(App):
           5. mirror
              cost /
              status
+
+        R-2026-06-20 (CDE-RENDER-2):
+        the previous
+        version
+        called
+        ``_append_message``
+        AND
+        ``_replace_placeholder_with_message``
+        (which
+        also
+        calls
+        ``_append_message``),
+        so the
+        same
+        message
+        was
+        appended
+        twice.
+        Now
+        we
+        call
+        ``_replace_placeholder_with_message``
+        only
+        --
+        it
+        removes
+        the
+        placeholder
+        AND
+        appends
+        the
+        message
+        in
+        one
+        pass.
+
+        R-2026-06-20 (CDE-RENDER-3):
+        ``_replace_placeholder_with_message``
+        early-returns
+        if
+        ``self._history is None``
+        (e.g.
+        in
+        tests
+        that
+        build
+        a
+        bare-bones
+        ChatApp
+        via
+        ``__new__``).
+        In
+        that
+        case
+        we
+        still
+        want
+        ``_append_message``
+        to
+        be
+        called
+        so
+        the
+        chat
+        log
+        captures
+        the
+        assistant
+        text.
+        We
+        fall
+        through
+        to
+        a
+        direct
+        ``_append_message``
+        if
+        the
+        placeholder
+        path
+        was
+        a
+        no-op.
         """
         if not text:
             return
-        try:
-            self._append_message(
-                ChatMessage(role="assistant", content=text)
-            )
-        except Exception:  # noqa: BLE001
-            pass
         # Seal the
         # tool-trace
         # block.
@@ -2914,13 +3069,46 @@ class ChatApp(App):
                 self._tool_trace_block.seal()
         except Exception:  # noqa: BLE001
             pass
-        # Remove the
+        # Try
+        # the
+        # canonical
+        # path
+        # (removes
         # placeholder
-        # so the
-        # assistant
-        # text
-        # shows
-        # directly.
+        # +
+        # appends
+        # message).
+        # ``_replace_placeholder_with_message``
+        # will
+        # early-return
+        # if
+        # ``self._history is None``
+        # (e.g.
+        # in
+        # tests
+        # that
+        # use
+        # ``__new__``);
+        # the
+        # ``_history_len_before``
+        # /
+        # ``_after``
+        # check
+        # below
+        # detects
+        # that
+        # and
+        # falls
+        # through
+        # to
+        # a
+        # direct
+        # ``_append_message``.
+        _history_before = (
+            len(self._history)
+            if getattr(self, "_history", None) is not None
+            else None
+        )
         try:
             self._replace_placeholder_with_message(
                 ChatMessage(
@@ -2930,6 +3118,69 @@ class ChatApp(App):
             )
         except Exception:  # noqa: BLE001
             pass
+        # Fallback
+        # append
+        # if
+        # the
+        # placeholder
+        # path
+        # was
+        # a
+        # no-op
+        # (e.g.
+        # ``self._history is None``
+        # OR
+        # the
+        # placeholder
+        # was
+        # already
+        # absent).
+        # We
+        # check
+        # both
+        # cases:
+        #   * ``_history_before is None``
+        #     →
+        #     ``self._history``
+        #     was
+        #     None
+        #     at
+        #     call
+        #     time
+        #     (test
+        #     setup
+        #     with
+        #     ``__new__``).
+        #   * ``len(self._history) == _history_before``
+        #     →
+        #     no
+        #     message
+        #     was
+        #     appended
+        #     (no
+        #     placeholder
+        #     existed
+        #     in
+        #     the
+        #     real
+        #     TUI
+        #     either).
+        _append_fallback = (
+            _history_before is None
+            or (
+                self._history is not None
+                and len(self._history) == _history_before
+            )
+        )
+        if _append_fallback:
+            try:
+                self._append_message(
+                    ChatMessage(
+                        role="assistant", content=text
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                pass
         # Log to
         # debug
         # drawer.
@@ -3787,6 +4038,35 @@ def _css_class(role: str) -> str:
     mapping = {
         "user": "user",
         "assistant": "assistant",
+        "tool": "tool",
+        "system": "system",
+        "error": "error",
+    }
+    return mapping.get(role, "system")
+
+
+def _role_display_name(role: str) -> str:
+    """R-2026-06-20 (CDE-RENDER-2):
+    the human-readable
+    role label shown
+    in the chat log.
+
+    ``assistant`` is
+    shown as
+    ``ManuSift``
+    (not
+    ``assistant``)
+    per UX
+    request --
+    the
+    user-facing
+    identity of
+    the LLM-side
+    speaker.
+    """
+    mapping = {
+        "user": "user",
+        "assistant": "ManuSift",
         "tool": "tool",
         "system": "system",
         "error": "error",

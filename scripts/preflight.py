@@ -100,6 +100,12 @@ FAST_TEST_FILES = [
     # literal ``<span>`` characters in the
     # chat log.
     "tests/test_cde_render_markup.py",
+    # R-2026-06-20 (CDE-ENTER):
+    # Plain ``Enter`` on the input must submit
+    # the message (not insert a newline +
+    # swallow the message). ``_SubmitOnEnterTextArea``
+    # overrides ``_on_key`` for that.
+    "tests/test_cde_enter_submit.py",
 ]
 
 

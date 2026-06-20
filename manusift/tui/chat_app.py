@@ -235,7 +235,121 @@ class _SubmitOnEnterTextArea(TextArea):
     as the explicit
     multi-line submit
     aliases.
+
+    R-2026-06-20 (CDE-ENTER):
+    BUG FIX -- the
+    class body was
+    empty (the docstring
+    described Enter
+    interception but
+    the actual
+    ``_on_key``
+    / ``_on_character``
+    / ``_on_paste``
+    handler was never
+    written). As a
+    result, pressing
+    Enter in the input
+    box just inserted
+    a newline and the
+    user's message was
+    silently swallowed
+    (no submit, no
+    agent call, just
+    a multi-line
+    buffer that
+    grew).
+
+    Fix: override
+    ``_on_key`` to
+    intercept
+    ``enter`` and
+    ``ctrl+j`` and
+    call
+    ``self.app.action_submit_input()``
+    directly. Stop
+    the event from
+    propagating so
+    the default
+    newline insertion
+    does not run.
     """
+
+    async def _on_key(self, event: Any) -> None:
+        """R-2026-06-20 (CDE-ENTER):
+        intercept plain
+        ``Enter`` to
+        submit the
+        input line.
+
+        Textual's
+        ``TextArea._on_key``
+        maps ``key == "enter"``
+        to inserting a
+        newline
+        (``self._replace_via_keyboard("\n", ...)``).
+        That is the
+        default
+        multi-line
+        behaviour.
+
+        We override
+        it so plain
+        ``Enter`` calls
+        ``app.action_submit_input()``
+        and the
+        newline is NOT
+        inserted. The
+        ``ctrl+j`` /
+        ``ctrl+enter``
+        explicit
+        multi-line
+        submit aliases
+        still route
+        through the
+        app-level
+        ``Binding``
+        (``BINDINGS``
+        in ``ChatApp``).
+
+        Also intercept
+        ``ctrl+j`` here
+        as a defensive
+        duplicate so
+        the message
+        goes through
+        even if the
+        app-level
+        ``Binding`` is
+        not in scope
+        (e.g. when
+        ``#input`` is
+        focused but
+        the binding
+        was
+        shadowed by a
+        child widget).
+        """
+        key = getattr(event, "key", None)
+        if key in ("enter", "ctrl+j", "ctrl+enter"):
+            event.prevent_default()
+            event.stop()
+            try:
+                app = getattr(self, "app", None)
+                if app is not None and hasattr(
+                    app, "action_submit_input"
+                ):
+                    app.action_submit_input()
+            except Exception:  # noqa: BLE001
+                pass
+            return
+        # Default:
+        # let TextArea
+        # handle the
+        # key (insert
+        # char, move
+        # cursor, etc.).
+        await super()._on_key(event)
 
 
 # ============================================================
@@ -1262,16 +1376,67 @@ class ChatApp(App):
         """Append a message to
         the on-screen history
         + persisted file.
+
+        R-2026-06-20 (CDE-ENTER):
+        BUG FIX --
+        the previous
+        version only
+        mounted the
+        widget to the
+        ``#history``
+        VerticalScroll
+        but never
+        appended the
+        ``ChatMessage``
+        to the
+        ``self._history``
+        ``_HistoryList``.
+        As a result:
+        1. tests that
+           iterate
+           ``app._history``
+           saw an
+           empty list
+           even after a
+           message was
+           sent.
+        2. ``action_retry``
+           couldn't find
+           the last user
+           message to
+           redispatch.
+        3. The agent
+           got the
+           user text
+           but the
+           chat log
+           had no
+           record of
+           it (a user
+           would see
+           "I'm typing
+           → enter →
+           message is
+           sent but
+           no log row
+           appears").
         """
-        # Persist
+        # Persist to JSONL
         try:
             _append_history(self._session_dir, msg)
         except Exception:  # noqa: BLE001
             pass
+        # Add to ``self._history``
+        # (``_HistoryList``)
+        # so tests + retry
+        # can find it.
+        try:
+            hist = getattr(self, "_history", None)
+            if hist is not None and msg not in hist:
+                hist.append(msg)
+        except Exception:  # noqa: BLE001
+            pass
         # Mount on screen.
-        # ``self._history`` is the ``_HistoryList`` (Python list);
-        # mount the widget into the underlying
-        # ``#history`` VerticalScroll (``_history_scroll``) instead.
         scroll = getattr(self, "_history_scroll", None)
         if scroll is None:
             return

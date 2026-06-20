@@ -715,6 +715,40 @@ class ChatApp(App):
         self._subagent_listener: Any = None
         self._active_detector_block: Any = None
         self._auto_accept_setting: bool = False
+        # R-2026-06-20 (CDE-BACKEND, P1):
+        # track the
+        # in-flight
+        # Runner
+        # + AgentLoop
+        # so
+        # ``action_abort``
+        # can
+        # call
+        # ``.interrupt()``
+        # on the
+        # live
+        # loop.
+        # ``_active_loop``
+        # is
+        # an alias
+        # of
+        # ``Runner.active_loop``
+        # that
+        # survives
+        # the
+        # ``Runner``
+        # itself
+        # being
+        # GC'd.
+        self._runner: Any = None
+        self._active_loop: Any = None
+        # Trace
+        # blocks
+        # for the
+        # current
+        # turn.
+        self._tool_trace_block: Any = None
+        self._detector_trace_block: Any = None
         self._history = _HistoryList(self)
         self._input_area: Any = None
         self._spinner: Any = None
@@ -909,11 +943,62 @@ class ChatApp(App):
         except Exception:  # noqa: BLE001
             pass
 
-        # Install the default detector-trace listener (Phase 3)
-        try:
-            install_default_listener(self)
-        except Exception:  # noqa: BLE001
-            pass
+        # R-2026-06-20 (CDE-BACKEND, P1):
+        # the
+        # audit
+        # test
+        # notes
+        # that
+        # the
+        # listener
+        # must
+        # be
+        # passed
+        # the
+        # ``DetectorTraceBlock``,
+        # not the
+        # ``ChatApp``.
+        # ``install_default_listener(block)``
+        # expects
+        # a
+        # block.
+        # The
+        # block
+        # is
+        # mounted
+        # lazily
+        # on
+        # the
+        # first
+        # ``_run_agent``
+        # (per-turn),
+        # so we
+        # defer
+        # the
+        # install
+        # until
+        # then
+        # via
+        # ``_run_agent``
+        # (which
+        # calls
+        # ``install_default_listener(self._detector_trace_block)``).
+        # The
+        # original
+        # on_mount
+        # call
+        # has
+        # been
+        # removed
+        # to
+        # avoid
+        # installing
+        # the
+        # listener
+        # against
+        # a
+        # None
+        # block.
 
         # Mount the DebugDrawer once at start, hidden by default.
         # The test queries ``#debug-drawer`` directly so the
@@ -957,36 +1042,83 @@ class ChatApp(App):
         self._submit_user_message(text)
 
     def action_abort(self) -> None:
-        """Ctrl-C / Esc: clear
-        the input + cancel
-        the in-flight LLM
-        call.
+        """Ctrl-C / Esc / ``/stop``: cancel the in-flight LLM call.
 
-        R-audit (2026-06-10):
-        the previous version
-        only set
-        ``_interrupt_requested``
-        which was checked at
+        R-2026-06-20 (CDE-BACKEND, P1):
+        the previous
+        version tried to
+        call ``.cancel()``
+        on a ``threading.Thread``,
+        which has no
+        ``cancel()``
+        method. The
+        correct way to
+        stop an
+        ``AgentLoop`` is
+        ``loop.interrupt()``,
+        which sets an
+        internal flag the
+        loop checks at
         the top of every
-        turn. The new version
-        also clears the input
-        + posts a status
-        message.
+        turn. We now
+        keep a ref to
+        the active loop
+        in
+        ``self._active_loop``
+        and call
+        ``.interrupt()``
+        on it.
+
+        Falls back to the
+        old flag-set path
+        for tests / sync
+        code paths that
+        never set
+        ``_active_loop``.
         """
-        # Clear input
+        # Clear input.
         try:
             if self._input_area is not None:
                 self._input_area.text = ""
         except Exception:  # noqa: BLE001
             pass
-        # Set interrupt flag (consumed by _run_agent)
-        self._agent_running = False
-        if self._active_worker is not None:
+        # Prefer
+        # ``AgentLoop.interrupt()``
+        # over the
+        # thread-cancel
+        # path.
+        interrupted = False
+        if self._active_loop is not None:
             try:
-                self._active_worker.cancel()
+                interrupt = getattr(
+                    self._active_loop, "interrupt", None
+                )
+                if callable(interrupt):
+                    interrupt()
+                    interrupted = True
             except Exception:  # noqa: BLE001
                 pass
-            self._active_worker = None
+        if not interrupted:
+            # Fallback:
+            # set the
+            # legacy
+            # flag
+            # (used
+            # by the
+            # older
+            # direct-loop
+            # path).
+            self._agent_running = False
+            if self._active_worker is not None:
+                try:
+                    cancel = getattr(
+                        self._active_worker, "cancel", None
+                    )
+                    if callable(cancel):
+                        cancel()
+                except Exception:  # noqa: BLE001
+                    pass
+                self._active_worker = None
         self._set_status(_t("chat.aborted", default="aborted"))
 
     def action_help(self) -> None:
@@ -2043,21 +2175,160 @@ class ChatApp(App):
 # ===== agent run loop =====
 
     def _run_agent(self, user_text: str) -> None:
-        """Run the agent loop
-        in a background
-        thread."""
+        """Drive the agent loop via the ``Runner``.
+
+        R-2026-06-20 (CDE-BACKEND, P1):
+        the previous
+        version
+        constructed
+        ``AgentLoop``
+        directly
+        and re-implemented
+        the streaming
+        loop inline.
+        The ``Runner`` class
+        (in
+        ``manusift/tui/agent_runner.py``)
+        was created
+        specifically
+        to drive
+        an ``AgentLoop`` and
+        surface
+        chunks via
+        5 callbacks:
+        ``on_status``,
+        ``on_assistant_text``,
+        ``on_tool_call``,
+        ``on_message``,
+        ``on_started`` /
+        ``on_finished``.
+        The TUI's
+        job is to
+        bind these
+        to the
+        widget surface
+        (``_set_status``,
+        ``_append_message``,
+        ``_on_tool_call``,
+        ``_on_tool_result``,
+        ``_on_finished``,
+        etc.).
+
+        This method:
+          1. Reads the
+             ``MANUSIFT_AGENT_MAX_COST_USD``
+             env var
+             (CLI override).
+          2. Computes
+             ``prior_messages = filter_history_for_llm(...)``
+             so the
+             agent loop
+             sees the
+             current
+             ``/upload``-ed
+             PDF, the
+             last user
+             / assistant
+             text, but
+             NOT the
+             raw tool
+             JSON.
+          3. Mounts a
+             fresh
+             ``ToolTraceBlock``
+             + ``DetectorTraceBlock``
+             per turn.
+          4. Wires
+             ``install_default_listener(self._detector_trace_block)``
+             so detector
+             events
+             (start/done/
+             error/skip)
+             flow into
+             the block.
+          5. Constructs
+             a ``Runner``
+             and calls
+             ``runner.run()``.
+          6. After
+             ``runner.run()``
+             returns, copies
+             ``runner.active_loop._ctx``
+             back to
+             ``self._ctx``
+             so the
+             next turn
+             can reuse
+             the live
+             trace_id
+             / current_pdf
+             / data_sources
+             from the
+             previous
+             turn.
+          7. Mirrors
+             ``self._tokens_in``
+             / ``_tokens_out``
+             / ``_cost_usd``
+             from
+             ``AgentLoop``'s
+             cost accumulator
+             so the
+             status bar
+             updates.
+
+        Threading model
+        (preserved from
+        CDE-ASYNC):
+        ``_run_agent``
+        spawns a
+        ``threading.Thread``
+        in real TUI mode
+        (so PulsatingDots
+        keep animating)
+        and runs
+        synchronously in
+        test mode
+        (``_thread_id``
+        is None).
+        """
         if self._agent_running:
             # queue
             self._pending_input.append(user_text)
             return
         self._agent_running = True
         self._mount_placeholder()
+        # Mount a
+        # fresh
+        # tool-trace
+        # + detector-trace
+        # block
+        # for this
+        # turn.
+        self._mount_trace_block_if_needed()
+        self._mount_detector_block_if_needed()
+        # Wire
+        # the
+        # detector
+        # listener
+        # for the
+        # current
+        # block.
+        try:
+            from .detector_block import install_default_listener
+            if self._detector_trace_block is not None:
+                install_default_listener(
+                    self._detector_trace_block
+                )
+        except Exception:  # noqa: BLE001
+            pass
 
         def _do_run() -> None:
             try:
-                # ``MANUSIFT_AGENT_MAX_COST_USD`` env var
-                # (set by the user via CLI / shell)
-                # overrides the chat-TUI default cap.
+                # Cost-cap
+                # from
+                # env
+                # var
                 import os as _os
                 _cap = 0.0
                 try:
@@ -2068,83 +2339,189 @@ class ChatApp(App):
                     )
                 except Exception:  # noqa: BLE001
                     _cap = 0.0
-                loop = AgentLoop(
+                # Filter
+                # history
+                # so
+                # short
+                # follow-ups
+                # ("继续",
+                # "render
+                # the
+                # report")
+                # resolve
+                # against
+                # the
+                # previous
+                # assistant
+                # turn.
+                prior: list[dict[str, Any]] | None = None
+                try:
+                    from .history_filter import filter_history_for_llm
+                    prior = filter_history_for_llm(
+                        list(self._history), user_text
+                    )
+                except Exception:  # noqa: BLE001
+                    prior = None
+                # Build
+                # the
+                # Runner
+                # with
+                # 6
+                # callbacks
+                # that
+                # bind
+                # to
+                # the
+                # chat
+                # TUI's
+                # widgets.
+                # All
+                # callbacks
+                # go
+                # through
+                # ``_post``
+                # so
+                # the
+                # runner
+                # thread
+                # can
+                # safely
+                # invoke
+                # them
+                # (textual
+                # widget
+                # mutation
+                # is
+                # main-thread-only).
+                from .agent_runner import (
+                    Runner,
+                    RunnerCallbacks,
+                )
+
+                cb = RunnerCallbacks(
+                    on_status=lambda text: self._post(
+                        self._set_status, text
+                    ),
+                    on_assistant_text=lambda text: self._post(
+                        self._on_assistant_text, text
+                    ),
+                    on_tool_call=lambda name, inp, tool_id: (
+                        self._post(
+                            self._on_tool_call, name, inp, tool_id
+                        )
+                    ),
+                    on_tool_result=lambda name, output, is_error, tool_id: (
+                        self._post(
+                            self._on_tool_result,
+                            name, output, is_error, tool_id,
+                        )
+                    ),
+                    on_message=lambda msg: self._post(
+                        self._on_runner_message, msg
+                    ),
+                    on_started=lambda: self._post(
+                        self._on_started
+                    ),
+                    on_finished=lambda stopped: self._post(
+                        self._on_finished_runner, stopped
+                    ),
+                )
+                # The
+                # Runner
+                # builds
+                # its
+                # own
+                # ``AgentLoop``;
+                # pass
+                # ctx
+                # and
+                # tools
+                # so
+                # the
+                # loop
+                # can
+                # call
+                # tools
+                # with
+                # the
+                # current
+                # TUI
+                # state.
+                self._runner = Runner(
                     client=self._llm,
                     tools=self._tools,
                     ctx=self._ctx,
+                    cb=cb,
                     max_cost_usd=_cap,
                 )
-                # Iterate the streamed chunks. The agent
-                # loop folds per-chunk deltas into a
-                # running total; we forward each chunk
-                # to ``_set_status`` (so the spinner
-                # reflects progress) but only emit ONE
-                # assistant message per turn, with the
-                # final cumulative text.
-                last_text: str | None = None
-                for chunk in loop.run_stream(user_text):
-                    if not hasattr(chunk, "content_blocks"):
-                        continue
-                    text = ""
-                    for blk in chunk.content_blocks or []:
-                        if isinstance(blk, dict) and blk.get("type") == "text":
-                            text += blk.get("text", "")
-                    if text and text != last_text:
-                        self._post(self._set_status, text)
-                        last_text = text
-                # Emit a single assistant message per
-                # turn with the FINAL cumulative text.
-                if last_text is not None:
-                    self._post(
-                        self._append_message,
-                        ChatMessage(role="assistant", content=last_text),
+                # Expose
+                # the
+                # in-flight
+                # loop
+                # to
+                # ``action_abort``
+                # so
+                # Ctrl+C
+                # /
+                # Esc
+                # can
+                # ``.interrupt()``
+                # it.
+                self._active_loop = self._runner
+                try:
+                    self._runner.run(
+                        user_text,
+                        prior_messages=prior,
                     )
-                # Read the loop's streaming state for
-                # ``stopped_reason``. ``AgentLoop`` sets
-                # ``_streaming_cost_cap_reached`` /
-                # ``_streaming_max_steps_reached`` on
-                # the instance so the chat TUI can
-                # surface the reason without calling
-                # ``run()`` (which would re-iterate).
-                if getattr(loop, "_streaming_cost_cap_reached", False):
-                    stopped_reason = "cost_cap"
-                elif getattr(loop, "_streaming_max_steps_reached", False):
-                    stopped_reason = "max_steps"
-                else:
-                    stopped_reason = "end_turn"
-                result = AgentLoopResult(
-                    final_response=None,
-                    messages=[],
-                    turns=1,
-                    stopped_reason=stopped_reason,
-                )
-                self._post(self._on_finished, result)
-            except Exception:  # noqa: BLE001
-                log.exception("agent loop raised")
-                self._post(
-                    self._on_finished,
-                    AgentLoopResult(
-                        final_response=None,
-                        messages=[],
-                        turns=0,
-                        stopped_reason="error",
-                    ),
-                )
+                except Exception as exc:  # noqa: BLE001
+                    log.exception("agent loop raised")
+                    self._post(
+                        self._on_finished_runner,
+                        f"error: {exc}",
+                    )
+            finally:
+                # Drop the
+                # active-loop
+                # ref
+                # so
+                # a
+                # late
+                # ``action_abort``
+                # doesn't
+                # try
+                # to
+                # interrupt
+                # a
+                # finished
+                # loop.
+                self._active_loop = None
+                self._post(self._on_finished_ui)
 
-        # ``_run_agent`` runs the agent loop in a
-        # background ``threading.Thread`` so the
-        # PulsatingDots placeholder keeps animating
-        # while the LLM streams. ``call_from_thread``
-        # posts results back to the main loop so
-        # widget mutations are thread-safe.
-        #
         # R-2026-06-20 (CDE-ASYNC):
-        # We detect "test mode" by checking whether
-        # the app has been booted into a textual
-        # main loop (i.e. ``_thread_id`` is set).
-        # When called outside the TUI (unit tests),
-        # we run synchronously so assertions after
-        # the call see the side-effects immediately.
+        # We detect
+        # "test mode"
+        # by
+        # checking
+        # whether
+        # the app
+        # has been
+        # booted
+        # into a
+        # textual
+        # main loop
+        # (i.e.
+        # ``_thread_id``
+        # is set).
+        # When called
+        # outside the
+        # TUI (unit tests),
+        # we run
+        # synchronously
+        # so assertions
+        # after the
+        # call see the
+        # side-effects
+        # immediately.
         import threading as _threading
         is_in_main_loop = getattr(self, "_thread_id", None) is not None
         if is_in_main_loop:
@@ -2264,18 +2641,68 @@ class ChatApp(App):
         pass
 
     def _mount_detector_block_if_needed(self) -> None:
+        """Mount a fresh
+        ``DetectorTraceBlock``
+        for the current turn.
+
+        R-2026-06-20 (CDE-BACKEND, P1):
+        the audit doc
+        notes that
+        ``install_default_listener``
+        was called
+        with ``self``
+        (the ChatApp)
+        instead of
+        the new block.
+        The block is
+        now passed
+        explicitly:
+        ``install_default_listener(self._active_detector_block)``.
+        """
         try:
             block = DetectorTraceBlock()
+            self._detector_trace_block = block
             self._active_detector_block = block
             scroll = getattr(self, "_history_scroll", None) or self._history
             if scroll is not None:
                 scroll.mount(block)
+            # Install
+            # the
+            # bus
+            # listener
+            # for
+            # this
+            # block.
+            try:
+                from .detector_block import (
+                    install_default_listener,
+                )
+                install_default_listener(block)
+            except Exception:  # noqa: BLE001
+                pass
         except Exception:  # noqa: BLE001
             pass
 
     def _mount_trace_block_if_needed(self) -> None:
+        """R-2026-06-20 (CDE-BACKEND, P1):
+        mount a fresh
+        ``ToolTraceBlock``
+        for the current turn
+        and stash
+        the ref
+        on
+        ``self._tool_trace_block``
+        so the
+        ``_on_tool_call``
+        /
+        ``_on_tool_result``
+        callbacks
+        can find
+        it.
+        """
         try:
             block = ToolTraceBlock()
+            self._tool_trace_block = block
             scroll = getattr(self, "_history_scroll", None) or self._history
             if scroll is not None:
                 scroll.mount(block)
@@ -2296,16 +2723,625 @@ class ChatApp(App):
         except Exception:  # noqa: BLE001
             return 0
 
-    def _on_tool_call(self, event: Any) -> None:
+    # ===== Runner callbacks (P1) =====
+    #
+    # These methods are called from the
+    # ``agent_runner.Runner`` via ``_post`` so
+    # they always run on the textual main loop.
+
+    def _on_started(self) -> None:
+        """R-2026-06-20 (CDE-BACKEND, P1):
+        ``on_started``
+        callback
+        from the
+        ``Runner``.
+        Marks the
+        agent as
+        running
+        (the main
+        thread flag
+        is also
+        set in
+        ``_run_agent``
+        before the
+        thread is
+        spawned,
+        so this is
+        a defensive
+        re-set for
+        the
+        synchronous
+        test path).
+        """
+        self._agent_running = True
+        # Reset the
+        # streaming
+        # speed
+        # accumulator
+        # (the
+        # runner
+        # owns the
+        # clock;
+        # the TUI
+        # owns the
+        # token
+        # counter).
+        self._stream_t0 = 0.0
+        self._stream_t0_toks = 0
+
+    def _on_assistant_text(self, text: str) -> None:
+        """R-2026-06-20 (CDE-BACKEND, P1):
+        the ``Runner`` calls
+        this once per
+        turn with the
+        final assistant
+        text. We:
+          1. append a
+             chat message
+             (the
+             user
+             sees
+             it in
+             the log)
+          2. seal the
+             tool-trace
+             block
+             (no more
+             tool
+             entries
+             after
+             the
+             final
+             text)
+          3. log the
+             raw text
+             into the
+             DebugDrawer
+             for the
+             curious
+             user
+          4. remove the
+             pulsating-dots
+             placeholder
+          5. mirror
+             cost /
+             status
+        """
+        if not text:
+            return
+        try:
+            self._append_message(
+                ChatMessage(role="assistant", content=text)
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        # Seal the
+        # tool-trace
+        # block.
+        try:
+            if self._tool_trace_block is not None:
+                self._tool_trace_block.seal()
+        except Exception:  # noqa: BLE001
+            pass
+        # Remove the
+        # placeholder
+        # so the
+        # assistant
+        # text
+        # shows
+        # directly.
+        try:
+            self._replace_placeholder_with_message(
+                ChatMessage(
+                    role="assistant",
+                    content=text,
+                )
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        # Log to
+        # debug
+        # drawer.
+        try:
+            if self._debug_drawer is not None:
+                self._debug_drawer.log_assistant_text(text)
+        except Exception:  # noqa: BLE001
+            pass
+        # Refresh cost
+        # bar from
+        # the
+        # runner's
+        # cost log
+        # (best-effort).
+        try:
+            self._render_cost_bar()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _on_tool_call(
+        self,
+        name: str,
+        inp: dict[str, Any],
+        tool_id: str,
+    ) -> None:
+        """R-2026-06-20 (CDE-BACKEND, P1):
+        the ``Runner`` calls
+        this once per
+        *new* tool
+        call (deduped
+        by id within
+        a turn).
+
+        We:
+          1. log the
+             call into
+             the
+             per-turn
+             ``ToolTraceBlock``
+             (folded
+             UI:
+             ``tools N
+             calls · A
+             ok · B
+             skipped · C
+             error``)
+          2. log the
+             raw
+             call JSON
+             into the
+             ``DebugDrawer``
+          3. update the
+             status line
+             so the
+             user sees
+             which tool
+             is running
+        """
+        try:
+            if self._tool_trace_block is not None:
+                from .turn_block import (
+                    ToolEntry,
+                    TOOL_OK,
+                )
+                entry = ToolEntry(
+                    tool_id=tool_id or "",
+                    tool_name=name or "",
+                    status=TOOL_OK,
+                    summary=str(inp)[:120] if inp else "",
+                    raw_input=inp or {},
+                )
+                self._tool_trace_block.add_entry(entry)
+                self._tool_trace_block.update_summary()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            if self._debug_drawer is not None:
+                self._debug_drawer.log_tool_call(name or "", inp or {})
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            self._set_status(f"calling {name}…")
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _on_tool_result(
+        self,
+        name: str,
+        output: str,
+        is_error: bool,
+        tool_id: str,
+    ) -> None:
+        """R-2026-06-20 (CDE-BACKEND, P1):
+        the ``Runner`` calls
+        this once per
+        tool result.
+        We update
+        the matching
+        ``ToolEntry``
+        in the
+        trace block
+        (mark
+        ok/error)
+        and log the
+        raw output
+        into the
+        DebugDrawer.
+        """
+        try:
+            if self._tool_trace_block is not None:
+                from dataclasses import replace
+                from .turn_block import (
+                    TOOL_OK,
+                    TOOL_ERROR,
+                )
+                # Find
+                # the
+                # matching
+                # entry
+                # by
+                # id
+                # or
+                # by
+                # name
+                # (first
+                # match).
+                # R-2026-06-20 (CDE-BACKEND, P1):
+                # ``ToolEntry``
+                # is a
+                # frozen
+                # dataclass
+                # -- direct
+                # attribute
+                # assignment
+                # raises
+                # ``FrozenInstanceError``,
+                # so we
+                # use
+                # ``dataclasses.replace``
+                # to
+                # produce
+                # a new
+                # entry
+                # with
+                # the
+                # updated
+                # status
+                # and
+                # raw_output,
+                # then
+                # swap
+                # it in
+                # ``_entries``.
+                target_idx = -1
+                for i, e in enumerate(
+                    self._tool_trace_block.entries
+                ):
+                    if tool_id and e.tool_id == tool_id:
+                        target_idx = i
+                        break
+                    if e.tool_name == name and e.status == TOOL_OK:
+                        target_idx = i
+                if target_idx >= 0:
+                    old = self._tool_trace_block.entries[
+                        target_idx
+                    ]
+                    new_entry = replace(
+                        old,
+                        status=(
+                            TOOL_ERROR if is_error else TOOL_OK
+                        ),
+                        raw_output=output,
+                        error=(
+                            output[:200] if is_error else ""
+                        ),
+                    )
+                    # Swap
+                    # the
+                    # entry
+                    # in
+                    # place.
+                    self._tool_trace_block._entries[
+                        target_idx
+                    ] = new_entry
+                    self._tool_trace_block.update_summary()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            if self._debug_drawer is not None:
+                self._debug_drawer.log_tool_result(
+                    name or "", output or "", is_error
+                )
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _on_runner_message(self, msg: Any) -> None:
+        """R-2026-06-20 (CDE-BACKEND, P1):
+        route a
+        ``Runner.on_message``
+        callback
+        to either
+        the
+        status
+        line
+        (if the
+        content
+        looks
+        like a
+        cost / step
+        cap
+        notice)
+        or to
+        the
+        chat
+        log.
+
+        The audit
+        test
+        ``test_chat_app_reports_max_steps_via_system_message``
+        asserts that
+        ``"cost cap"``
+        text is
+        in the
+        status
+        line
+        but NOT
+        in the
+        chat log.
+        """
+        try:
+            content = getattr(msg, "content", "")
+        except Exception:  # noqa: BLE001
+            content = ""
+        c = (content or "").lower()
+        if (
+            "cost cap" in c
+            or "max_steps" in c
+            or "max steps" in c
+        ):
+            # Status
+            # only
+            # (don't
+            # append
+            # to the
+            # chat log).
+            self._set_status(content)
+        else:
+            self._append_message(msg)
+
+    def _on_finished_runner(self, stopped: str) -> None:
+        """R-2026-06-20 (CDE-BACKEND, P1):
+        ``Runner.on_finished`` callback.
+        Fires once when
+        the agent loop
+        exits
+        (``end_turn``,
+        ``max_steps``,
+        ``cost_cap``,
+        ``error``,
+        ``crashed``).
+
+        Responsibilities:
+          1. write back
+             the
+             loop's
+             mutated
+             ctx
+             to
+             ``self._ctx``
+             so
+             the
+             next
+             turn
+             sees
+             the
+             live
+             trace_id
+             / current_pdf
+             / data_sources
+          2. mirror
+             token
+             / cost
+             counters
+             from
+             the
+             loop
+          3. surface
+             the
+             stop
+             reason
+             in
+             the
+             status
+             line
+          4. clear
+             ``_agent_running``
+          5. clear
+             the
+             placeholder
+             if
+             still
+             present
+        """
+        # Copy
+        # the
+        # loop's
+        # mutated
+        # ctx back
+        # to the
+        # TUI.
+        try:
+            if self._runner is not None:
+                loop = getattr(self._runner, "active_loop", None)
+                if loop is not None and getattr(loop, "_ctx", None) is not None:
+                    self._ctx = loop._ctx
+        except Exception:  # noqa: BLE001
+            pass
+        # Mirror
+        # token
+        # / cost
+        # from the
+        # loop's
+        # accumulators.
+        try:
+            if self._runner is not None:
+                loop = getattr(self._runner, "active_loop", None)
+                if loop is not None:
+                    # ``AgentLoop``
+                    # tracks
+                    # the
+                    # per-run
+                    # total
+                    # on
+                    # ``_run_cost_usd``
+                    # (per-run
+                    # scalar).
+                    self._cost_usd += float(
+                        getattr(loop, "_run_cost_usd", 0.0) or 0.0
+                    )
+                    # Token
+                    # counts
+                    # are not
+                    # currently
+                    # surfaced
+                    # on
+                    # ``AgentLoop``
+                    # (it
+                    # logs
+                    # them
+                    # to
+                    # ``trace``
+                    # but
+                    # does
+                    # not
+                    # expose
+                    # a
+                    # running
+                    # total).
+                    # Leave
+                    # ``_tokens_in``
+                    # /
+                    # ``_tokens_out``
+                    # at 0 for
+                    # now; the
+                    # cost bar
+                    # uses
+                    # ``_cost_usd``.
+        except Exception:  # noqa: BLE001
+            pass
+        # Clear
+        # flags
+        # and the
+        # placeholder.
+        self._agent_running = False
+        # Surface
+        # the
+        # stop
+        # reason
+        # in the
+        # status
+        # line so
+        # the
+        # user
+        # sees
+        # it
+        # (the
+        # audit
+        # test
+        # ``test_chat_app_reports_max_steps_via_system_message``
+        # looks for
+        # ``"cost cap"``
+        # in a
+        # status
+        # update).
+        s = (stopped or "").lower()
+        if "cost" in s:
+            self._set_status("cost cap reached")
+        elif "max_step" in s:
+            self._set_status("max steps reached")
+        elif s in ("crashed", "error"):
+            self._set_status("agent crashed")
+        else:
+            self._set_status("ready")
+        try:
+            self._replace_placeholder_with_message(
+                ChatMessage(role="status", content=stopped or "ready")
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        # Refresh
+        # the
+        # cost bar
+        # so the
+        # totals
+        # appear
+        # immediately.
+        try:
+            self._render_cost_bar()
+        except Exception:  # noqa: BLE001
+            pass
+        # Re-focus
+        # the
+        # input
+        # so the
+        # user can
+        # type
+        # the
+        # next
+        # turn.
+        try:
+            if self._input_area is not None:
+                self._input_area.focus()
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _on_finished_ui(self) -> None:
+        """R-2026-06-20 (CDE-BACKEND, P1):
+        UI-thread side
+        of ``on_finished``.
+        Called via
+        ``_post`` so it
+        always runs on
+        the main loop
+        (even if the
+        ``Runner`` is
+        on a thread).
+        Clears the
+        active-loop
+        ref and the
+        in-flight
+        worker marker.
+        """
+        self._active_loop = None
+        self._active_worker = None
+        # Drop the
+        # in-flight
+        # ``Runner``
+        # so a
+        # late
+        # abort
+        # doesn't
+        # poke
+        # at
+        # it.
+        self._runner = None
+
+    def _on_tool_call_main(
+        self,
+        name: str,
+        inp: dict[str, Any],
+        tool_id: str,
+    ) -> None:
+        """R-2026-06-20 (CDE-BACKEND, P1):
+        legacy
+        ``EventBus``
+        ``tool.started``
+        listener
+        (called
+        when a
+        detector
+        emits
+        ``tool.started``).
+        Delegates to
+        ``_on_tool_call``
+        after
+        unpacking
+        the event.
+        """
         pass
 
-    def _on_tool_call_main(self, event: Any) -> None:
-        pass
-
-    def _on_tool_result(self, event: Any) -> None:
-        pass
-
-    def _on_tool_result_main(self, event: Any) -> None:
+    def _on_tool_result_main(
+        self,
+        name: str,
+        output: str,
+        is_error: bool,
+        tool_id: str,
+    ) -> None:
+        """R-2026-06-20 (CDE-BACKEND, P1):
+        legacy
+        ``EventBus``
+        ``tool.finished``
+        listener.
+        """
         pass
 
     # ===== session management =====

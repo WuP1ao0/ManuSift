@@ -106,6 +106,11 @@ FAST_TEST_FILES = [
     # swallow the message). ``_SubmitOnEnterTextArea``
     # overrides ``_on_key`` for that.
     "tests/test_cde_enter_submit.py",
+    # R-2026-06-20 (CDE-BACKEND, P1):
+    # Runner / RunnerCallbacks wiring,
+    # tool + detector trace blocks,
+    # abort, ctx writeback, prior messages.
+    "tests/test_cde_backend_p1_regression.py",
 ]
 
 

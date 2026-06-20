@@ -119,6 +119,55 @@ log = get_logger(__name__)
 # ============================================================
 
 
+def _chats_root_dir() -> Path:
+    """Return the
+    parent
+    ``chats/``
+    directory
+    that
+    holds
+    all
+    chat
+    sessions.
+
+    R-2026-06-20 (CDE-CLEANUP):
+    ``_cmd_tree``
+    and
+    ``_cmd_resume``
+    need
+    the
+    parent
+    of
+    ``_chat_dir(sid)``
+    so they
+    can
+    list
+    every
+    session
+    in the
+    workspace.
+
+    Reads
+    ``workspace_dir``
+    from
+    settings
+    (same
+    way
+    ``_chat_dir``
+    does)
+    and
+    appends
+    ``"chat"``
+    (the
+    convention
+    in
+    ``_chat_dir``).
+    """
+    from ..config import get_settings
+    ws = get_settings().workspace_dir
+    return Path(ws) / "chat"
+
+
 def _chat_dir(session_id: str) -> Path:
     """Return the on-disk
     chat session dir
@@ -1450,13 +1499,30 @@ class ChatApp(App):
     def _cmd_resume(self, arg: str = "") -> None:
         """R-2026-06-15 (Phase 0 + 3c):
         switch into a past
-        chat session."""
+        chat session.
+
+        R-2026-06-20 (CDE-CLEANUP):
+        pass
+        ``_chats_root_dir()``
+        to
+        ``list_sessions``
+        (the
+        previous
+        no-arg
+        call
+        raised
+        ``TypeError``
+        because
+        ``chats_dir``
+        is
+        required).
+        """
         from .resume import (
             list_sessions,
             parse_resume_arg,
             render_resume_listing,
         )
-        listings = list_sessions()
+        listings = list_sessions(_chats_root_dir())
         arg = (arg or "").strip()
         if not arg:
             text = render_resume_listing(listings)
@@ -1552,9 +1618,34 @@ class ChatApp(App):
 
     def _cmd_tree(self) -> None:
         """Show a tree of
-        saved sessions."""
+        saved sessions.
+
+        R-2026-06-20 (CDE-CLEANUP):
+        ``list_sessions``
+        requires
+        an
+        explicit
+        ``chats_dir``
+        argument
+        (it
+        walks
+        ``<workspace>/chat/``).
+        Pass
+        ``_chats_root_dir()``
+        (the
+        parent
+        of
+        every
+        session's
+        sub-dir,
+        NOT
+        the
+        current
+        session
+        dir).
+        """
         from .resume import list_sessions
-        listings = list_sessions()
+        listings = list_sessions(_chats_root_dir())
         if not listings:
             self._append_message(
                 ChatMessage(role="system", content="(no saved sessions)")

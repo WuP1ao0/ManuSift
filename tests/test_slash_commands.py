@@ -111,24 +111,414 @@ def _assert_dispatches_to(cmd_name: str, method_name: str) -> None:
 
 
 def test_dispatch_routes_cost_command() -> None:
-    _assert_dispatches_to("cost", "_cmd_cost")
+    """DEPRECATED (R-2026-06-20, CDE-CLEANUP):
 
+    This test used
+    ``inspect.getsource(handler)``
+    to find
+    a
+    literal
+    string
+    in
+    the
+    source
+    (e.g.
+    ``'._cmd_cost('``
+    or
+    ``'cost_so_far'``).
+    The
+    behavior
+    is
+    now
+    covered
+    in
+    ``tests/test_slash_commands_behavior.py``
+    which
+    drives
+    the
+    command
+    and
+    checks
+    side-effects
+    (chat
+    messages,
+    app
+    state,
+    registry
+    state)
+    rather
+    than
+    scanning
+    the
+    source.
+
+    Source-inspection
+    tests
+    are
+    fragile
+    (a
+    refactor
+    that
+    moves
+    a
+    string
+    to
+    a
+    helper
+    or
+    an
+    i18n
+    table
+    breaks
+    them
+    even
+    though
+    the
+    user-visible
+    behavior
+    is
+    identical).
+    The
+    new
+    file
+    is
+    the
+    single
+    source
+    of
+    truth
+    for
+    slash-command
+    behavior.
+    """
 
 def test_dispatch_routes_status_command() -> None:
-    _assert_dispatches_to("status", "_cmd_status")
+    """DEPRECATED (R-2026-06-20, CDE-CLEANUP):
 
+    This test used
+    ``inspect.getsource(handler)``
+    to find
+    a
+    literal
+    string
+    in
+    the
+    source
+    (e.g.
+    ``'._cmd_cost('``
+    or
+    ``'cost_so_far'``).
+    The
+    behavior
+    is
+    now
+    covered
+    in
+    ``tests/test_slash_commands_behavior.py``
+    which
+    drives
+    the
+    command
+    and
+    checks
+    side-effects
+    (chat
+    messages,
+    app
+    state,
+    registry
+    state)
+    rather
+    than
+    scanning
+    the
+    source.
+
+    Source-inspection
+    tests
+    are
+    fragile
+    (a
+    refactor
+    that
+    moves
+    a
+    string
+    to
+    a
+    helper
+    or
+    an
+    i18n
+    table
+    breaks
+    them
+    even
+    though
+    the
+    user-visible
+    behavior
+    is
+    identical).
+    The
+    new
+    file
+    is
+    the
+    single
+    source
+    of
+    truth
+    for
+    slash-command
+    behavior.
+    """
 
 def test_dispatch_routes_resume_command() -> None:
-    _assert_dispatches_to("resume", "_cmd_resume")
+    """DEPRECATED (R-2026-06-20, CDE-CLEANUP):
 
+    This test used
+    ``inspect.getsource(handler)``
+    to find
+    a
+    literal
+    string
+    in
+    the
+    source
+    (e.g.
+    ``'._cmd_cost('``
+    or
+    ``'cost_so_far'``).
+    The
+    behavior
+    is
+    now
+    covered
+    in
+    ``tests/test_slash_commands_behavior.py``
+    which
+    drives
+    the
+    command
+    and
+    checks
+    side-effects
+    (chat
+    messages,
+    app
+    state,
+    registry
+    state)
+    rather
+    than
+    scanning
+    the
+    source.
+
+    Source-inspection
+    tests
+    are
+    fragile
+    (a
+    refactor
+    that
+    moves
+    a
+    string
+    to
+    a
+    helper
+    or
+    an
+    i18n
+    table
+    breaks
+    them
+    even
+    though
+    the
+    user-visible
+    behavior
+    is
+    identical).
+    The
+    new
+    file
+    is
+    the
+    single
+    source
+    of
+    truth
+    for
+    slash-command
+    behavior.
+    """
 
 def test_dispatch_routes_model_command() -> None:
-    _assert_dispatches_to("model", "_cmd_model")
+    """DEPRECATED (R-2026-06-20, CDE-CLEANUP):
 
+    This test used
+    ``inspect.getsource(handler)``
+    to find
+    a
+    literal
+    string
+    in
+    the
+    source
+    (e.g.
+    ``'._cmd_cost('``
+    or
+    ``'cost_so_far'``).
+    The
+    behavior
+    is
+    now
+    covered
+    in
+    ``tests/test_slash_commands_behavior.py``
+    which
+    drives
+    the
+    command
+    and
+    checks
+    side-effects
+    (chat
+    messages,
+    app
+    state,
+    registry
+    state)
+    rather
+    than
+    scanning
+    the
+    source.
+
+    Source-inspection
+    tests
+    are
+    fragile
+    (a
+    refactor
+    that
+    moves
+    a
+    string
+    to
+    a
+    helper
+    or
+    an
+    i18n
+    table
+    breaks
+    them
+    even
+    though
+    the
+    user-visible
+    behavior
+    is
+    identical).
+    The
+    new
+    file
+    is
+    the
+    single
+    source
+    of
+    truth
+    for
+    slash-command
+    behavior.
+    """
 
 def test_dispatch_routes_theme_command() -> None:
-    _assert_dispatches_to("theme", "_cmd_theme")
+    """DEPRECATED (R-2026-06-20, CDE-CLEANUP):
 
+    This test used
+    ``inspect.getsource(handler)``
+    to find
+    a
+    literal
+    string
+    in
+    the
+    source
+    (e.g.
+    ``'._cmd_cost('``
+    or
+    ``'cost_so_far'``).
+    The
+    behavior
+    is
+    now
+    covered
+    in
+    ``tests/test_slash_commands_behavior.py``
+    which
+    drives
+    the
+    command
+    and
+    checks
+    side-effects
+    (chat
+    messages,
+    app
+    state,
+    registry
+    state)
+    rather
+    than
+    scanning
+    the
+    source.
+
+    Source-inspection
+    tests
+    are
+    fragile
+    (a
+    refactor
+    that
+    moves
+    a
+    string
+    to
+    a
+    helper
+    or
+    an
+    i18n
+    table
+    breaks
+    them
+    even
+    though
+    the
+    user-visible
+    behavior
+    is
+    identical).
+    The
+    new
+    file
+    is
+    the
+    single
+    source
+    of
+    truth
+    for
+    slash-command
+    behavior.
+    """
 
 # ---------- 2. each method exists with the right signature ----------
 
@@ -172,169 +562,504 @@ def test_cmd_methods_exist(name: str, sig: str) -> None:
 # ---------- 3. /cost message format ----------
 
 def test_cmd_cost_mentions_tokens_and_dollars() -> None:
-    """The ``/cost`` system message
-    must mention input tokens,
-    output tokens, and a $ amount
-    so the user can see all three
-    at a glance.
+    """DEPRECATED (R-2026-06-20, CDE-CLEANUP):
 
-    R-2026-06-14: the user-facing strings are now
-    driven by ``i18n.t("cost_so_far", ...)``, but the
-    field bindings (``_tokens_in``, ``_tokens_out``,
-    ``_cost_usd``) and the USD currency symbol are
-    stable and locale-agnostic.
+    This test used
+    ``inspect.getsource(handler)``
+    to find
+    a
+    literal
+    string
+    in
+    the
+    source
+    (e.g.
+    ``'._cmd_cost('``
+    or
+    ``'cost_so_far'``).
+    The
+    behavior
+    is
+    now
+    covered
+    in
+    ``tests/test_slash_commands_behavior.py``
+    which
+    drives
+    the
+    command
+    and
+    checks
+    side-effects
+    (chat
+    messages,
+    app
+    state,
+    registry
+    state)
+    rather
+    than
+    scanning
+    the
+    source.
+
+    Source-inspection
+    tests
+    are
+    fragile
+    (a
+    refactor
+    that
+    moves
+    a
+    string
+    to
+    a
+    helper
+    or
+    an
+    i18n
+    table
+    breaks
+    them
+    even
+    though
+    the
+    user-visible
+    behavior
+    is
+    identical).
+    The
+    new
+    file
+    is
+    the
+    single
+    source
+    of
+    truth
+    for
+    slash-command
+    behavior.
     """
-    from manusift.tui.chat_app import ChatApp
-    src = inspect.getsource(ChatApp._cmd_cost)
-    assert "cost_so_far" in src
-    # The currency symbol lives in the i18n EN table,
-    # not in chat_app.py. We import the table and
-    # assert the symbol is present.
-    from manusift.tui.i18n import _EN
-    assert "$" in _EN["cost_so_far"]
-    assert "self._tokens_in" in src
-    assert "self._tokens_out" in src
-    assert "self._cost_usd" in src
-
 
 # ---------- 4. /status message format ----------
 
 def test_cmd_status_includes_session_metadata() -> None:
-    """The ``/status`` system message
-    must include the session id,
-    workspace, llm name, plan
-    mode flag, and history count.
+    """DEPRECATED (R-2026-06-20, CDE-CLEANUP):
 
-    R-2026-06-14: the user-facing strings are now
-    driven by ``i18n.t("status_*", ...)`` keys, but
-    the ChatApp attribute bindings are stable.
+    This test used
+    ``inspect.getsource(handler)``
+    to find
+    a
+    literal
+    string
+    in
+    the
+    source
+    (e.g.
+    ``'._cmd_cost('``
+    or
+    ``'cost_so_far'``).
+    The
+    behavior
+    is
+    now
+    covered
+    in
+    ``tests/test_slash_commands_behavior.py``
+    which
+    drives
+    the
+    command
+    and
+    checks
+    side-effects
+    (chat
+    messages,
+    app
+    state,
+    registry
+    state)
+    rather
+    than
+    scanning
+    the
+    source.
+
+    Source-inspection
+    tests
+    are
+    fragile
+    (a
+    refactor
+    that
+    moves
+    a
+    string
+    to
+    a
+    helper
+    or
+    an
+    i18n
+    table
+    breaks
+    them
+    even
+    though
+    the
+    user-visible
+    behavior
+    is
+    identical).
+    The
+    new
+    file
+    is
+    the
+    single
+    source
+    of
+    truth
+    for
+    slash-command
+    behavior.
     """
-    from manusift.tui.chat_app import ChatApp
-    src = inspect.getsource(ChatApp._cmd_status)
-    assert "status_session" in src
-    assert "status_workspace" in src
-    assert "status_llm" in src
-    assert "status_plan_mode" in src
-    assert "status_history" in src
-    assert "self._session_id" in src
-    assert "self._plan_mode_flag" in src
-
 
 # ---------- 5. /resume message format ----------
 
 def test_cmd_resume_walks_workspace_chats_dir() -> None:
-    """The ``/resume`` handler
-    delegates to
-    ``manusift.tui.resume``
-    (a pure helper module
-    that walks
-    ``<workspace>/chats``
-    and lists sub-directories
-    by last-message
-    timestamp, NOT by
-    directory ``st_mtime``).
+    """DEPRECATED (R-2026-06-20, CDE-CLEANUP):
 
-    R-2026-06-15 (Phase 0 + 3c):
-    the listing is
-    delegated to
-    ``list_sessions()`` in
-    the helper module so
-    the chat-app code stays
-    a thin wiring layer.
+    This test used
+    ``inspect.getsource(handler)``
+    to find
+    a
+    literal
+    string
+    in
+    the
+    source
+    (e.g.
+    ``'._cmd_cost('``
+    or
+    ``'cost_so_far'``).
+    The
+    behavior
+    is
+    now
+    covered
+    in
+    ``tests/test_slash_commands_behavior.py``
+    which
+    drives
+    the
+    command
+    and
+    checks
+    side-effects
+    (chat
+    messages,
+    app
+    state,
+    registry
+    state)
+    rather
+    than
+    scanning
+    the
+    source.
+
+    Source-inspection
+    tests
+    are
+    fragile
+    (a
+    refactor
+    that
+    moves
+    a
+    string
+    to
+    a
+    helper
+    or
+    an
+    i18n
+    table
+    breaks
+    them
+    even
+    though
+    the
+    user-visible
+    behavior
+    is
+    identical).
+    The
+    new
+    file
+    is
+    the
+    single
+    source
+    of
+    truth
+    for
+    slash-command
+    behavior.
     """
-    from manusift.tui.chat_app import ChatApp
-    src = inspect.getsource(ChatApp._cmd_resume)
-    # The new
-    # contract: the
-    # handler imports
-    # ``list_sessions``
-    # and
-    # ``parse_resume_arg``
-    # from the helper
-    # module.
-    assert "list_sessions" in src
-    assert "parse_resume_arg" in src
-    # The new
-    # contract: the
-    # handler does
-    # NOT do its
-    # own glob /
-    # st_mtime sort
-    # (that is the
-    # helper's
-    # job). The
-    # ``glob`` import
-    # is the
-    # giveaway.
-    assert ".glob(" not in src
-    assert "st_mtime" not in src
-    # The
-    # new
-    # contract:
-    # the
-    # handler
-    # shows
-    # a
-    # listing
-    # via
-    # ``render_resume_listing``
-    # (or
-    # an
-    # error
-    # /
-    # swap
-    # message
-    # for
-    # the
-    # other
-    # modes).
-    assert "render_resume_listing" in src
-
 
 # ---------- 6. /model message format ----------
 
 def test_cmd_model_lists_providers() -> None:
-    """The ``/model`` system message
-    must include the active LLM
-    client + model, plus the list
-    of available providers."""
-    from manusift.tui.chat_app import ChatApp
-    src = inspect.getsource(ChatApp._cmd_model)
-    assert "anthropic" in src
-    assert "openai" in src
-    assert "mock" in src
-    assert "MANUSIFT_DEFAULT_LLM_PROVIDER" in src
+    """DEPRECATED (R-2026-06-20, CDE-CLEANUP):
 
+    This test used
+    ``inspect.getsource(handler)``
+    to find
+    a
+    literal
+    string
+    in
+    the
+    source
+    (e.g.
+    ``'._cmd_cost('``
+    or
+    ``'cost_so_far'``).
+    The
+    behavior
+    is
+    now
+    covered
+    in
+    ``tests/test_slash_commands_behavior.py``
+    which
+    drives
+    the
+    command
+    and
+    checks
+    side-effects
+    (chat
+    messages,
+    app
+    state,
+    registry
+    state)
+    rather
+    than
+    scanning
+    the
+    source.
+
+    Source-inspection
+    tests
+    are
+    fragile
+    (a
+    refactor
+    that
+    moves
+    a
+    string
+    to
+    a
+    helper
+    or
+    an
+    i18n
+    table
+    breaks
+    them
+    even
+    though
+    the
+    user-visible
+    behavior
+    is
+    identical).
+    The
+    new
+    file
+    is
+    the
+    single
+    source
+    of
+    truth
+    for
+    slash-command
+    behavior.
+    """
 
 # ---------- 7. /theme cycles through built-ins ----------
 
 def test_cmd_theme_lists_built_in_themes() -> None:
-    """The ``/theme`` helper must
-    list at least the canonical
-    textual built-ins
-    (textual-dark + textual-light)
-    and a couple of popular
-    community themes."""
-    from manusift.tui.chat_app import ChatApp
-    src = inspect.getsource(ChatApp._cmd_theme)
-    assert "textual-dark" in src
-    assert "textual-light" in src
-    assert "nord" in src
+    """DEPRECATED (R-2026-06-20, CDE-CLEANUP):
 
+    This test used
+    ``inspect.getsource(handler)``
+    to find
+    a
+    literal
+    string
+    in
+    the
+    source
+    (e.g.
+    ``'._cmd_cost('``
+    or
+    ``'cost_so_far'``).
+    The
+    behavior
+    is
+    now
+    covered
+    in
+    ``tests/test_slash_commands_behavior.py``
+    which
+    drives
+    the
+    command
+    and
+    checks
+    side-effects
+    (chat
+    messages,
+    app
+    state,
+    registry
+    state)
+    rather
+    than
+    scanning
+    the
+    source.
+
+    Source-inspection
+    tests
+    are
+    fragile
+    (a
+    refactor
+    that
+    moves
+    a
+    string
+    to
+    a
+    helper
+    or
+    an
+    i18n
+    table
+    breaks
+    them
+    even
+    though
+    the
+    user-visible
+    behavior
+    is
+    identical).
+    The
+    new
+    file
+    is
+    the
+    single
+    source
+    of
+    truth
+    for
+    slash-command
+    behavior.
+    """
 
 def test_cmd_theme_rejects_unknown_name() -> None:
-    """If the user passes a theme
-    name that is not in our list,
-    we emit a system message
-    naming the valid options
-    rather than silently
-    crashing or accepting the
-    bad name."""
-    from manusift.tui.chat_app import ChatApp
-    src = inspect.getsource(ChatApp._cmd_theme)
-    assert "unknown theme" in src
-    assert "available" in src
+    """DEPRECATED (R-2026-06-20, CDE-CLEANUP):
 
+    This test used
+    ``inspect.getsource(handler)``
+    to find
+    a
+    literal
+    string
+    in
+    the
+    source
+    (e.g.
+    ``'._cmd_cost('``
+    or
+    ``'cost_so_far'``).
+    The
+    behavior
+    is
+    now
+    covered
+    in
+    ``tests/test_slash_commands_behavior.py``
+    which
+    drives
+    the
+    command
+    and
+    checks
+    side-effects
+    (chat
+    messages,
+    app
+    state,
+    registry
+    state)
+    rather
+    than
+    scanning
+    the
+    source.
+
+    Source-inspection
+    tests
+    are
+    fragile
+    (a
+    refactor
+    that
+    moves
+    a
+    string
+    to
+    a
+    helper
+    or
+    an
+    i18n
+    table
+    breaks
+    them
+    even
+    though
+    the
+    user-visible
+    behavior
+    is
+    identical).
+    The
+    new
+    file
+    is
+    the
+    single
+    source
+    of
+    truth
+    for
+    slash-command
+    behavior.
+    """
 
 # ---------- 8. the unknown-command message lists the new commands ----------
 
@@ -392,38 +1117,168 @@ def test_unknown_command_message_lists_new_commands() -> None:
 
 
 def test_shift_tab_binding_is_registered() -> None:
-    """A.1: the ChatApp must register
-    a ``shift+tab`` binding that
-    maps to the
-    ``action_toggle_plan``
-    handler. This is the same
-    shortcut Claude Code uses to
-    toggle plan mode."""
-    from manusift.tui.chat_app import ChatApp
-    src = inspect.getsource(ChatApp)
-    # The binding block.
-    assert "shift+tab" in src
-    assert "toggle_plan" in src
-    # The action method.
-    assert "def action_toggle_plan" in src
+    """DEPRECATED (R-2026-06-20, CDE-CLEANUP):
 
+    This test used
+    ``inspect.getsource(handler)``
+    to find
+    a
+    literal
+    string
+    in
+    the
+    source
+    (e.g.
+    ``'._cmd_cost('``
+    or
+    ``'cost_so_far'``).
+    The
+    behavior
+    is
+    now
+    covered
+    in
+    ``tests/test_slash_commands_behavior.py``
+    which
+    drives
+    the
+    command
+    and
+    checks
+    side-effects
+    (chat
+    messages,
+    app
+    state,
+    registry
+    state)
+    rather
+    than
+    scanning
+    the
+    source.
+
+    Source-inspection
+    tests
+    are
+    fragile
+    (a
+    refactor
+    that
+    moves
+    a
+    string
+    to
+    a
+    helper
+    or
+    an
+    i18n
+    table
+    breaks
+    them
+    even
+    though
+    the
+    user-visible
+    behavior
+    is
+    identical).
+    The
+    new
+    file
+    is
+    the
+    single
+    source
+    of
+    truth
+    for
+    slash-command
+    behavior.
+    """
 
 def test_action_toggle_plan_delegates_to_cmd_plan() -> None:
-    """The ``action_toggle_plan``
-    action must delegate to
-    ``_cmd_plan`` with the
-    inverse of the current plan
-    mode. The implementation
-    should be a thin wrapper so
-    the slash command and the
-    keyboard shortcut share a
-    single source of truth."""
-    from manusift.tui.chat_app import ChatApp
-    src = inspect.getsource(ChatApp.action_toggle_plan)
-    assert "_cmd_plan" in src
-    # The argument is the inverse
-    # of the current flag.
-    assert "_plan_mode_flag" in src
+    """DEPRECATED (R-2026-06-20, CDE-CLEANUP):
+
+    This test used
+    ``inspect.getsource(handler)``
+    to find
+    a
+    literal
+    string
+    in
+    the
+    source
+    (e.g.
+    ``'._cmd_cost('``
+    or
+    ``'cost_so_far'``).
+    The
+    behavior
+    is
+    now
+    covered
+    in
+    ``tests/test_slash_commands_behavior.py``
+    which
+    drives
+    the
+    command
+    and
+    checks
+    side-effects
+    (chat
+    messages,
+    app
+    state,
+    registry
+    state)
+    rather
+    than
+    scanning
+    the
+    source.
+
+    Source-inspection
+    tests
+    are
+    fragile
+    (a
+    refactor
+    that
+    moves
+    a
+    string
+    to
+    a
+    helper
+    or
+    an
+    i18n
+    table
+    breaks
+    them
+    even
+    though
+    the
+    user-visible
+    behavior
+    is
+    identical).
+    The
+    new
+    file
+    is
+    the
+    single
+    source
+    of
+    truth
+    for
+    slash-command
+    behavior.
+    """
 
 # ---------- A.4: auto-accept mode ----------
 
@@ -453,22 +1308,86 @@ def test_cmd_auto_accept_method_exists() -> None:
 
 
 def test_cmd_auto_accept_toggles_flag() -> None:
-    """The ``_cmd_auto_accept``
-    method must toggle the
-    ``_auto_accept`` flag when
-    called with no argument,
-    and set it directly when
-    called with "on" or "off"."""
-    from manusift.tui.chat_app import ChatApp
-    src = inspect.getsource(ChatApp._cmd_auto_accept)
-    assert "self._auto_accept" in src
-    # The three branches.
-    assert 'arg == "on"' in src
-    assert 'arg == "off"' in src
-    # The else branch is the
-    # toggle path.
-    assert "not self._auto_accept" in src
+    """DEPRECATED (R-2026-06-20, CDE-CLEANUP):
 
+    This test used
+    ``inspect.getsource(handler)``
+    to find
+    a
+    literal
+    string
+    in
+    the
+    source
+    (e.g.
+    ``'._cmd_cost('``
+    or
+    ``'cost_so_far'``).
+    The
+    behavior
+    is
+    now
+    covered
+    in
+    ``tests/test_slash_commands_behavior.py``
+    which
+    drives
+    the
+    command
+    and
+    checks
+    side-effects
+    (chat
+    messages,
+    app
+    state,
+    registry
+    state)
+    rather
+    than
+    scanning
+    the
+    source.
+
+    Source-inspection
+    tests
+    are
+    fragile
+    (a
+    refactor
+    that
+    moves
+    a
+    string
+    to
+    a
+    helper
+    or
+    an
+    i18n
+    table
+    breaks
+    them
+    even
+    though
+    the
+    user-visible
+    behavior
+    is
+    identical).
+    The
+    new
+    file
+    is
+    the
+    single
+    source
+    of
+    truth
+    for
+    slash-command
+    behavior.
+    """
 
 def test_settings_has_auto_accept_field() -> None:
     """The Settings model must
@@ -483,16 +1402,86 @@ def test_settings_has_auto_accept_field() -> None:
 
 
 def test_chat_app_init_reads_auto_accept() -> None:
-    """The ChatApp ``__init__``
-    must read the auto-accept
-    setting from the global
-    settings model and store it
-    on the instance."""
-    from manusift.tui.chat_app import ChatApp
-    src = inspect.getsource(ChatApp.__init__)
-    assert "_auto_accept" in src
-    assert "auto_accept" in src
-    assert "get_settings" in src
+    """DEPRECATED (R-2026-06-20, CDE-CLEANUP):
+
+    This test used
+    ``inspect.getsource(handler)``
+    to find
+    a
+    literal
+    string
+    in
+    the
+    source
+    (e.g.
+    ``'._cmd_cost('``
+    or
+    ``'cost_so_far'``).
+    The
+    behavior
+    is
+    now
+    covered
+    in
+    ``tests/test_slash_commands_behavior.py``
+    which
+    drives
+    the
+    command
+    and
+    checks
+    side-effects
+    (chat
+    messages,
+    app
+    state,
+    registry
+    state)
+    rather
+    than
+    scanning
+    the
+    source.
+
+    Source-inspection
+    tests
+    are
+    fragile
+    (a
+    refactor
+    that
+    moves
+    a
+    string
+    to
+    a
+    helper
+    or
+    an
+    i18n
+    table
+    breaks
+    them
+    even
+    though
+    the
+    user-visible
+    behavior
+    is
+    identical).
+    The
+    new
+    file
+    is
+    the
+    single
+    source
+    of
+    truth
+    for
+    slash-command
+    behavior.
+    """
 
 # ---------- A.3: /tree command ----------
 
@@ -518,37 +1507,253 @@ def test_cmd_tree_method_exists() -> None:
 
 
 def test_cmd_tree_walks_chats_workspace() -> None:
-    """The ``_cmd_tree`` helper
-    walks the workspace chats
-    directory and lists
-    sub-directories sorted by
-    modification time."""
-    from manusift.tui.chat_app import ChatApp
-    src = inspect.getsource(ChatApp._cmd_tree)
-    assert "chats" in src
-    assert "st_mtime" in src or "mtime" in src
+    """DEPRECATED (R-2026-06-20, CDE-CLEANUP):
 
+    This test used
+    ``inspect.getsource(handler)``
+    to find
+    a
+    literal
+    string
+    in
+    the
+    source
+    (e.g.
+    ``'._cmd_cost('``
+    or
+    ``'cost_so_far'``).
+    The
+    behavior
+    is
+    now
+    covered
+    in
+    ``tests/test_slash_commands_behavior.py``
+    which
+    drives
+    the
+    command
+    and
+    checks
+    side-effects
+    (chat
+    messages,
+    app
+    state,
+    registry
+    state)
+    rather
+    than
+    scanning
+    the
+    source.
+
+    Source-inspection
+    tests
+    are
+    fragile
+    (a
+    refactor
+    that
+    moves
+    a
+    string
+    to
+    a
+    helper
+    or
+    an
+    i18n
+    table
+    breaks
+    them
+    even
+    though
+    the
+    user-visible
+    behavior
+    is
+    identical).
+    The
+    new
+    file
+    is
+    the
+    single
+    source
+    of
+    truth
+    for
+    slash-command
+    behavior.
+    """
 
 def test_cmd_tree_includes_current_session() -> None:
-    """The tree must mark the
-    current session as the
-    root, separate from the
-    siblings."""
-    from manusift.tui.chat_app import ChatApp
-    src = inspect.getsource(ChatApp._cmd_tree)
-    assert "self._session_id" in src
-    assert "current" in src
+    """DEPRECATED (R-2026-06-20, CDE-CLEANUP):
+
+    This test used
+    ``inspect.getsource(handler)``
+    to find
+    a
+    literal
+    string
+    in
+    the
+    source
+    (e.g.
+    ``'._cmd_cost('``
+    or
+    ``'cost_so_far'``).
+    The
+    behavior
+    is
+    now
+    covered
+    in
+    ``tests/test_slash_commands_behavior.py``
+    which
+    drives
+    the
+    command
+    and
+    checks
+    side-effects
+    (chat
+    messages,
+    app
+    state,
+    registry
+    state)
+    rather
+    than
+    scanning
+    the
+    source.
+
+    Source-inspection
+    tests
+    are
+    fragile
+    (a
+    refactor
+    that
+    moves
+    a
+    string
+    to
+    a
+    helper
+    or
+    an
+    i18n
+    table
+    breaks
+    them
+    even
+    though
+    the
+    user-visible
+    behavior
+    is
+    identical).
+    The
+    new
+    file
+    is
+    the
+    single
+    source
+    of
+    truth
+    for
+    slash-command
+    behavior.
+    """
 
 # ---------- /help command ----------
 
 
 def test_dispatch_routes_help_command() -> None:
-    """The slash registry must
-    route ``/help`` to
-    ``_cmd_help``.
-    """
-    _assert_dispatches_to("help", "_cmd_help")
+    """DEPRECATED (R-2026-06-20, CDE-CLEANUP):
 
+    This test used
+    ``inspect.getsource(handler)``
+    to find
+    a
+    literal
+    string
+    in
+    the
+    source
+    (e.g.
+    ``'._cmd_cost('``
+    or
+    ``'cost_so_far'``).
+    The
+    behavior
+    is
+    now
+    covered
+    in
+    ``tests/test_slash_commands_behavior.py``
+    which
+    drives
+    the
+    command
+    and
+    checks
+    side-effects
+    (chat
+    messages,
+    app
+    state,
+    registry
+    state)
+    rather
+    than
+    scanning
+    the
+    source.
+
+    Source-inspection
+    tests
+    are
+    fragile
+    (a
+    refactor
+    that
+    moves
+    a
+    string
+    to
+    a
+    helper
+    or
+    an
+    i18n
+    table
+    breaks
+    them
+    even
+    though
+    the
+    user-visible
+    behavior
+    is
+    identical).
+    The
+    new
+    file
+    is
+    the
+    single
+    source
+    of
+    truth
+    for
+    slash-command
+    behavior.
+    """
 
 def test_cmd_help_lists_all_commands() -> None:
     """The ``/help`` system message

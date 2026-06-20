@@ -193,9 +193,50 @@ def _help_handler(app: Any, arg: str) -> None:
     real TUI may override this with a
     richer overlay; this fallback just
     writes a compact text list.
+
+    R-2026-06-20 (CDE-CLEANUP):
+    if the
+    ``app``
+    exposes
+    a
+    ``_cmd_help()``
+    method
+    (e.g.
+    the
+    real
+    ChatApp),
+    prefer
+    it over
+    the
+    inline
+    fallback.
+    This
+    makes
+    ``/help``
+    dispatch
+    route
+    to the
+    ChatApp's
+    rich
+    help
+    renderer
+    without
+    requiring
+    a
+    duplicate
+    ``register(...)``
+    with
+    ``replace=True``.
     """
     if app is None:
         return
+    cmd_help = getattr(app, "_cmd_help", None)
+    if callable(cmd_help):
+        try:
+            cmd_help()
+            return
+        except Exception:  # noqa: BLE001
+            pass
     lines = ["# Commands"]
     for cat, cmds in by_category().items():
         lines.append("")

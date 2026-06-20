@@ -111,6 +111,14 @@ FAST_TEST_FILES = [
     # tool + detector trace blocks,
     # abort, ctx writeback, prior messages.
     "tests/test_cde_backend_p1_regression.py",
+    # R-2026-06-20 (CDE-CLEANUP):
+    # Slash command behavior tests
+    # (the source-inspection tests in
+    # ``test_slash_commands.py`` are
+    # deprecated; the new file drives
+    # the commands and checks
+    # side-effects).
+    "tests/test_slash_commands_behavior.py",
 ]
 
 

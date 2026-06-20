@@ -146,13 +146,15 @@ async def test_upload_copies_pdf_and_binds_ctx_full(
         assert app._ctx.current_pdf == str(pdf_path)
         assert app._parsed_doc is not None
         assert app._ctx.metadata.get("pdf_path") == str(pdf_path)
-        # Subtitle
-        # now
-        # mentions
-        # the
-        # PDF
-        # path.
-        assert str(pdf_path) in app.sub_title
+        # Subtitle now mentions the PDF.
+        # R-2026-06-20 (CDE-UI-P1.5): the subtitle
+        # now shows just the basename (not the
+        # full temp path) so it fits on one line.
+        # We assert the basename is present; the
+        # full path is in ``_ctx``.
+        from pathlib import Path as _P
+        assert str(_P(pdf_path).name) in app.sub_title
+        assert str(pdf_path) == app._ctx.current_pdf
         # The
         # original
         # was

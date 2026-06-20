@@ -1671,19 +1671,24 @@ class ChatApp(App):
         self._append_message(ChatMessage(role="system", content=msg))
 
     def _refresh_subtitle(self) -> None:
-        """R-2026-06-20 (CDE-BACKEND-2):
+        """R-2026-06-20 (CDE-BACKEND-2 +
+        CDE-UI-P1.5):
         rebuild the textual
         ``App.sub_title`` from
-        session / LLM / PDF
-        state. Called from
+        session / LLM / PDF /
+        mode / cost / plan state.
+        Called from
         ``on_mount`` (initial
         render), from
         ``_cmd_upload`` (after
         the PDF is bound
-        into ctx), and from
-        anywhere else that
-        mutates
-        ``self._ctx.current_pdf``.
+        into ctx), from
+        ``_cmd_plan`` (plan
+        mode toggle), from
+        ``_tick_live_elapsed``
+        (cost refresh), and from
+        anywhere else that mutates
+        any of these fields.
 
         The subtitle is the
         only header element
@@ -1694,8 +1699,31 @@ class ChatApp(App):
         user relies on it to
         confirm the current
         session / model /
-        paper without
-        opening a sidebar.
+        paper / mode / cost
+        without opening a
+        sidebar.
+
+        R-2026-06-20 (CDE-UI-P1.5):
+        the subtitle is the
+        "ContextBar" -- one
+        line of Rich markup
+        in the textual
+        Header showing all
+        the session state.
+        Sections are joined
+        by " | " so the
+        user can scan the
+        state quickly. Cost
+        is shown in green
+        when below 50%
+        of cap, yellow when
+        50-90%, red when
+        >90%. Plan mode is
+        shown in cyan when
+        active so the user
+        can see at a glance
+        whether messages
+        will queue.
         """
         try:
             llm_name = type(self._llm).__name__
@@ -1710,11 +1738,108 @@ class ChatApp(App):
         # ``"pdf=(no pdf loaded)"``.
         pdf_part = "pdf=(no pdf loaded)"
         if self._ctx.current_pdf:
-            pdf_part = f"pdf={self._ctx.current_pdf}"
+            # Shorten
+            # long
+            # paths
+            # to
+            # the
+            # basename
+            # -- the
+            # full
+            # path
+            # is
+            # in
+            # the
+            # status
+            # bar
+            # when
+            # relevant.
+            pdf_path = self._ctx.current_pdf
+            try:
+                from pathlib import Path as _P
+                pdf_name = _P(pdf_path).name
+            except Exception:  # noqa: BLE001
+                pdf_name = pdf_path
+            pdf_part = f"pdf={pdf_name}"
+        # Plan
+        # mode
+        # indicator
+        # (cyan
+        # when
+        # on).
+        plan_part = ""
+        if getattr(self, "_plan_mode_flag", False):
+            pending = len(getattr(self, "_pending_input", []))
+            plan_part = f" [cyan]plan=on({pending})[/cyan]"
+        # Cost
+        # cap
+        # indicator.
+        # The
+        # cap
+        # env
+        # var
+        # ``MANUSIFT_AGENT_MAX_COST_USD``
+        # defaults
+        # to
+        # 0
+        # (no
+        # cap).
+        # The
+        # field
+        # is
+        # on
+        # ``AgentLoop``
+        # /
+        # ``agent_runner.Runner``,
+        # NOT
+        # on
+        # ``Settings``
+        # -- the
+        # original
+        # code
+        # incorrectly
+        # read
+        # ``Settings.max_cost_usd``
+        # which
+        # raises
+        # ``AttributeError``.
+        # We
+        # read
+        # the
+        # env
+        # var
+        # directly.
+        import os as _os
+        cost_part = ""
+        try:
+            env_cap = _os.environ.get("MANUSIFT_AGENT_MAX_COST_USD", "0")
+            cap = float(env_cap or 0)
+            spent = float(
+                getattr(self, "_session_cost_usd", 0.0)
+            )
+            if cap > 0:
+                pct = min(spent / cap, 1.0)
+                if pct < 0.5:
+                    color = "green"
+                elif pct < 0.9:
+                    color = "yellow"
+                else:
+                    color = "red"
+                cost_part = (
+                    f"  cost=[{color}]"
+                    f"${spent:.3f}/${cap:.2f}"
+                    f"[/{color}]"
+                )
+            else:
+                cost_part = f"  cost=${spent:.3f}"
+        except Exception:  # noqa: BLE001
+            pass
         self.sub_title = (
             f"session={self._session_id}  ·  "
             f"llm={llm_name.lower()}  ·  "
             f"{pdf_part}"
+            f"{plan_part}"
+            f"{cost_part}"
         )
 
     def _cmd_resume(self, arg: str = "") -> None:
@@ -2196,6 +2321,8 @@ class ChatApp(App):
         self._set_status(
             f"plan mode: {'on' if on else 'off'}"
         )
+        # CDE-UI-P1.5: ContextBar picks up the plan toggle
+        self._refresh_subtitle()
 
     def _cmd_go(self, arg: str = "") -> None:
         """Plan-mode dispatch
@@ -2419,6 +2546,15 @@ class ChatApp(App):
             # not the
             # content).
             self._append_queue_row(text)
+            # R-2026-06-20 (CDE-UI-P1.5):
+            # update the
+            # ContextBar
+            # ``plan=on(N)``
+            # count so the
+            # user sees the
+            # queue size at
+            # the top.
+            self._refresh_subtitle()
             return
         # Drain queue first
         if self._pending_input:
@@ -4052,10 +4188,27 @@ class ChatApp(App):
     def _tick_live_elapsed(self) -> None:
         """1 Hz poller that
         re-renders the status
-        line."""
+        line.
+
+        R-2026-06-20 (CDE-UI-P1.5):
+        also re-renders the
+        ContextBar
+        (``sub_title``)
+        so the cost
+        indicator
+        stays current.
+        ``_refresh_subtitle``
+        is cheap (~6 dict
+        lookups + 1 string
+        format) so 1 Hz
+        polling is fine.
+        """
         # Re-render detector count + cost bar + status
         self._render_detector_count()
         self._render_cost_bar()
+        # Re-render the ContextBar (top header)
+        # with the latest cost.
+        self._refresh_subtitle()
 
     def _render_detector_count(self) -> None:
         """Render the

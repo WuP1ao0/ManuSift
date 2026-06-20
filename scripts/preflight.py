@@ -230,6 +230,16 @@ FAST_TEST_FILES = [
     # silent
     # handlers.
     "tests/test_cde_panic_hook.py",
+    # R-2026-06-20 (CDE-UI-P1.5):
+    # the ContextBar
+    # (sub_title) now
+    # shows session /
+    # llm / pdf
+    # basename /
+    # plan=N /
+    # cost=...
+    # in one line.
+    "tests/test_cde_contextbar.py",
 ]
 
 

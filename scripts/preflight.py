@@ -151,6 +151,17 @@ FAST_TEST_FILES = [
     # the
     # widget).
     "tests/test_cde_render_v3_no_double_mount.py",
+    # R-2026-06-20 (CDE-UI-EMPTY):
+    # the "tools
+    # 0 calls"
+    # stripe
+    # shown in
+    # the 15:51
+    # screenshot
+    # (for a
+    # tool-less
+    # turn).
+    "tests/test_cde_ui_empty_trace.py",
 ]
 
 

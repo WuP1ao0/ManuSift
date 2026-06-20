@@ -631,12 +631,88 @@ class ToolTraceBlock(Static):
         """Mark the block as
         final. After seal(),
         ``add_entry()`` is a
-        no-op. The summary is
-        not changed; we just
-        freeze the entries."""
+        no-op.
+
+        R-2026-06-20 (CDE-UI-EMPTY):
+        if the
+        turn
+        used
+        zero
+        tools,
+        hide
+        the
+        entire
+        block
+        (``self.display = False``).
+        The
+        user
+        sees
+        a
+        clean
+        "no
+        tools
+        were
+        called
+        this
+        turn"
+        experience
+        (the
+        block
+        collapses
+        to
+        zero
+        rows
+        of
+        height)
+        instead
+        of
+        a
+        stale
+        "tools
+        0
+        calls"
+        stripe
+        that
+        looks
+        like
+        an
+        error.
+
+        If
+        the
+        turn
+        DID
+        use
+        tools,
+        we
+        keep
+        the
+        block
+        visible
+        so the
+        user
+        can
+        see
+        the
+        per-tool
+        counts
+        (ok /
+        skipped
+        /
+        error).
+        """
         if self._sealed:
             return
         self._sealed = True
+        # R-2026-06-20 (CDE-UI-EMPTY):
+        # hide the block entirely when the turn
+        # did not call any tool. ``Static.display``
+        # is a textual property that the engine
+        # respects at next paint. ``mount`` /
+        # ``unmount`` would also work but display
+        # is cheaper (no tree surgery).
+        if len(self._entries) == 0:
+            self.display = False
         # If
         # we
         # were
@@ -724,8 +800,102 @@ class ToolTraceBlock(Static):
         self.update(text)
 
     def _summary_line(self) -> Text:
+        """Build the one-line
+        summary shown
+        when the
+        block is
+        collapsed.
+
+        R-2026-06-20 (CDE-UI-EMPTY):
+        if the
+        turn
+        used
+        zero
+        tools
+        AND
+        the
+        block
+        is
+        already
+        sealed
+        (i.e.
+        the
+        LLM
+        answered
+        without
+        calling
+        anything),
+        return
+        an
+        empty
+        ``Text``.
+        The
+        caller
+        (``_rerender``)
+        still
+        calls
+        ``self.update(...)``
+        so
+        the
+        widget
+        re-paints,
+        but
+        the
+        background
+        CSS
+        and
+        the
+        one-line
+        height
+        of
+        the
+        block
+        still
+        produce
+        a
+        visible
+        stripe.
+        The
+        block
+        hides
+        itself
+        via
+        ``self.display = False``
+        in
+        ``seal()``
+        (see
+        below)
+        so
+        the
+        stripe
+        disappears
+        entirely
+        for
+        tool-less
+        turns.
+        """
         n = len(self._entries)
         counts = self._counts()
+        if n == 0 and self._sealed:
+            # Sealed
+            # and
+            # tool-less:
+            # the
+            # block
+            # was
+            # hidden
+            # by
+            # ``seal()``
+            # (display
+            # =
+            # False).
+            # Return
+            # an
+            # empty
+            # ``Text``
+            # for
+            # safety.
+            return Text("")
         if n == 0 and not self._sealed:
             t = Text(_t("tools_thinking"), style="dim")
             t.stylize("yellow")

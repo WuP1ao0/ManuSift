@@ -193,10 +193,22 @@ async def test_append_message_mounts_exactly_one_widget() -> None:
         # Static
         # widget
         # (the
-        # _render_message
-        # result).
+        # widget (the _render_message result).
+        # R-2026-06-20 (CDE-UI-P0.4):
+        # ``render_message`` returns a ``Horizontal``
+        # (role dot + body column), NOT a bare
+        # ``Static``. We assert the Horizontal
+        # and the ``msg-row`` CSS class instead.
+        from textual.containers import Horizontal
         new_widget = history.children[-1]
-        assert isinstance(new_widget, Static)
+        assert isinstance(new_widget, Horizontal), (
+            f"expected Horizontal widget; "
+            f"got {new_widget.__class__.__name__}"
+        )
+        assert "msg-row" in (new_widget.classes or []), (
+            f"expected msg-row CSS class; "
+            f"got {new_widget.classes!r}"
+        )
 
 
 # ---------- 3. End-to-end: full user/assistant turn produces 1 widget each ----------
@@ -280,25 +292,27 @@ async def test_full_turn_no_duplicate_widgets() -> None:
         # Count
         # the
         # msg-row
-        # widgets
-        # (user
-        # +
-        # assistant).
-        # We
-        # expect
-        # exactly
-        # 1
-        # user
-        # +
-        # 1
+        # widgets (user + assistant).
+        # R-2026-06-20 (CDE-UI-P0.4):
+        # ``render_message``
+        # returns a
+        # ``Horizontal``
+        # (role dot +
+        # body column),
+        # not a
+        # bare ``Static``.
+        # We expect
+        # exactly 1
+        # user + 1
         # assistant
-        # Static
-        # (with
-        # classes
-        # ``msg-row``).
+        # ``Horizontal``
+        # with
+        # ``msg-row``
+        # class.
+        from textual.containers import Horizontal
         msg_widgets = [
             w for w in history.children
-            if isinstance(w, Static)
+            if isinstance(w, Horizontal)
             and "msg-row" in (w.classes or [])
         ]
         user_widgets = [

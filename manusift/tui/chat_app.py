@@ -80,6 +80,7 @@ from textual.widgets import (
     Static,
     TextArea,
 )
+from textual.widget import Widget
 
 from ..agent import AgentLoop, AgentLoopResult
 from ..config import get_settings
@@ -630,7 +631,7 @@ class ChatApp(App):
         color: $mocha-text;
     }
     #banner {
-        height: 9;
+        height: 3;
         padding: 0 1;
         color: $mocha-pink;
         background: $mocha-mantle;
@@ -659,6 +660,17 @@ class ChatApp(App):
         width: auto;
         padding: 0 1;
         color: $mocha-subtext;
+    }
+    #tool-status.status-info {
+        color: $mocha-subtext;
+    }
+    #tool-status.status-warn {
+        color: $mocha-yellow;
+        text-style: bold;
+    }
+    #tool-status.status-error {
+        color: $mocha-red;
+        text-style: bold;
     }
     #detector-count {
         width: auto;
@@ -758,6 +770,14 @@ class ChatApp(App):
     .msg-row.msg-tool       { color: $mocha-yellow;                     }
     .msg-row.msg-system     { color: $mocha-subtext; text-style: italic; }
     .msg-row.msg-error      { color: $mocha-red;    text-style: bold; }
+    .queue-row {
+        height: 1;
+        padding: 0 1;
+        color: $mocha-mauve;
+        text-style: italic;
+        background: $mocha-mantle;
+        margin-bottom: 0;
+    }
     .ts              { color: $mocha-overlay; }
     .heading         { color: $mocha-mauve;  text-style: bold; }
     .bullet          { color: $mocha-teal;   text-style: bold; }
@@ -772,7 +792,6 @@ class ChatApp(App):
     # The 11 BINDINGS (extracted verbatim from .pyc constants)
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("ctrl+c", "abort", "Abort"),
-        Binding("escape", "Cancel", "Cancel"),
         Binding("ctrl+r", "retry", "Retry"),
         Binding("ctrl+p", "history_prev", "history_prev"),
         Binding("ctrl+n", "history_next", "history_next"),
@@ -919,11 +938,11 @@ class ChatApp(App):
         (TextArea) + ``#status-line``
         (Horizontal with 3 chips).
         """
-        from ..splash import render_compact_splash
+        from ..splash import render_mini_splash
 
         with VerticalScroll(id="history"):
             yield Static(
-                render_compact_splash(use_color=False),
+                render_mini_splash(use_color=False),
                 id="banner",
             )
         with Horizontal(id="input-row"):
@@ -988,6 +1007,51 @@ class ChatApp(App):
         # below
         # the art
         # instead.
+
+        # R-2026-06-20 (CDE-UI-P0.3):
+        # install the
+        # panic hook
+        # so
+        # unhandled
+        # exceptions
+        # are
+        # written
+        # to
+        # ``crash.log``
+        # (post-mortem
+        # evidence)
+        # instead
+        # of
+        # being
+        # silently
+        # swallowed
+        # by
+        # one of
+        # the
+        # dozens
+        # of
+        # ``except
+        # Exception:
+        # pass``
+        # handlers
+        # in this
+        # file.
+        try:
+            from .panic_hook import (
+                install_panic_hook,
+                set_active_app,
+            )
+            workspace = get_settings().workspace_dir
+            install_panic_hook(workspace)
+            # Register this
+            # ChatApp as the
+            # active one so
+            # the sys.excepthook
+            # can surface panics
+            # in our chat log.
+            set_active_app(self)
+        except Exception:  # noqa: BLE001
+            pass
 
         # Initialize the status-line widgets
         self._set_status("ready")
@@ -1258,7 +1322,7 @@ class ChatApp(App):
                 except Exception:  # noqa: BLE001
                     pass
                 self._active_worker = None
-        self._set_status(_t("chat.aborted", default="aborted"))
+        self._set_status(_t("chat.aborted", default="aborted"), level="warn")
 
     def action_help(self) -> None:
         """``?`` / ``F1``: open
@@ -2113,77 +2177,26 @@ class ChatApp(App):
 
     # ===== message rendering =====
 
-    def _render_message(self, msg: ChatMessage) -> Static:
-        """Render one message
-        as a Static widget.
+    def _render_message(self, msg: ChatMessage) -> Widget:
+        """Render one message as a widget.
 
-        R-2026-06-20 (CDE-RENDER-2):
-        Textual
-        only
-        parses
-        Rich
-        markup
-        (``[red]text[/red]``),
-        NOT
-        HTML
-        ``<span class=...>``.
-        The
-        previous
-        version
-        used
-        ``<span>``
-        so
-        the
-        literal
-        ``<span>``
-        text
-        appeared
-        on
-        screen
-        (even
-        though
-        ``markup=True``
-        was
-        set).
-        Now
-        we
-        use
-        Rich
-        markup
-        ``[b]NAME[/b]``
-        and
-        drive
-        the
-        color
-        via
-        the
-        ``msg-{role}``
-        CSS
-        class
-        on
-        the
-        Static
-        widget.
+        R-2026-06-20 (CDE-UI-P0.4):
+        delegate to ``manusift.tui.rendering.render_message``
+        which is the single source of truth for message widget
+        layout (role dot + head + body column, with markdown
+        styling).
 
-        ``assistant``
-        is
-        shown
-        as
-        ``ManuSift``
-        (not
-        ``assistant``)
-        per
-        UX
-        request.
+        The previous in-class version returned a bare
+        ``Static`` with ``[b]role[/b] content`` -- it
+        duplicated 80% of ``rendering.py`` and lost
+        role-dot / timestamp / tool-badge / markdown.
+
+        Return type is ``Widget`` (not ``Static``) because
+        ``render_message`` returns a ``Horizontal`` -- this
+        is a strict improvement over the previous signature.
         """
-        role_class = _css_class(msg.role)
-        text = escape(msg.content)
-        display_name = _role_display_name(msg.role)
-        return Static(
-            f"[b]{display_name}[/b]  {text}",
-            classes=f"msg-row msg-{role_class}",
-            markup=True,
-        )
+        from .rendering import render_message as _render_msg
+        return _render_msg(msg)
 
     def _append_message(self, msg: ChatMessage) -> None:
         """Append a message to
@@ -2325,6 +2338,20 @@ class ChatApp(App):
             self._set_status(
                 f"plan mode: queued ({len(self._pending_input)} pending)"
             )
+            # R-2026-06-20 (CDE-UI-P0.8):
+            # also append a
+            # ``queue-row``
+            # Static to
+            # ``#history``
+            # so the user
+            # sees what is
+            # queued (the
+            # status line
+            # only showed
+            # the count,
+            # not the
+            # content).
+            self._append_queue_row(text)
             return
         # Drain queue first
         if self._pending_input:
@@ -2344,6 +2371,46 @@ class ChatApp(App):
             txt = self._pending_input.pop(0)
             self._submit_user_message(txt)
             break
+
+    def _append_queue_row(self, text: str) -> None:
+        """R-2026-06-20 (CDE-UI-P0.8):
+        Mount a small
+        ``Static`` in
+        ``#history``
+        showing one
+        queued plan-mode
+        message. The
+        widget has the
+        ``queue-row``
+        CSS class so it
+        is visually
+        distinct from
+        normal user /
+        assistant
+        messages.
+
+        Plain text
+        (no Rich markup)
+        is used -- the
+        preview is
+        truncated to
+        60 chars so a
+        long prompt
+        does not blow
+        up the layout.
+        """
+        if self._history_scroll is None:
+            return
+        preview = text if len(text) <= 60 else text[:57] + "..."
+        try:
+            row = Static(
+                f"\U0001F4CB queued: {preview}",
+                classes="queue-row",
+            )
+            self._history_scroll.mount(row)
+            self._history_scroll.scroll_end(animate=False)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _mount_placeholder(self) -> None:
         """Mount a
@@ -2805,11 +2872,13 @@ class ChatApp(App):
         # not chat log).
         if reason in ("max_cost", "cost_cap"):
             self._set_status(
-                f"cost cap reached -- stopping the loop ({reason})"
+                f"cost cap reached -- stopping the loop ({reason})",
+                level="error",
             )
         elif reason == "max_steps":
             self._set_status(
-                "max steps reached -- stopping the loop"
+                "max steps reached -- stopping the loop",
+                level="error",
             )
         # Drain pending input (next message)
         if self._pending_input and not self._plan_mode_flag:
@@ -3642,11 +3711,11 @@ class ChatApp(App):
         # update).
         s = (stopped or "").lower()
         if "cost" in s:
-            self._set_status("cost cap reached")
+            self._set_status("cost cap reached", level="error")
         elif "max_step" in s:
-            self._set_status("max steps reached")
+            self._set_status("max steps reached", level="error")
         elif s in ("crashed", "error"):
-            self._set_status("agent crashed")
+            self._set_status("agent crashed", level="error")
         else:
             self._set_status("ready")
         try:
@@ -3842,15 +3911,74 @@ class ChatApp(App):
 
     # ===== status line / cost bar =====
 
-    def _set_status(self, text: str) -> None:
+    def _set_status(
+        self,
+        text: str,
+        *,
+        level: str = "info",
+    ) -> None:
         """Update the textual
         status line.
+
+        R-2026-06-20 (CDE-UI-P0.7):
+        ``level`` is one of
+        ``"info"``,
+        ``"warn"``,
+        ``"error"``.
+        Non-info levels
+        add a CSS class
+        to the underlying
+        ``#tool-status``
+        Static so the
+        text is colored
+        (red for error,
+        yellow for warn).
+        Plain ``text``
+        is used as the
+        content --
+        no inline markup,
+        so the color
+        change is
+        deterministic
+        and the text
+        is always
+        inspectable.
+
+        The clig.dev
+        principle:
+        "Quiet but
+        precise" -- an
+        error message
+        should be
+        visually distinct
+        from a normal
+        status message.
         """
         self._status_text = text
-        if self._tool_status is None:
+        # R-2026-06-20 (CDE-UI-P0.7): the actual
+        # ``#tool-status`` widget is bound to
+        # ``self._spinner`` in ``on_mount`` (not
+        # ``self._tool_status`` -- that field
+        # was never assigned).
+        widget = getattr(self, "_spinner", None)
+        if widget is None:
             return
+        cls = "status-info"
+        if level == "warn":
+            cls = "status-warn"
+        elif level == "error":
+            cls = "status-error"
+        for prev in ("status-info", "status-warn", "status-error"):
+            try:
+                widget.remove_class(prev)
+            except Exception:  # noqa: BLE001
+                pass
         try:
-            self._tool_status.update(text)
+            widget.add_class(cls)
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            widget.update(text)
         except Exception:  # noqa: BLE001
             pass
 
@@ -4094,49 +4222,6 @@ class ChatApp(App):
 # ============================================================
 # Module-level helpers
 # ============================================================
-
-
-def _css_class(role: str) -> str:
-    """Map a message role to
-    the CSS class used in
-    the Static widget."""
-    mapping = {
-        "user": "user",
-        "assistant": "assistant",
-        "tool": "tool",
-        "system": "system",
-        "error": "error",
-    }
-    return mapping.get(role, "system")
-
-
-def _role_display_name(role: str) -> str:
-    """R-2026-06-20 (CDE-RENDER-2):
-    the human-readable
-    role label shown
-    in the chat log.
-
-    ``assistant`` is
-    shown as
-    ``ManuSift``
-    (not
-    ``assistant``)
-    per UX
-    request --
-    the
-    user-facing
-    identity of
-    the LLM-side
-    speaker.
-    """
-    mapping = {
-        "user": "user",
-        "assistant": "ManuSift",
-        "tool": "tool",
-        "system": "system",
-        "error": "error",
-    }
-    return mapping.get(role, "system")
 
 
 def _short_repr(value: Any, max_len: int = 80) -> str:

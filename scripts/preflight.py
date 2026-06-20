@@ -162,6 +162,74 @@ FAST_TEST_FILES = [
     # tool-less
     # turn).
     "tests/test_cde_ui_empty_trace.py",
+    # R-2026-06-20 (CDE-UI-P0.1):
+    # ``#banner``
+    # is now
+    # <= 3 rows
+    # (was 9 rows,
+    # 36% of an
+    # 80x24 screen).
+    "tests/test_cde_banner_height.py",
+    # R-2026-06-20 (CDE-UI-P0.7):
+    # ``_set_status``
+    # takes a
+    # ``level`` kwarg
+    # (info / warn
+    # / error) so
+    # error states
+    # are visually
+    # distinct
+    # (red bold)
+    # per the
+    # clig.dev
+    # "quiet but
+    # precise"
+    # principle.
+    "tests/test_cde_status_styling.py",
+    # R-2026-06-20 (CDE-UI-P0.8):
+    # plan mode
+    # queue must
+    # be visible
+    # in #history
+    # (queue-row
+    # Static per
+    # message),
+    # not just
+    # "N pending"
+    # in the
+    # status
+    # line.
+    "tests/test_cde_plan_queue_visible.py",
+    # R-2026-06-20 (CDE-UI-P0.5):
+    # the
+    # ``Binding("escape",
+    # "Cancel", ...)``
+    # was dangling
+    # (no matching
+    # ``action_cancel``
+    # method) --
+    # deleted.
+    "tests/test_cde_esc_binding.py",
+    # R-2026-06-20 (CDE-UI-P0.3):
+    # panic_hook
+    # writes
+    # unhandled
+    # exceptions
+    # to
+    # crash.log
+    # +
+    # surfaces
+    # them in
+    # the chat
+    # log.
+    # Replaces
+    # 25+
+    # ``except
+    # Exception:
+    # pass``
+    # silent
+    # handlers.
+    "tests/test_cde_panic_hook.py",
 ]
 
 

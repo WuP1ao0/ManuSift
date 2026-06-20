@@ -140,6 +140,34 @@ ROLE_LABEL_CLASS: dict[str, str] = {
     "system": "role-system",
 }
 
+# Role -> human-readable
+# display name shown
+# in the head of every
+# message. ``assistant``
+# is shown as ``ManuSift``
+# (the user-facing
+# brand) per the CDE-RENDER-2
+# UX decision; other
+# roles pass through.
+# R-2026-06-20 (CDE-UI-P0.4):
+# this dict is the
+# single source of
+# truth for the role
+# label string --
+# ``_build_head_text``
+# reads it instead
+# of the chat-app's
+# now-removed
+# ``_role_display_name``
+# helper.
+ROLE_DISPLAY_NAME: dict[str, str] = {
+    "user": "user",
+    "assistant": "ManuSift",
+    "tool": "tool",
+    "system": "system",
+    "error": "error",
+}
+
 # ---- markdown
 # pre-processor
 # (intentionally
@@ -546,12 +574,23 @@ def _build_head_text(
     (leading underscore,
     but tests import it)
     so the head text
-    format can be unit-
+    format can be unit
     tested without
     mounting the widget
     tree.
+
+    R-2026-06-20 (CDE-UI-P0.4):
+    the role label is
+    looked up in
+    ``ROLE_DISPLAY_NAME``
+    so ``assistant``
+    renders as
+    ``ManuSift`` per the
+    CDE-RENDER-2 UX
+    decision.
     """
-    text = f"{role}"
+    label = ROLE_DISPLAY_NAME.get(role, role)
+    text = f"{label}"
     if ts:
         text += f" [{ts}]"
     if tool_name:

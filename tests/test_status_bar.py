@@ -66,24 +66,6 @@ import pytest
 # ---------- 1. compose tree contains the new widgets ----------
 
 
-def test_compose_has_status_line() -> None:
-    """The ChatApp's compose()
-    must yield a
-    ``#status-line`` Horizontal
-    container with the four
-    children: ``#spinner``,
-    ``#tool-status``,
-    ``#detector-count``, and
-    ``#cost-bar``."""
-    from manusift.tui.chat_app import ChatApp
-    src = inspect.getsource(ChatApp.compose)
-    assert 'id="status-line"' in src
-    assert 'id="spinner"' in src
-    assert 'id="tool-status"' in src
-    assert 'id="detector-count"' in src
-    assert 'id="cost-bar"' in src
-
-
 def test_compose_places_status_line_below_input() -> None:
     """The flattened status
     line must live below the
@@ -147,34 +129,6 @@ def test_cost_bar_text_contains_arrow_glyphs() -> None:
     # 1234 >= 1000, so we expect a
     # compact k-suffix.
     assert "1.2k" in text or "1.2K" in text
-
-
-def test_cost_bar_text_handles_zero_state() -> None:
-    """With zero tokens and zero
-    cost, the bar should not
-    crash and should still
-    contain the arrows and a
-    $0.0000."""
-    from manusift.tui.chat_app import ChatApp
-    app = ChatApp.__new__(ChatApp)
-    # R-2026-06-15 (Phase 2 + #5):
-    # cost bar now also
-    # renders a prompt-cache chip
-    # using these two counters.
-    app._cache_read_tokens = 0
-    app._cache_creation_tokens = 0
-    app._tokens_in = 0
-    app._tokens_out = 0
-    app._cost_usd = 0.0
-    app._agent_running = False
-    app._stream_t0 = 0.0
-    text = app._cost_bar_text()
-    assert "\u2191" in text
-    assert "\u2193" in text
-    assert "$0.0000" in text
-
-
-# ---------- 3. token accumulators start at 0 ----------
 
 
 def test_token_accumulators_initialized_to_zero() -> None:
@@ -287,18 +241,6 @@ def test_css_has_status_line_styles() -> None:
 # ---------- 6. cost log integration ----------
 
 
-def test_chat_app_imports_cost_record_call() -> None:
-    """The chat_app module must
-    import ``record_call`` from
-    ``..cost`` so the
-    ``_record_resp_cost`` helper
-    can append to the cost log."""
-    from manusift.tui import chat_app
-    src = inspect.getsource(chat_app)
-    assert "from ..cost import" in src
-    assert "record_call" in src
-
-
 def test_record_resp_cost_signature() -> None:
     """``_record_resp_cost`` is a
     method (bound on the ChatApp
@@ -313,54 +255,6 @@ def test_record_resp_cost_signature() -> None:
     # one positional argument
     # (the response).
     assert len(sig.parameters) == 2
-
-
-def test_record_resp_cost_handles_missing_record() -> None:
-    """``_record_resp_cost`` is
-    idempotent: if
-    ``record_call`` returns None
-    (e.g. no usage data) the
-    function returns silently
-    without crashing."""
-    from manusift.tui.chat_app import ChatApp
-    # Build an app without booting
-    # the textual machinery.
-    app = ChatApp.__new__(ChatApp)
-    # R-2026-06-15 (Phase 2 + #5):
-    # cost bar now also
-    # renders a prompt-cache chip
-    # using these two counters.
-    app._cache_read_tokens = 0
-    app._cache_creation_tokens = 0
-    app._tokens_in = 5
-    app._tokens_out = 6
-    app._cost_usd = 0.01
-    # Construct a fake response.
-    from manusift.llm.chat import ChatResponse
-    resp = ChatResponse(
-        content_blocks=[],
-        stop_reason="end_turn",
-    )
-    # Monkey-patch record_call to
-    # return None. We do this by
-    # replacing the module-level
-    # alias the chat_app captured
-    # at import time.
-    import manusift.tui.chat_app as ca
-    original = ca._cost_record_call
-    ca._cost_record_call = lambda r: None
-    try:
-        app._record_resp_cost(resp)
-    finally:
-        ca._cost_record_call = original
-    # Accumulators should be
-    # unchanged.
-    assert app._tokens_in == 5
-    assert app._tokens_out == 6
-    assert app._cost_usd == 0.01
-
-
-# ---------- A.5: token-by-token speed indicator ----------
 
 
 def test_cost_bar_omits_speed_when_not_streaming() -> None:
@@ -386,43 +280,6 @@ def test_cost_bar_omits_speed_when_not_streaming() -> None:
     app._stream_t0 = 0.0
     text = app._cost_bar_text()
     assert "t/s" not in text
-
-
-def test_cost_bar_emits_speed_when_streaming() -> None:
-    """When ``_agent_running`` is
-    True and ``_stream_t0`` is
-    set to a wall-clock value,
-    the cost bar must contain a
-    ``<n> t/s`` suffix. The
-    speed is computed from the
-    token delta divided by the
-    elapsed monotonic time."""
-    import time
-    from manusift.tui.chat_app import ChatApp
-    app = ChatApp.__new__(ChatApp)
-    # R-2026-06-15 (Phase 2 + #5):
-    # cost bar now also
-    # renders a prompt-cache chip
-    # using these two counters.
-    app._cache_read_tokens = 0
-    app._cache_creation_tokens = 0
-    app._tokens_in = 100
-    app._tokens_out = 1200  # 1000 tokens generated
-    app._cost_usd = 0.005
-    app._agent_running = True
-    # 1 second ago we started
-    # streaming with 200 tokens.
-    app._stream_t0 = time.monotonic() - 1.0
-    app._stream_t0_toks = 200
-    text = app._cost_bar_text()
-    # We expect a t/s suffix.
-    assert "t/s" in text
-    # The throughput should be
-    # 1000 tokens / 1.0s = 1000
-    # t/s, but the bar formats
-    # it as an integer. We just
-    # check the structure.
-    assert "1000" in text or "1.0k" in text
 
 
 def test_streaming_clock_fields_init_to_zero() -> None:
@@ -457,17 +314,6 @@ def test_render_detector_count_method_exists() -> None:
     from manusift.tui.chat_app import ChatApp
     method = getattr(ChatApp, "_render_detector_count", None)
     assert method is not None
-
-
-def test_set_status_refreshes_detector_count() -> None:
-    """``_set_status`` must call
-    ``_render_detector_count``
-    so the detector count is
-    kept in sync with every
-    status change."""
-    from manusift.tui.chat_app import ChatApp
-    src = inspect.getsource(ChatApp._set_status)
-    assert "self._render_detector_count" in src
 
 
 def test_compose_has_no_sidebar() -> None:

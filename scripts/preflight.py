@@ -134,6 +134,23 @@ FAST_TEST_FILES = [
     # (3) message
     # duplication.
     "tests/test_cde_render_v2.py",
+    # R-2026-06-20 (CDE-RENDER-4):
+    # the double-mount
+    # bug shown
+    # in the 15:04
+    # screenshot
+    # (every
+    # message
+    # appeared
+    # 2x because
+    # ``_HistoryList.append``
+    # AND
+    # ``_append_message``
+    # both
+    # mounted
+    # the
+    # widget).
+    "tests/test_cde_render_v3_no_double_mount.py",
 ]
 
 

@@ -288,7 +288,32 @@ def test_action_retry_redispatches_last_user() -> None:
 
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.pause(0.2)
-            app._history.append(
+            # R-2026-06-20 (CDE-RENDER-4):
+            # ``_HistoryList.append``
+            # is a
+            # pure
+            # list
+            # operation
+            # (no
+            # widget
+            # mount --
+            # the
+            # mount
+            # is in
+            # ``_append_message``).
+            # Use
+            # ``_append_message``
+            # to
+            # get
+            # both
+            # the
+            # in-memory
+            # append
+            # AND
+            # the
+            # on-screen
+            # widget.
+            app._append_message(
                 ChatMessage(
                     role="user", content="hello"
                 )

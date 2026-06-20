@@ -482,28 +482,93 @@ class _HistoryList(list):
         self._scroll_ref: Any = None
 
     def append(self, item: Any) -> None:
-        """Append a ChatMessage to
-        history. The wrapped
-        item is also rendered
-        + mounted on screen
-        via ``_scroll_ref``.
+        """R-2026-06-20 (CDE-RENDER-4):
+        append ``item``
+        to the
+        underlying
+        list.
+
+        R-2026-06-20 (CDE-RENDER-2):
+        the previous
+        version
+        ALSO
+        mounted
+        the
+        widget
+        here
+        (in
+        addition
+        to
+        ``_append_message``'s
+        own
+        mount).
+        That
+        caused
+        every
+        message
+        to
+        appear
+        twice
+        in
+        the
+        chat
+        log.
+
+        The
+        single
+        source
+        of
+        truth
+        for
+        "add a
+        message
+        to
+        history
+        AND
+        mount
+        the
+        widget"
+        is
+        now
+        ``ChatApp._append_message``.
+        ``_HistoryList.append``
+        is a
+        pure
+        list
+        operation.
+
+        Tests
+        that
+        used
+        to
+        do
+        ``app._history.append(msg)``
+        and
+        expected
+        the
+        widget
+        to
+        appear
+        on
+        screen
+        should
+        now
+        call
+        ``app._append_message(msg)``
+        instead
+        (or
+        rely
+        on
+        the
+        helper
+        methods
+        like
+        ``_submit_user_message``
+        that
+        already
+        do).
         """
         super().append(item)
-        # If the item is a
-        # ChatMessage, render + mount it
-        if hasattr(item, "role") and hasattr(item, "content"):
-            scroll = getattr(self, "_scroll_ref", None)
-            if scroll is not None:
-                try:
-                    app = getattr(self, "_app_ref", None)
-                    if app is not None:
-                        widget = app._render_message(item)
-                        widget._role = item.role
-                        widget._text = item.content
-                        scroll.mount(widget)
-                        scroll.scroll_end(animate=False)
-                except Exception:  # noqa: BLE001
-                    pass
 
     def clear(self) -> None:
         """Clear all messages and

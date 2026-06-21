@@ -72,13 +72,42 @@ class ImageDuplicateDetector:
         from ._image_size import summarize_image_sizes
 
         size_stats = summarize_image_sizes(images)
-        eligible_indexes = {
+        # R-2026-06-21 (CDE-DETER):
+        # explicit
+        # sorted list
+        # (not a set)
+        # so iteration
+        # order is
+        # deterministic
+        # across
+        # Python
+        # versions /
+        # PYTHONHASHSEED
+        # settings.
+        # Previously a
+        # set literal
+        # was used,
+        # which
+        # depended on
+        # hash() of
+        # the int keys
+        # (mostly stable
+        # but NOT a
+        # contractual
+        # guarantee).
+        # See
+        # tests/test_cde_deter_image_dup.py
+        # for the
+        # determinism
+        # regression
+        # test.
+        eligible_indexes = sorted(
             i
             for i, img in enumerate(images)
             if img.width >= 64
             and img.height >= 64
             and img.bytes_size >= 5 * 1024
-        }
+        )
 
         for i in eligible_indexes:
             for j in eligible_indexes:

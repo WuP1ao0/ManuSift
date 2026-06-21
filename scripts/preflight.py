@@ -240,6 +240,20 @@ FAST_TEST_FILES = [
     # cost=...
     # in one line.
     "tests/test_cde_contextbar.py",
+    # R-2026-06-21 (CDE-DETER):
+    # image_dup detector
+    # uses sorted list
+    # (not set literal)
+    # so iteration
+    # order is
+    # deterministic
+    # across
+    # Python
+    # versions
+    # /
+    # PYTHONHASHSEED
+    # settings.
+    "tests/test_cde_deter_image_dup.py",
 ]
 
 

@@ -266,6 +266,18 @@ FAST_TEST_FILES = [
     # Ctrl+[
     # toggle.
     "tests/test_cde_right_rail.py",
+    # R-2026-06-21 (CDE-UI-P1.6):
+    # DetectorTraceBlock
+    # mounted ONCE
+    # in on_mount
+    # (not per-turn)
+    # so it's
+    # always
+    # visible
+    # at the top
+    # of the chat
+    # log.
+    "tests/test_cde_detector_block_permanent.py",
 ]
 
 

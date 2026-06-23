@@ -1147,6 +1147,59 @@ class ChatApp(App):
         self._set_status("ready")
         self._render_detector_count()
         self._render_cost_bar()
+        # R-2026-06-21 (CDE-UI-P1.6):
+        # mount the
+        # detector
+        # trace
+        # block
+        # ONCE on
+        # startup
+        # so it is
+        # always
+        # visible
+        # at the
+        # top of
+        # the chat
+        # log. The
+        # previous
+        # design
+        # mounted
+        # a fresh
+        # block on
+        # every
+        # turn
+        # which
+        # meant
+        # users
+        # had to
+        # press
+        # ``x``
+        # after
+        # every
+        # turn to
+        # see the
+        # block
+        # again.
+        # The
+        # block
+        # resets
+        # its
+        # internal
+        # state on
+        # ``job.started``
+        # event
+        # (handled
+        # by
+        # ``DetectorTraceBlock.on_event_received``)
+        # so a
+        # single
+        # mounted
+        # block
+        # works
+        # across
+        # all
+        # turns.
+        self._mount_detector_block_if_needed()
         # R-2026-06-20 (CDE-BACKEND-2):
         # populate the textual
         # ``sub_title`` from the
@@ -2862,13 +2915,50 @@ class ChatApp(App):
             return
         self._agent_running = True
         self._mount_placeholder()
-        # Mount a
-        # fresh
+        # R-2026-06-21 (CDE-UI-P1.6):
+        # the
+        # detector-trace
+        # block is
+        # now
+        # mounted
+        # ONCE
+        # in
+        # ``on_mount``
+        # and is
+        # reused
+        # across
+        # turns
+        # (its
+        # internal
+        # state
+        # resets
+        # on
+        # ``job.started``
+        # event).
+        # The
+        # call here
+        # is now
+        # a
+        # no-op
+        # (early-return
+        # in the
+        # idempotent
+        # helper)
+        # and is
+        # kept
+        # for
+        # backward
+        # compatibility.
+        # The
         # tool-trace
-        # + detector-trace
-        # block
-        # for this
-        # turn.
+        # block is
+        # still
+        # mounted
+        # per-turn
+        # (it has
+        # its
+        # own
+        # semantics).
         self._mount_trace_block_if_needed()
         self._mount_detector_block_if_needed()
         # Wire
@@ -3207,24 +3297,47 @@ class ChatApp(App):
         pass
 
     def _mount_detector_block_if_needed(self) -> None:
-        """Mount a fresh
-        ``DetectorTraceBlock``
-        for the current turn.
+        """Mount the ``DetectorTraceBlock``
+        once on startup so it is always
+        visible at the top of the chat
+        log.
 
         R-2026-06-20 (CDE-BACKEND, P1):
-        the audit doc
-        notes that
-        ``install_default_listener``
-        was called
-        with ``self``
-        (the ChatApp)
-        instead of
-        the new block.
-        The block is
-        now passed
-        explicitly:
-        ``install_default_listener(self._active_detector_block)``.
+        ``install_default_listener`` was
+        called with ``self`` (the
+        ChatApp) instead of the new
+        block. Fixed: the block is now
+        passed explicitly.
+
+        R-2026-06-21 (CDE-UI-P1.6):
+        this method is now
+        IDEMPOTENT -- if
+        ``self._active_detector_block``
+        already exists, it returns
+        early without mounting a new
+        one. The previous design
+        mounted a fresh block on every
+        turn which meant users had to
+        press ``x`` after every turn to
+        see the block again. Now the
+        block is mounted once in
+        ``on_mount`` and its internal
+        state is reset on each
+        ``job.started`` event
+        (handled by
+        ``DetectorTraceBlock.on_event_received``)
+        so a single mounted block
+        works across all turns.
         """
+        # Idempotent:
+        # if the
+        # block is
+        # already
+        # mounted,
+        # return
+        # early.
+        if getattr(self, "_active_detector_block", None) is not None:
+            return
         try:
             block = DetectorTraceBlock()
             self._detector_trace_block = block

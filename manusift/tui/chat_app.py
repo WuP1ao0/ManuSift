@@ -75,7 +75,7 @@ from typing import Any, ClassVar
 from rich.markup import escape
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import (
     Static,
     TextArea,
@@ -802,6 +802,26 @@ class ChatApp(App):
         Binding("x", "toggle_detector_trace", "Detectors"),
         Binding("ctrl+j", "submit_input", "Submit"),
         Binding("ctrl+enter", "focus_next", show=False),
+        # R-2026-06-21 (CDE-UI-P1.1):
+        # toggle the
+        # right rail
+        # (4-tab
+        # panel:
+        # PDF /
+        # Finds /
+        # Tools /
+        # Cost).
+        # Ctrl+] =
+        # show,
+        # Ctrl+[ =
+        # hide.
+        # Mirrors
+        # Claude
+        # Code's
+        # `ctrl+]`
+        # toggle.
+        Binding("ctrl+right_square_bracket", "show_right_rail", show=False),
+        Binding("ctrl+left_square_bracket", "hide_right_rail", show=False),
     ]
 
     ENABLE_COMMAND_PALETTE: bool = False
@@ -939,50 +959,88 @@ class ChatApp(App):
         (Horizontal with 3 chips).
         """
         from ..splash import render_compact_splash
+        from .right_rail import RightRail
 
-        with VerticalScroll(id="history"):
-            # R-2026-06-20 (CDE-UI-P0.1 full revert):
-            # user explicitly
-            # asked for the
-            # 9-row compact
-            # splash (the
-            # original brand
-            # mark). The
-            # mini-splash
-            # experiment was
-            # an attempt to
-            # save vertical
-            # space, but the
-            # mini version is
-            # visually a thin
-            # line and is
-            # indistinguishable
-            # from "no splash
-            # at all" on a
-            # narrow terminal.
-            # Revert to
-            # ``render_compact_splash``
-            # + ``height: 9``.
-            # Width is
-            # clamped to the
-            # banner width so
-            # the wordmark
-            # fits.
-            width = self.size.width if self.size else 80
-            width = min(max(width - 4, 60), 80)
-            yield Static(
-                render_compact_splash(
-                    use_color=False,
-                    width=width,
-                ),
-                id="banner",
-            )
-        with Horizontal(id="input-row"):
-            yield _SubmitOnEnterTextArea(id="input")
-        with Horizontal(id="status-line"):
-            yield Static(id="tool-status")
-            yield Static(id="detector-count")
-            yield Static(id="cost-bar")
+        # R-2026-06-21 (CDE-UI-P1.1):
+        # the layout is now
+        # ``Horizontal(Vertical(main), RightRail)``.
+        # ``RightRail`` is a Textual
+        # ``TabbedContent`` with 4 tabs
+        # (PDF / Finds / Tools / Cost).
+        # It is mounted unconditionally;
+        # the user toggles its visibility
+        # with Ctrl+] / Ctrl+[ (see
+        # BINDINGS).
+        #
+        # We use
+        # ``yield from`` on the original
+        # (pre-P1.1) widget tree so the
+        # existing layout code does not
+        # need to be re-indented.
+        yield Horizontal(
+            Vertical(*self._main_column_children(), id="main-column"),
+            RightRail(id="right-rail"),
+            id="main-row",
+        )
+
+    def _main_column_children(self):
+        """Build the original (pre-P1.1)
+        widget tree (banner / history /
+        input / status) and yield the
+        TOP-LEVEL widgets (3 of them:
+        ``VerticalScroll(history)``,
+        ``Horizontal(input-row)``,
+        ``Horizontal(status-line)``).
+
+        R-2026-06-21 (CDE-UI-P1.1):
+        extracted from ``compose`` so the
+        top-level can wrap them in
+        ``Horizontal(Vertical(main-column), RightRail)``
+        without duplicating the widget tree.
+
+        The previous version used ``with
+        VerticalScroll(id="history"): yield
+        Static(...)`` which yielded the
+        ``Static`` (not the ``VerticalScroll``)
+        because Textual's ``with`` context
+        attaches the inner widget to the
+        outer container, but ``yield``
+        returns the inner widget. The fix
+        is to build the ``VerticalScroll``
+        explicitly (not via ``with``) so we
+        yield the container itself, which
+        ``Vertical(*...)`` then treats as a
+        direct child of ``#main-column``.
+        """
+        from ..splash import render_compact_splash
+
+        # VerticalScroll(history) with the
+        # banner Static inside.
+        width = self.size.width if self.size else 80
+        width = min(max(width - 4, 60), 80)
+        banner = Static(
+            render_compact_splash(
+                use_color=False,
+                width=width,
+            ),
+            id="banner",
+        )
+        history = VerticalScroll(banner, id="history")
+        yield history
+
+        # Horizontal(input-row) with the
+        # TextArea inside.
+        input_area = _SubmitOnEnterTextArea(id="input")
+        yield Horizontal(input_area, id="input-row")
+
+        # Horizontal(status-line) with 3 chips.
+        yield Horizontal(
+            Static(id="tool-status"),
+            Static(id="detector-count"),
+            Static(id="cost-bar"),
+            id="status-line",
+        )
+        # end of _main_column_children
     def on_mount(self) -> None:
         """Wire up the widget
         references and the
@@ -1476,6 +1534,43 @@ class ChatApp(App):
             return
         try:
             block.display = not block.display
+        except Exception:  # noqa: BLE001
+            pass
+
+    def action_show_right_rail(self) -> None:
+        """R-2026-06-21 (CDE-UI-P1.1):
+        Ctrl+] shows the
+        right rail panel
+        (4-tab:
+        PDF /
+        Finds /
+        Tools /
+        Cost).
+        """
+        self._set_right_rail_visible(True)
+
+    def action_hide_right_rail(self) -> None:
+        """R-2026-06-21 (CDE-UI-P1.1):
+        Ctrl+[ hides the
+        right rail panel.
+        """
+        self._set_right_rail_visible(False)
+
+    def _set_right_rail_visible(self, visible: bool) -> None:
+        """Show or hide the right rail.
+
+        Caches the reference on first call
+        so subsequent calls are O(1).
+        """
+        rail = getattr(self, "_right_rail", None)
+        if rail is None:
+            try:
+                rail = self.query_one("#right-rail")
+                self._right_rail = rail
+            except Exception:  # noqa: BLE001
+                return
+        try:
+            rail.display = visible
         except Exception:  # noqa: BLE001
             pass
 
@@ -4162,6 +4257,16 @@ class ChatApp(App):
         so the cost
         indicator
         stays current.
+
+        R-2026-06-21 (CDE-UI-P1.1):
+        also updates the
+        right rail
+        (Cost /
+        Finds /
+        Tools tabs)
+        via
+        ``_render_right_rail``.
+
         ``_refresh_subtitle``
         is cheap (~6 dict
         lookups + 1 string
@@ -4174,6 +4279,124 @@ class ChatApp(App):
         # Re-render the ContextBar (top header)
         # with the latest cost.
         self._refresh_subtitle()
+        # Re-render the right rail (Cost /
+        # Finds / Tools tabs).
+        self._render_right_rail()
+
+    def _render_right_rail(self) -> None:
+        """R-2026-06-21 (CDE-UI-P1.1):
+        update the
+        right rail's
+        4 tabs from
+        the current
+        ChatApp
+        state.
+
+        Called by
+        ``_tick_live_elapsed``
+        (1 Hz). All
+        update methods
+        on the
+        ``RightRail``
+        are no-ops if
+        the widget is
+        hidden, so
+        the 1 Hz cost
+        is minimal.
+
+        Cost data
+        comes from
+        ``self._cost_usd`` /
+        ``self._tokens_in`` /
+        ``self._tokens_out``
+        (set by the
+        agent
+        callback).
+
+        Finds data
+        comes from
+        ``self._active_detector_block.findings``
+        (the
+        DetectorTraceBlock
+        mounted
+        earlier).
+        """
+        rail = getattr(self, "_right_rail", None)
+        if rail is None:
+            try:
+                rail = self.query_one("#right-rail")
+                self._right_rail = rail
+            except Exception:  # noqa: BLE001
+                return
+
+        # --- Cost tab ---
+        try:
+            import os as _os
+            env_cap = _os.environ.get(
+                "MANUSIFT_AGENT_MAX_COST_USD", "0"
+            )
+            cap = float(env_cap or 0)
+        except Exception:  # noqa: BLE001
+            cap = 0.0
+        rail.update_cost(
+            tokens_in=getattr(self, "_tokens_in", 0),
+            tokens_out=getattr(self, "_tokens_out", 0),
+            cost_usd=getattr(self, "_cost_usd", 0.0),
+            cap_usd=cap,
+        )
+
+        # --- Finds tab ---
+        block = getattr(self, "_active_detector_block", None)
+        if block is not None:
+            findings = getattr(block, "findings", []) or []
+            rail.update_finds(findings)
+        else:
+            rail.update_finds(None)
+
+        # --- Tools tab ---
+        try:
+            from .turn_block import ToolTraceBlock
+            tool_entries = self.query_children(
+                ToolTraceBlock
+            )
+            if tool_entries:
+                latest = tool_entries[-1]
+                entries = getattr(latest, "_entries", []) or []
+                rail.update_tools(entries)
+            else:
+                rail.update_tools(None)
+        except Exception:  # noqa: BLE001
+            rail.update_tools(None)
+
+        # --- PDF tab ---
+        pdf_path = None
+        try:
+            if getattr(self, "_ctx", None) is not None:
+                pdf_path = self._ctx.current_pdf
+        except Exception:  # noqa: BLE001
+            pdf_path = None
+        page_count = None
+        figure_count = None
+        table_count = None
+        try:
+            doc = getattr(self, "_parsed_doc", None)
+            if doc is not None:
+                page_count = len(doc.text_blocks) and (
+                    max(b.page for b in doc.text_blocks) + 1
+                ) if doc.text_blocks else 0
+                figure_count = sum(
+                    1 for img in (doc.images or [])
+                    if img.width >= 64 and img.height >= 64
+                )
+                table_count = len(getattr(doc, "tables", []) or [])
+        except Exception:  # noqa: BLE001
+            pass
+        rail.update_pdf(
+            pdf_path,
+            page_count=page_count,
+            figure_count=figure_count,
+            table_count=table_count,
+        )
 
     def _render_detector_count(self) -> None:
         """Render the

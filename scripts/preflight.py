@@ -254,6 +254,18 @@ FAST_TEST_FILES = [
     # PYTHONHASHSEED
     # settings.
     "tests/test_cde_deter_image_dup.py",
+    # R-2026-06-21 (CDE-UI-P1.1):
+    # RightRail
+    # TabbedContent
+    # with 4 tabs
+    # (PDF /
+    # Finds /
+    # Tools /
+    # Cost),
+    # Ctrl+] /
+    # Ctrl+[
+    # toggle.
+    "tests/test_cde_right_rail.py",
 ]
 
 

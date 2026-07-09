@@ -301,7 +301,6 @@ def test_p19_tui_stop_slash_command_wired_to_cmd_stop():
     )
     assert m is not None
     handler = m.group(0)
-    assert "loop.interrupt()" in handler, (
-        "_cmd_stop does not call "
-        "loop.interrupt()"
+    assert "action_abort()" in handler, (
+        "_cmd_stop does not call action_abort() (which calls loop.interrupt())"
     )

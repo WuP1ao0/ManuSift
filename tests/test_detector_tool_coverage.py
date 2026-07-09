@@ -203,7 +203,7 @@ def test_total_tool_count() -> None:
     from manusift.tools import iter_registered_tools
 
     tools = list(iter_registered_tools())
-    # 36 detectors + 23 helpers
+    # 39 detectors + 27 helpers
     # (inspector x2, OCR,
     # list_data_sources,
     # read_data_source, latex
@@ -217,8 +217,8 @@ def test_total_tool_count() -> None:
     # web_fetch,
     # bash, grep, glob,
     # task, todo_write).
-    assert len(tools) == 64, (
-        f"expected 64 tools (38 detectors + 26 helpers), "
+    assert len(tools) == 66, (
+        f"expected 66 tools (39 detectors + 27 helpers), "
         f"got {len(tools)}"
     )
 
@@ -285,8 +285,8 @@ def test_category_counts_are_stable() -> None:
         # ref_format_anomaly
         "statistical": 4,  # stat_grim, stat_pvalue,
         # stat_percent, figure_grim (R-2026-06-12)
-        "table": 4,  # table_benford, table_duplicate_row,
-        # table_outlier, table_round_bias
+        "table": 5,  # table_benford, table_duplicate_row,
+        # table_outlier, table_round_bias, table_relationships
         "chart": 2,  # chart_data_extract,
         # figure_table_consistency
         "compliance": 3,  # author_emails, compliance,

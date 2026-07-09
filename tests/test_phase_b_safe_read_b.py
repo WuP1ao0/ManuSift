@@ -579,6 +579,25 @@ class TestExtractXlsx:
         assert "Alice" in text
         assert "30" in text
 
+    def test_xlsx_highlight_marker_is_rendered(self, tmp_path):
+        from openpyxl import Workbook
+        from openpyxl.styles import PatternFill
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Sheet1"
+        ws.append(["Name", "Value"])
+        ws.append(["Alice", 22.2])
+        ws["B2"].fill = PatternFill(
+            fill_type="solid",
+            fgColor="FFFF00",
+        )
+        path = tmp_path / "highlighted.xlsx"
+        wb.save(str(path))
+
+        text = extract_xlsx_text(str(path))
+
+        assert "22.2 [highlight:FFFF00]" in text
+
     def test_multiple_sheets(self, tmp_path):
         from openpyxl import Workbook
         wb = Workbook()

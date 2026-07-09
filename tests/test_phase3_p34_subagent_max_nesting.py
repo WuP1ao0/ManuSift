@@ -281,6 +281,15 @@ def test_p34_task_tool_max_depth_rejected(
     monkeypatch.setenv(
         "MANUSIFT_SUBAGENT_MAX_NESTING", "0"
     )
+    # Reset the LLM singleton so no real API call can happen
+    import manusift.llm.client as _llm_client
+    _llm_client._reset_for_tests()
+    # Verify the env var is actually read
+    from manusift.config import get_settings
+    _s = get_settings()
+    assert _s.subagent_max_nesting == 0, (
+        f"env var not read; got subagent_max_nesting={_s.subagent_max_nesting}"
+    )
     from manusift.tools.agent_tools import (
         TaskTool,
     )

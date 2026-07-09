@@ -90,18 +90,14 @@ def test_per_name_cap_reads_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     # so the loop picks it up.
     from manusift import config as _config
     custom = Settings(tool_calls_per_name_cap=5)
-    orig_get = _config.get_settings
-    _config.get_settings = lambda: custom
-    try:
-        ctx = ToolContext(trace_id="t")
-        loop = AgentLoop(
-            client=_L(),
-            tools=[],
-            ctx=ctx,
-        )
-        assert loop._MAX_SAME_TOOL_CALLS == 5
-    finally:
-        _config.get_settings = orig_get
+    monkeypatch.setattr(_config, "get_settings", lambda: custom)
+    ctx = ToolContext(trace_id="t")
+    loop = AgentLoop(
+        client=_L(),
+        tools=[],
+        ctx=ctx,
+    )
+    assert loop._MAX_SAME_TOOL_CALLS == 5
 
 
 def test_per_name_cap_defaults_to_12_under_trusted_local() -> None:

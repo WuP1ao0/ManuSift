@@ -326,6 +326,9 @@ class ListDataSourcesTool:
                 # tables).
                 fig_name = getattr(t, "fig_name", "") or ""
                 bbox = getattr(t, "bbox", None)
+                highlighted = (
+                    getattr(t, "highlighted_cells", []) or []
+                )
                 table_entry: dict[str, object] = {
                     "table_id": t.table_id,
                     "source_kind": t.source_kind,
@@ -336,6 +339,11 @@ class ListDataSourcesTool:
                     "n_cols": len(t.headers),
                     "headers_preview": t.headers[:8],
                 }
+                if highlighted:
+                    table_entry["n_highlighted_cells"] = len(
+                        highlighted
+                    )
+                    table_entry["highlighted_preview"] = highlighted[:8]
                 if fig_name:
                     table_entry["fig_name"] = fig_name
                 if bbox is not None:
@@ -517,6 +525,9 @@ class ReadDataSourceTool:
                             "found in this job"
                         ),
                         "available": available,
+                        "available_table_ids": [
+                            t.table_id for t in tables
+                        ],
                     }
                 )
             rows = match.rows
@@ -524,6 +535,15 @@ class ReadDataSourceTool:
             if max_rows > 0 and len(rows) > max_rows:
                 rows = rows[:max_rows]
                 truncated = True
+            highlighted = (
+                getattr(match, "highlighted_cells", []) or []
+            )
+            if max_rows > 0:
+                highlighted = [
+                    h
+                    for h in highlighted
+                    if int(h.get("row", -1)) < len(rows)
+                ]
             return json.dumps(
                 {
                     "trace_id": trace_id,
@@ -533,6 +553,7 @@ class ReadDataSourceTool:
                     "sheet_name": match.sheet_name,
                     "headers": match.headers,
                     "rows": rows,
+                    "highlighted_cells": highlighted,
                     "n_rows_total": len(match.rows),
                     "n_rows_returned": len(rows),
                     "truncated": truncated,

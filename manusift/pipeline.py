@@ -228,6 +228,7 @@ _BUILTIN_DETECTOR_CLASS_NAMES: list[str] = [
     # the percent-divisibility detector. Closes
     # the ``stat_percent`` gap.
     "PercentDivisibilityDetector",
+    "TableRelationshipDetector",
     # R-2026-06-15 (Phase 3, real-case benchmark):
     # the noise-inconsistency detector (catches
     # images where the noise floor is different

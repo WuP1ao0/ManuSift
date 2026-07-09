@@ -147,6 +147,7 @@ DETECTOR_CATEGORY: dict[str, str] = {
     "table_duplicate_row": "table",
     "table_outlier": "table",
     "table_round_bias": "table",
+    "table_relationships": "table",
     # ---- charts
     # / figure
     # cross-check

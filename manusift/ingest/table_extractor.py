@@ -200,6 +200,11 @@ _STATISTIC_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ),
 )
 
+_FIG_LABEL_RE = re.compile(
+    r"\b(?:fig|figure)\.?\s*([Ss]?\d+[A-Za-z]?)\b",
+    re.IGNORECASE,
+)
+
 
 # ---- Internal row representation ----
 
@@ -223,6 +228,7 @@ class _StatRow:
     chi2: str | None = None
     r: str | None = None
     context: str = ""  # the surrounding sentence (truncated)
+    fig_name: str = ""
     page: int = 0
 
     def is_empty(self) -> bool:
@@ -272,6 +278,13 @@ def _split_sentences(text: str) -> list[str]:
     return [x.strip() for x in s if x.strip()]
 
 
+def _fig_name_from_text(text: str) -> str:
+    m = _FIG_LABEL_RE.search(text)
+    if not m:
+        return ""
+    return f"Fig.{m.group(1)}"
+
+
 def _match_patterns(
     text: str,
     patterns: tuple[tuple[str, re.Pattern[str]], ...],
@@ -293,7 +306,7 @@ def _match_patterns(
 
 
 def _row_from_sentence(
-    sentence: str, page: int
+    sentence: str, page: int, fig_name: str = ""
 ) -> _StatRow | None:
     """Try to construct a ``_StatRow`` from a
     single sentence.  Returns None if the
@@ -322,6 +335,7 @@ def _row_from_sentence(
         chi2=stat.get("chi2"),
         r=stat.get("r"),
         context=sentence[:200],
+        fig_name=fig_name or _fig_name_from_text(sentence),
         page=page,
     )
     if row.is_empty():
@@ -403,9 +417,12 @@ def _merge_n_propagation(
                 chi2=r.chi2,
                 r=r.r,
                 context=r.context,
+                fig_name=r.fig_name,
                 page=r.page,
             )
             out.append(propagated)
+        elif not r.is_empty():
+            out.append(r)
         # If a row has neither n
         # nor any value, drop it
         # entirely.
@@ -413,7 +430,7 @@ def _merge_n_propagation(
 
 
 def _assemble_table(
-    rows: list[_StatRow], page: int
+    rows: list[_StatRow], page: int, fig_name: str = ""
 ) -> ExtractedTable | None:
     """Build an ``ExtractedTable`` from a list
     of stat rows.  All rows on the same page
@@ -449,7 +466,11 @@ def _assemble_table(
         d = r.to_row_dict()
         table_rows.append([d.get(h, "") for h in headers])
     return ExtractedTable(
-        table_id=f"pdf_text_stat:p{page}",
+        table_id=(
+            f"pdf_text_stat:p{page}:{fig_name}"
+            if fig_name
+            else f"pdf_text_stat:p{page}"
+        ),
         source_kind="pdf_text_stat",
         source_path="(text-layer extraction)",
         sheet_name="",
@@ -460,6 +481,7 @@ def _assemble_table(
         source_index=max(0, page - 1),
         headers=headers,
         rows=table_rows,
+        fig_name=fig_name,
     )
 
 
@@ -525,16 +547,17 @@ def extract_tables_from_text(
     if not text_blocks:
         return []
     # Group sentences by page
-    per_page_rows: dict[int, list[_StatRow]] = {}
+    per_group_rows: dict[tuple[int, str], list[_StatRow]] = {}
     for block in text_blocks:
         text = getattr(block, "text", "") or ""
         if not text:
             continue
         page = _block_page(block)
+        fig_name = _fig_name_from_text(text)
         for sent in _split_sentences(text):
-            r = _row_from_sentence(sent, page)
+            r = _row_from_sentence(sent, page, fig_name)
             if r is not None:
-                per_page_rows.setdefault(page, []).append(r)
+                per_group_rows.setdefault((page, r.fig_name), []).append(r)
     # R-2026-06-15 (T5.2):
     # for each page, run the
     # row-block merge so that
@@ -547,13 +570,13 @@ def extract_tables_from_text(
     # Frontiers papers (whose
     # text doesn't put n and
     # value in the same sentence).
-    for page in list(per_page_rows.keys()):
-        per_page_rows[page] = _merge_n_propagation(
-            per_page_rows[page]
+    for key in list(per_group_rows.keys()):
+        per_group_rows[key] = _merge_n_propagation(
+            per_group_rows[key]
         )
     out: list[ExtractedTable] = []
-    for page in sorted(per_page_rows):
-        t = _assemble_table(per_page_rows[page], page)
+    for page, fig_name in sorted(per_group_rows):
+        t = _assemble_table(per_group_rows[(page, fig_name)], page, fig_name)
         if t is not None:
             out.append(t)
             if len(out) >= max_tables:
@@ -562,7 +585,7 @@ def extract_tables_from_text(
         "extract_tables_from_text: %d table(s) from %d page(s) "
         "(source=%s)",
         len(out),
-        len(per_page_rows),
+        len({page for page, _ in per_group_rows}),
         source_path or "<unknown>",
     )
     return out

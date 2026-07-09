@@ -694,17 +694,6 @@ def test_bash_blocks_needs_confirm_by_default():
         "mutating" in err
         or "manusift_allow_needs_confirm" in err
     )
-    err = out.get("error", "").lower()
-    if (
-        out.get("error_kind") == "permission_denied"
-        and "mutating" in err
-    ):
-        raise AssertionError(
-            f"classifier blocked a "
-            f"needs_confirm command "
-            f"even though the env var "
-            f"is set: {out}"
-        )
 
 
 def test_bash_allows_needs_confirm_with_env(

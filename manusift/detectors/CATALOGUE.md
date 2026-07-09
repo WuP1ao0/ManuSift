@@ -41,6 +41,7 @@ Each detector exposes a `Finding` with a deterministic `detector_id` (the entry-
 - [`table_benford`](#table-benford)
 - [`table_duplicate_row`](#table-duplicate-row)
 - [`table_outlier`](#table-outlier)
+- [`table_relationships`](#table-relationships)
 - [`table_round_bias`](#table-round-bias)
 - [`text_patterns`](#text-patterns)
 - [`text_tortured_phrases`](#text-tortured-phrases)
@@ -100,6 +101,9 @@ Each detector exposes a `Finding` with a deterministic `detector_id` (the entry-
 ### `image_forensics`
 
 > Image-forensics analysis: Error Level Analysis (ELA) on every
+> extracted image, copy-move checks inside each image, and exact
+> or near high-texture block reuse across different images,
+> including right-angle rotated local texture reuse.
 
 
 ### `image_noise_inconsistency`
@@ -220,6 +224,19 @@ Each detector exposes a `Finding` with a deterministic `detector_id` (the entry-
 ### `table_outlier`
 
 > For every numeric column,
+
+
+### `table_relationships`
+
+> Flag exact arithmetic relationships across manuscript data tables,
+> including pairwise and multi-column high duplicate rates, improbable
+> repeated values, cross-table repeated values and fixed offsets,
+> matching decimal tails, integer-shift decimal-tail reuse,
+> integer-part digit changes with copied decimal tails, and
+> three-column add/subtract identities, perfect or near-perfect
+> arithmetic progressions, one- or two-digit terminal concentration
+> within a column or aggregated across multiple tables, and zero or
+> constant values in SD/STD/SEM-style variability columns.
 
 
 ### `table_round_bias`

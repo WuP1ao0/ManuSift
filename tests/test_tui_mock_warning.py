@@ -155,6 +155,7 @@ def test_tui_warns_when_mock_llm(
     def fake_append(self, msg) -> None:
         captured.append((msg.role, str(msg.content)))
 
+    _original_append = chat_app.ChatApp._append_message
     chat_app.ChatApp._append_message = fake_append
     try:
         # Use
@@ -220,7 +221,7 @@ def test_tui_warns_when_mock_llm(
                 )
             )
     finally:
-        del chat_app.ChatApp._append_message
+        chat_app.ChatApp._append_message = _original_append
 
     assert any(
         role == "system" and "MockLLM" in content
@@ -257,6 +258,7 @@ def test_tui_silent_when_real_llm() -> None:
     def fake_append(self, msg) -> None:
         captured.append((msg.role, str(msg.content)))
 
+    _original_append = chat_app.ChatApp._append_message
     chat_app.ChatApp._append_message = fake_append
     try:
         app = chat_app.ChatApp(llm_client=real_client)
@@ -270,7 +272,7 @@ def test_tui_silent_when_real_llm() -> None:
                 )
             )
     finally:
-        del chat_app.ChatApp._append_message
+        chat_app.ChatApp._append_message = _original_append
 
     assert not any(
         "MockLLM" in content for _, content in captured

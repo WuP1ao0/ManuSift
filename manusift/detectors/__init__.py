@@ -63,6 +63,7 @@ _DETECTOR_SPECS: tuple[DetectorSpec, ...] = (
     DetectorSpec("SiftCopyMoveDetector", "sift_copymove", "image_sift_copymove"),
     DetectorSpec("SsimDuplicateDetector", "ssim", "image_ssim"),
     DetectorSpec("SupplementaryFileDetector", "supplementary", "supplementary"),
+    DetectorSpec("TableRelationshipDetector", "table_relationships", "table_relationships"),
     DetectorSpec("TextPatternDetector", "text_patterns", "text_patterns"),
     DetectorSpec("TorturedPhrasesDetector", "tortured_phrases", "text_tortured_phrases"),
     DetectorSpec("WHashDetector", "imagehash_dup", "imagehash_whash"),

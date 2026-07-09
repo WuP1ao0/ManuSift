@@ -43,3 +43,22 @@ def tmp_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     from manusift.llm import client as llm_client
     llm_client._reset_for_tests()
     return tmp_path / "jobs"
+
+
+@pytest.fixture(autouse=True)
+def _reset_global_state() -> None:
+    """Reset module-level mutable state between tests to prevent
+    test-order state leakage (disabled tools, get_settings patches,
+    LLM client singleton).
+    """
+    from manusift.tools import registry as tool_reg
+    import manusift.config as cfg_mod
+    from manusift.llm import client as llm_client
+
+    tool_reg.reset_disabled()
+    _original_get_settings = cfg_mod.get_settings
+    llm_client._reset_for_tests()
+    yield
+    tool_reg.reset_disabled()
+    cfg_mod.get_settings = _original_get_settings
+    llm_client._reset_for_tests()

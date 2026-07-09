@@ -32,6 +32,43 @@ from manusift.tui.chat_app import (
 from textual.widgets import Static as _TwStatic
 
 
+@pytest.fixture(autouse=True)
+def _ensure_chatapp_commands():
+    """Ensure ChatApp slash commands (e.g. /upload) are registered.
+
+    Other test files (e.g. test_slash_registry.py) clear the slash
+    command registry in their fixtures. If ChatApp was already
+    imported, the module-level register() calls won't fire again,
+    leaving /upload and other commands missing. This fixture
+    re-registers any missing ChatApp commands before each test.
+    """
+    from manusift.tui.slash_registry import find, iter_commands
+
+    if find("upload") is None:
+        # ChatApp commands were cleared by a prior test's fixture.
+        # Re-register by reloading the module-level code.
+        import importlib
+        import manusift.tui.chat_app as _ca_mod
+        # Re-run the module-level register() calls by re-executing
+        # the trailing block of chat_app.py. We use importlib.reload
+        # carefully — it creates a new ChatApp class, but the tests
+        # in this file already hold a reference to the old one.
+        # The slash commands use lambdas that call app._cmd_upload(arg)
+        # which works on any ChatApp instance (old or new) via duck-typing.
+        # So we only need the register calls, not the class itself.
+        # Instead of reload (which has side effects), we manually
+        # re-register the commands the tests need.
+        from manusift.tui.slash_registry import SlashCommand, register
+
+        register(SlashCommand(
+            name="upload",
+            description="attach a PDF for analysis",
+            category="Chat",
+            handler=lambda app, arg: app._cmd_upload(arg),
+        ))
+    yield
+
+
 # R-audit (2026-06-10):
 # ``render_message`` now
 # returns a
@@ -179,6 +216,8 @@ async def test_upload_copies_pdf_and_binds_ctx(
         from textual.widgets import Input, TextArea
         inp = app.query_one("#input", TextArea)
         inp.text = f"/upload {pdf_path}"
+        inp.focus()
+        await pilot.pause(0.1)
         # Simulate pressing Enter.
         await pilot.press("ctrl+j")
         await pilot.pause()
@@ -571,6 +610,8 @@ async def test_input_path_review_ingests_data_and_writes_html_report(
             f"review {pdf_path} with original data "
             f"{raw_data_dir} and generate an HTML report"
         )
+        inp.focus()
+        await pilot.pause(0.1)
         await pilot.press("ctrl+j")
         for _ in range(120):
             await pilot.pause(0.05)

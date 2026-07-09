@@ -357,6 +357,7 @@ def test_p4_register_agent_tools_returns_all_tools() -> None:
             "web_search",
             "web_fetch",
             "bash",
+            "diff",
             "grep",
             "glob",
             "task",

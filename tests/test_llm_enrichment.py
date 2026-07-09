@@ -124,8 +124,7 @@ def test_enrichment_disabled_when_concurrency_zero(monkeypatch) -> None:
     monkeypatch.setattr(pipeline_mod, "get_llm_client", lambda: static)
 
     # Force a single Settings instance for the whole test.
-    s = get_settings()
-    s.llm_max_concurrency = 0
+    s = get_settings().model_copy(update={"llm_max_concurrency": 0})
     monkeypatch.setattr(pipeline_mod, "get_settings", lambda: s)
 
     findings = [_mk_finding("high", "h1"), _mk_finding("medium", "m1")]
@@ -199,9 +198,10 @@ def test_enrichment_uses_thread_pool(monkeypatch) -> None:
     static = _StaticLLM(delay=0.2)
     monkeypatch.setattr(pipeline_mod, "get_llm_client", lambda: static)
 
-    s = get_settings()
-    s.llm_max_concurrency = 4
-    s.llm_enrichment_budget_seconds = 5.0
+    s = get_settings().model_copy(update={
+        "llm_max_concurrency": 4,
+        "llm_enrichment_budget_seconds": 5.0,
+    })
     monkeypatch.setattr(pipeline_mod, "get_settings", lambda: s)
 
     findings = [_mk_finding("high", f"h{i}") for i in range(4)]

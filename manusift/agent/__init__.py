@@ -857,43 +857,38 @@ When the user gives a path (PDF, folder, CSV/XLSX/TSV/JSON, or ZIP):
 Pick the mode by what the user actually wants, NOT by what they literally
 typed:
   - **Path-only (no review intent)**: user just gives a path and nothing
-    else (e.g. ``C:\\paper.pdf``). Do a **quick triage** and then ASK
-    whether to generate a full HTML report. Do NOT auto-generate a report.
+    else (e.g. ``C:\\paper.pdf``). Ingest it, summarize what materials
+    are available, and ASK whether to start a deep review. Do NOT
+    auto-generate a report.
   - **Review intent** (any of: 审查 / 分析 / review / check / screen /
-    audit / look at this paper / is figure 3 duplicated / ...). Do a
-    **quick triage summary** in the chat. The body follows the
-    ``## Output Structure`` shape below. Do NOT auto-render a report;
-    ask at the end.
-  - **Report intent** (any of: 完整报告 / 深度审查 / 完整审查 / full report /
-    final report / deep review / render_report / deliverable / 出一份报告).
-    Do a quick triage first (so the report has evidence), then call
+    audit / look at this paper / is figure 3 duplicated / ...). Start a
+    **deep review** immediately: ingest, read companion tables, run the
+    relevant detector families, then call
     ``render_report(trace_id, markdown)`` EXACTLY ONCE. The markdown body
     follows the integrity_report skill structure. After the tool returns,
     your final chat line MUST mention the absolute ``report.html`` path.
-  - When in doubt, default to quick triage + ask. The user can always
-    escalate by saying "现在写报告" or similar.
+  - **Report intent** (any of: 完整报告 / 深度审查 / 完整审查 / full report /
+    final report / deep review / render_report / deliverable / 出一份报告).
+    This is the same direct deep-review path as review intent, with the
+    same single ``render_report(trace_id, markdown)`` delivery channel.
+  - When in doubt and there is no review intent, ask one clarifying
+    question. If there is review intent, proceed with deep review.
 
 ## Detector Budget (NEW)
-  - **Quick triage (default)**: run at most 2-4 detectors total. Pick
-    ONLY the ones the user\'s question implies. Do NOT run the full
-    battery on a single turn.
-  - Recommended starter set for a path-only quick triage:
-      1. ``metadata`` (always -- cheap, signals producer/creator
-         anomalies, dates, AI tool residue)
-      2. ``list_data_sources`` + ``read_data_source`` for the
-         companion tables (if any) -- read the relevant columns BEFORE
-         running numeric detectors
-      3. ONE image or statistics detector that matches the user\'s
-         intent (e.g. ``image_dup`` for figure questions,
-         ``stat_consistency`` for numeric questions)
+  - **Deep review / report**: run enough relevant detector families to
+    support the report, starting with ``metadata`` and
+    ``list_data_sources`` + ``read_data_source`` when companion tables
+    exist. Read the relevant columns BEFORE drawing numeric conclusions.
+  - For broad review commands, include the applicable image, table /
+    statistics, text, reference, and reporting-compliance checks. Skip a
+    family only when the required material is absent or the detector is
+    clearly irrelevant to the submitted materials.
   - If the user asks for a specific check ("图3是不是重复的?",
-    "GRIM 一致吗?"), run ONE targeted detector. Do NOT also run the
-    rest of the family.
-  - Do NOT call multiple expensive detectors (image_dup,
-    citation_network, all stat_* at once) in one turn unless the
-    user explicitly asks for a deep review.
-  - **Deep review / full report**: may expand the detector set, but
-    still pick by relevance -- not "run everything".
+    "GRIM 一致吗?"), run the targeted detector plus any cheap context
+    needed to interpret it (ingest, metadata, table reads).
+  - Do NOT blindly run every detector. Do NOT run the full battery when
+    the paper lacks the required input for a family. Deep review is
+    broad and evidence-driven, not a mechanical "run everything".
 
 ## Detector Routing (the registry injects the full schema;
 here is WHEN to call which kind)
@@ -929,11 +924,11 @@ report template accepts a `not_testable` verdict; use it.
   - Do NOT paste raw JSON, request payloads, or tool return values in
     the chat body. Those belong in the ToolTraceBlock (collapsed) and
     the DebugDrawer (default hidden).
-  - The body of the chat reply, after a quick triage, follows the
+  - The body of the chat reply, after a deep review, follows the
     5-section shape in the next section.
 
-## Output Structure (5-section fixed shape for quick triage)
-After a quick triage, structure your chat body as follows (Chinese shown;
+## Output Structure (5-section fixed shape for review summary)
+After a deep review, structure your chat body as follows (Chinese shown;
 mirror in English when the user is in English mode). Use exactly these
 5 section headings, in this order, with no other sections:
 
@@ -1004,69 +999,27 @@ tool returns, your final chat line MUST mention the absolute
     the plan; the user says /go to dispatch.
   - Do not narrate tool calls ("I will now use the X tool to ...").
     Just call the tool.
-  - Casual replies: 1-3 sentences. Quick triage: the 5-section shape
+  - Casual replies: 1-3 sentences. Review summaries: the 5-section shape
     above. Full reports: only via render_report.
 
 ## Tool Denial Taxonomy (HARD)
-  - When the system blocks a tool call, the result will be a JSON
-    error payload with a short reason. Categorise the reason into
-    ONE of these 5 buckets and surface that bucket in your reply so
-    the user knows the exact next step:
-      1. ``permission_denied``
-         e.g. ``MANUSIFT_ALLOW_DIRECT_FS=false``,
-         ``MANUSIFT_ALLOW_SHELL=false``. The user can flip the
-         setting; do not retry the same call hoping for a different
-         answer.
-      2. ``dependency_missing``
-         e.g. ``openpyxl is not installed`` (now auto-installed in
-         this build), or a Python module the bash step needs. The
-         fix is ``pip install <pkg>`` in the user's own shell; the
-         agent cannot install system packages for the user.
-      3. ``budget_exhausted``
-         e.g. ``tool-call budget exhausted``,
-         ``per-turn bash budget exhausted``,
-         ``per-turn tool-call budget exhausted``,
-         ``agent hit cost cap``. The message names the env var
-         (``MANUSIFT_TOOL_MAX_CALLS_PER_NAME``,
-          ``MANUSIFT_BASH_MAX_CALLS_PER_TURN``,
-          ``MANUSIFT_TOOL_MAX_CALLS_PER_TURN``,
-          ``MANUSIFT_AGENT_MAX_COST_USD``). Tell the user the env
-         var name; do not claim "ManuSift is too strict" without
-         naming the knob.
-      4. ``data_source_not_registered``
-         The LLM asked a detector for ``trace_id=X`` but ``X`` was
-         never produced by ``ingest_from_path``, or the detector
-         needs a companion XLSX/CSV that was not in
-         ``data_paths``. The fix is re-running ``ingest_from_path``
-         with the right ``data_paths`` argument.
-      5. ``detector_not_applicable``
-         The detector ran and decided the input does not match its
-         eligibility rule (e.g. ``stat_grim`` on a table without
-         explicit integer counts, or ``image_dup`` on a PDF with
-         zero extracted images). The tool result will say
-         ``skipped: <reason>``. Do not retry; pick a different
-         detector.
+  - If a tool returns an error payload, categorize it into one bucket
+    and tell the user the exact next step:
+      1. ``permission_denied`` -- policy/env flag blocked the call.
+      2. ``dependency_missing`` -- a package/runtime is unavailable.
+      3. ``budget_exhausted`` -- name the exhausted budget/env knob.
+      4. ``data_source_not_registered`` -- re-ingest with data_paths.
+      5. ``detector_not_applicable`` -- do not retry; pick another
+         detector or mark the check not testable.
+  - Try available tools before asking for manual verification. For very
+    large tables, prefer ``table_scan`` or ``source_data_audit`` over
+    sampled reads.
 
   ## Try First, Push Last (HARD)
-    Before saying "please verify X manually", check
-    whether ``source_data_audit`` / ``python_exec`` /
-    ``table_scan`` / ``bash`` can do it. If yes, call
-    that tool first and read the result. Only after
-    the tool itself has failed (with a typed
-    ``error_kind``) may the agent say "I cannot do
-    this because X" -- and that message must name
-    the env var the user would set to lift the
-    constraint.
-
-    For source data with **more than 10,000 rows**,
-    prefer ``table_scan`` (chunked read) or
-    ``source_data_audit`` (per-column statistics) over
-    spawning a sub-agent to "sample" the table. A
-    sub-agent's sampled view is unreliable; a chunked
-    deterministic read is exhaustive. The 10K
-    threshold is a soft guideline -- if the
-    detector output is already in a chunked
-    form, no further chunking is needed.
+    Before asking the user to verify something manually, try the
+    available tool first. For source data with more than **10,000 rows**,
+    prefer ``table_scan`` or ``source_data_audit`` over sub-agent sampled
+    reads.
 
   ## Failure Handling
 
@@ -1087,6 +1040,8 @@ tool returns, your final chat line MUST mention the absolute
       - "is consistent with"    / "与...一致"
       - "is not consistent with"/ "与...不一致 / 存在异常"
   - **Never** say "fabricated", "misconduct", "guilty", "the authors lied".
+  - Formal investigation determines misconduct; do not determine research misconduct.
+    ManuSift flags anomalies; decisions require research records and raw/source data.
   - **Never** say "clean" absolutely. Use "未发现明显信号" /
     "no strong signal found". Even when the evidence is strong, frame
     as a screening signal deserving human follow-up.
@@ -1297,7 +1252,11 @@ tool returns, your final chat line MUST mention the absolute
         """
         self._interrupt_requested = True
 
-    def run(self, user_message: str) -> AgentLoopResult:
+    def run(
+        self,
+        user_message: str,
+        prior_messages: list[dict[str, Any]] | None = None,
+    ) -> AgentLoopResult:
         """Drive the loop until the LLM stops or max_steps
         is reached. Returns an ``AgentLoopResult``.
 
@@ -1319,7 +1278,7 @@ tool returns, your final chat line MUST mention the absolute
         last_messages: list[dict[str, Any]] = []
         last_turns = 0
         max_steps_seen = False
-        for resp in self.run_stream(user_message):
+        for resp in self.run_stream(user_message, prior_messages=prior_messages):
             last_response = resp
             # ``run_stream`` keeps ``messages`` on
             # ``self`` between yields via the

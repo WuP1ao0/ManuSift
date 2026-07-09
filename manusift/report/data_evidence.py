@@ -323,6 +323,96 @@ def explain_image_forensics(finding_dict: dict[str, Any]) -> Any:
     # detector-specific fields under ``raw``. The
     # dispatcher already lifts them via ``_unwrap_raw``;
     # we read them at the top level here.
+    if finding_dict.get("kind") in {
+        "texture_overlap",
+        "near_texture_overlap",
+        "rotated_texture_overlap",
+    }:
+        kind = finding_dict.get("kind")
+        is_near = kind == "near_texture_overlap"
+        is_rotated = kind == "rotated_texture_overlap"
+        image_a = finding_dict.get("image_a", {}) or {}
+        image_b = finding_dict.get("image_b", {}) or {}
+        cell_a = finding_dict.get("cell_a", [0, 0])
+        cell_b = finding_dict.get("cell_b", [0, 0])
+        grid = finding_dict.get("grid", 4)
+        cell_side = finding_dict.get("cell_side")
+        hash_distance = finding_dict.get("hash_distance")
+        rotation_degrees = finding_dict.get("rotation_degrees")
+        std_a = finding_dict.get("std_a")
+        std_b = finding_dict.get("std_b")
+        if is_near:
+            reasoning = (
+                "Found similar high-variance local texture across images "
+                f"between cell {tuple(cell_a)} and cell {tuple(cell_b)} "
+                f"(hash distance {hash_distance}). This can match reused "
+                "protein-band texture, repeated shadows, or a copied defect "
+                "after brightness or compression changes, and needs manual "
+                "inspection against the original source data."
+            )
+        elif is_rotated:
+            reasoning = (
+                "Found matching high-variance local texture across images "
+                "after a right-angle rotation "
+                f"({rotation_degrees} degrees), between cell {tuple(cell_a)} "
+                f"and cell {tuple(cell_b)}. This can match reused protein-band "
+                "texture, repeated shadows, or a copied defect, and needs manual "
+                "inspection against the original source data."
+            )
+        else:
+            reasoning = (
+                "Found identical high-variance local texture across images "
+                f"between cell {tuple(cell_a)} and cell {tuple(cell_b)}. "
+                "This can match reused protein-band texture, repeated shadows, "
+                "or a copied defect, and needs manual inspection against the "
+                "original source data."
+            )
+        return VisualFinding(
+            finding_id=finding_dict.get("finding_id", ""),
+            severity=Severity.MEDIUM if is_near or is_rotated else Severity.HIGH,
+            confidence=0.65 if is_near or is_rotated else 0.75,
+            detector="image_forensics",
+            summary=(
+                "Possible similar local texture across images."
+                if is_near
+                else "Possible rotated local texture across images."
+                if is_rotated
+                else "Possible reused local texture across images."
+            ),
+            location_a=Location(
+                page=image_a.get("page") + 1 if image_a.get("page") is not None else None,
+                image_index=image_a.get("index"),
+                source_image=image_a.get("image_path"),
+                note=f"cell {tuple(cell_a)}",
+            ),
+            location_b=Location(
+                page=image_b.get("page") + 1 if image_b.get("page") is not None else None,
+                image_index=image_b.get("index"),
+                source_image=image_b.get("image_path"),
+                note=f"cell {tuple(cell_b)}",
+            ),
+            metrics={
+                "grid": grid,
+                "cell_side": cell_side,
+                "hash_distance": hash_distance,
+                "rotation_degrees": rotation_degrees,
+                "std_a": std_a,
+                "std_b": std_b,
+            },
+            reasoning=reasoning,
+            limitations=[
+                "The detector compares aligned grid cells, so shifted reuse may be missed.",
+                "Repeated acquisition artifacts or reused controls can be legitimate in context.",
+                "This is a screening signal, not a standalone conclusion of image manipulation.",
+            ],
+            manual_review=[
+                "Inspect both source images at full resolution.",
+                "Check whether the paper explicitly reuses the same control or panel.",
+                "Compare the flagged regions against original/raw image files when available.",
+            ],
+            raw_finding=finding_dict,
+        )
+
     page = finding_dict.get("page")
     index = finding_dict.get("index")
     image_path = finding_dict.get("image_path")
@@ -574,6 +664,64 @@ def explain_data_availability(finding_dict: dict[str, Any]) -> Any:
     )
 
 
+def explain_table_relationships(finding_dict: dict[str, Any]) -> NumericalFinding:
+    """table_relationships: arithmetic or distribution anomalies in tables."""
+
+    try:
+        severity = Severity(finding_dict.get("severity", "medium"))
+    except ValueError:
+        severity = Severity.MEDIUM
+    check = str(finding_dict.get("check") or "table_relationship")
+    title = finding_dict.get("title") or "Suspicious table relationship"
+    location_text = finding_dict.get("location") or ""
+    input_values = {
+        key: value
+        for key, value in finding_dict.items()
+        if key
+        not in {
+            "finding_id",
+            "trace_id",
+            "detector",
+            "severity",
+            "title",
+            "evidence",
+            "location",
+            "raw",
+        }
+    }
+    observed = finding_dict.get("evidence") or title
+    return NumericalFinding(
+        finding_id=finding_dict.get("finding_id", ""),
+        severity=severity,
+        confidence=0.7,
+        detector="table_relationships",
+        summary=title,
+        location=Location(note=location_text),
+        test_name=check,
+        test_description=(
+            "Check manuscript table values for exact arithmetic, repeated "
+            "decimal-tail, duplicate-rate, mirror, or terminal-digit patterns."
+        ),
+        input_values=input_values,
+        expected_constraint=(
+            "Independent experimental measurements should not show exact, "
+            "mechanical relationships unless the manuscript explicitly explains "
+            "the transformation or shared control."
+        ),
+        observed_value=str(observed),
+        result="unusual",
+        reasoning=(
+            f"{title}. This is a screening signal from table_relationships, "
+            "not a standalone conclusion of fabrication."
+        ),
+        limitations=[
+            "Derived, normalized, or reused-control columns can legitimately have exact relationships.",
+            "Manual review should check table captions, methods, and source data before drawing conclusions.",
+        ],
+        raw_finding=finding_dict,
+    )
+
+
 # Dispatcher
 # --
 # each
@@ -595,6 +743,7 @@ _EXPLAINERS = {
     "page_raster_dup": explain_image_dup,  # same shape, different detector
     "figure_stat_text": explain_figure_stat_text,
     "data_availability_concern": explain_data_availability,
+    "table_relationships": explain_table_relationships,
 }
 
 

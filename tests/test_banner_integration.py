@@ -69,7 +69,7 @@ def test_chat_app_compose_has_banner_widget() -> None:
     # regression that removes the
     # banner widget.
     import inspect
-    src = inspect.getsource(ChatApp.compose)
+    src = inspect.getsource(ChatApp._main_column_children)
     assert 'id="banner"' in src
 
 
@@ -87,7 +87,7 @@ def test_banner_widget_uses_compact_splash() -> None:
     """
     from manusift.tui.chat_app import ChatApp
     import inspect
-    src = inspect.getsource(ChatApp.compose)
+    src = inspect.getsource(ChatApp._main_column_children)
     # The compose() body must
     # call
     # ``render_compact_splash(use_color=False, ...)``

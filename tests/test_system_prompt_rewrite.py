@@ -184,17 +184,14 @@ def test_prompt_mentions_csv_xlsx_tsv_json(system_prompt_text: str) -> None:
 
 
 def test_prompt_has_3_trigger_classes(system_prompt_text: str) -> None:
-    """R-2026-06-14 v2: the prompt classifies user intent
-    into 3 trigger classes: path-only, review intent,
-    report intent. Quick triage is the default for
-    path-only and review intent; only report intent
-    auto-calls render_report.
-    """
+    """Review commands should start deep review directly."""
     assert "Path-only" in system_prompt_text
     assert "Review intent" in system_prompt_text
     assert "Report intent" in system_prompt_text
-    # Quick triage is the default.
-    assert "quick triage" in system_prompt_text.lower()
+    lower = system_prompt_text.lower()
+    assert "quick triage" not in lower
+    assert "render_report" in lower
+    assert "report.html" in lower
 
 
 def test_prompt_lists_deep_review_triggers(system_prompt_text: str) -> None:
@@ -208,17 +205,12 @@ def test_prompt_lists_deep_review_triggers(system_prompt_text: str) -> None:
 
 
 def test_prompt_has_detector_budget_section(system_prompt_text: str) -> None:
-    """R-2026-06-14 v2: a new ``## Detector Budget`` section
-    caps quick triage at 2-4 detectors and explicitly
-    forbids running the full battery in one turn. This
-    is the anti-cost-cap regression fix.
-    """
+    """Detector budget should support deep review for review commands."""
     assert "## Detector Budget" in system_prompt_text
-    # The section caps quick triage.
-    assert "2-4 detectors" in system_prompt_text or "at most 2-4" in system_prompt_text
-    # Recommends a specific starter set (metadata +
-    # data sources + one targeted detector) so the
-    # LLM does not over-spend.
+    lower = system_prompt_text.lower()
+    assert "2-4 detectors" not in lower
+    assert "at most 2-4" not in lower
+    assert "deep review" in lower
     assert "metadata" in system_prompt_text
     assert "list_data_sources" in system_prompt_text
 
@@ -226,19 +218,12 @@ def test_prompt_has_detector_budget_section(system_prompt_text: str) -> None:
 def test_prompt_does_not_default_to_running_all_detectors(
     system_prompt_text: str,
 ) -> None:
-    """R-2026-06-14 v2: the prompt must explicitly NOT
-    default to running all detectors. The phrasing
-    was updated to match the new Detector Budget
-    section -- it now says "Do NOT run the full
-    battery" and "Do NOT call multiple expensive
-    detectors".
-    """
+    """Deep review should still select relevant detectors, not everything."""
     lower = system_prompt_text.lower()
-    # Accept either the v1 wording or the v2 wording.
     assert (
         "do not default to running all detectors" in lower
         or "do not run the full battery" in lower
-        or "do not call multiple expensive detectors" in lower
+        or "do not blindly run every detector" in lower
     )
 
 
@@ -420,6 +405,19 @@ def test_prompt_no_absolute_clean_or_benign(
         "**never** say \"benign\"" in lower
         or "**never** say 'benign'" in lower
     )
+
+
+def test_prompt_names_formal_investigation_boundary(
+    system_prompt_text: str,
+) -> None:
+    """ManuSift must screen, while formal investigations
+    determine research misconduct using research records.
+    """
+    lower = system_prompt_text.lower()
+    assert "formal investigation" in lower
+    assert "research records" in lower
+    assert "raw/source data" in lower
+    assert "do not determine research misconduct" in lower
 
 
 # --------------------------------------------------------------------
@@ -620,7 +618,7 @@ def test_prompt_v2_has_specific_sections(system_prompt_text: str) -> None:
         "## Detector Routing",
         "## Not-Testable Is a Valid Output",
         "## Output Body (HARD -- no raw detector dump)",
-        "## Output Structure (5-section fixed shape for quick triage)",
+        "## Output Structure (5-section fixed shape for review summary)",
         "## Report Contract (render_report is the single delivery channel)",
         "## TUI Chat Style (HARD)",
         "## Failure Handling",

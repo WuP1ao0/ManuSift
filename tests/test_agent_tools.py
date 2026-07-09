@@ -28,6 +28,8 @@ import os
 import subprocess
 import sys
 
+import pytest
+
 os.chdir(r"C:/Users/22509/Desktop/ManuSift1")
 
 
@@ -145,6 +147,44 @@ def test_web_fetch_rejects_non_http_schemes() -> None:
     )
     assert out["ok"] is False
     assert "unsupported scheme" in out["error"]
+
+
+def test_web_fetch_strips_html_without_network(monkeypatch) -> None:
+    """``web_fetch`` should strip HTML with its local stdlib path.
+
+    The network smoke test above may skip on egress failures, so this
+    pins the actual parser path without depending on example.com.
+    """
+    from manusift.tools.agent_tools import web_fetch as wf
+    from manusift.tools.agent_tools import WebFetchTool
+    from manusift.tools.tool import ToolContext
+
+    class FakeResponse:
+        headers = {"Content-Type": "text/html; charset=utf-8"}
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def read(self, n: int) -> bytes:
+            return b"<html><script>bad()</script><body>Hello <b>world</b></body></html>"
+
+    def fake_urlopen(req, timeout=15):
+        return FakeResponse()
+
+    monkeypatch.setattr(wf.urllib.request, "urlopen", fake_urlopen)
+
+    out = json.loads(
+        WebFetchTool().execute(
+            {"url": "https://example.test/page"},
+            ToolContext(trace_id="t"),
+        )
+    )
+
+    assert out["ok"] is True
+    assert out["text"] == "Hello world"
 
 
 # ---------- 3. bash (with safety blocklist) ----------
@@ -303,6 +343,7 @@ def test_bash_blocks_fork_bomb() -> None:
 
 
 def test_bash_respects_cwd(
+    tmp_path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """``cwd`` parameter
@@ -330,17 +371,31 @@ def test_bash_respects_cwd(
     correct).
     """
     from manusift.tools.agent_tools import BashTool
+    from manusift.config import Settings
     from manusift.tools.tool import ToolContext
 
+    if os.name != "nt":
+        pytest.skip("cmd.exe cwd echo contract is Windows-only")
     monkeypatch.setenv(
         "MANUSIFT_ALLOW_NEEDS_CONFIRM", "true"
+    )
+    monkeypatch.setenv("MANUSIFT_SHELL_MODE", "cmd")
+    ws_settings = Settings(
+        _env_file=None,  # type: ignore[call-arg]
+        workspace_dir=tmp_path,  # type: ignore[arg-type]
+    )
+    import manusift.config as config_module
+    monkeypatch.setattr(
+        config_module,
+        "get_settings",
+        lambda: ws_settings,
     )
     tool = BashTool()
     out = json.loads(
         tool.execute(
             {
                 "command": "cd",
-                "cwd": "C:/Users/22509/Desktop",
+                "cwd": str(tmp_path),
             },
             ToolContext(trace_id="t"),
         )
@@ -357,8 +412,8 @@ def test_bash_respects_cwd(
     # default
     # since R-2026-06-14).
     assert (
-        "Desktop" in out["stdout"]
-        or "Desktop" in out["stdout"].replace("\\", "/")
+        str(tmp_path) in out["stdout"]
+        or str(tmp_path).replace("\\", "/") in out["stdout"].replace("\\", "/")
     )
 
 

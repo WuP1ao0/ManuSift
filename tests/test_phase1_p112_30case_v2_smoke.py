@@ -233,6 +233,7 @@ def test_p112_expected_detectors_present() -> None:
     )
 
 
+@pytest.mark.slow
 def test_p112_smoke_run_one_case_in_subprocess() -> None:
     """Run ONE case
     (case_bio_001) in a

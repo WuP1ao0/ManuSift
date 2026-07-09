@@ -115,6 +115,7 @@ from dataclasses import (
     field,
 )
 from typing import Any
+from collections.abc import Mapping
 
 
 # Well-known
@@ -424,7 +425,7 @@ class ToolReport:
             reporter's.
         """
         md = metadata or {}
-        if not isinstance(md, dict):
+        if not isinstance(md, Mapping):
             md = {}
         # Coerce
         # each

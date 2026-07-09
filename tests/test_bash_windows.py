@@ -62,7 +62,7 @@ def test_shell_command_args_auto_picks_a_real_shell(monkeypatch):
         # probe; we accept either cmd or powershell
         # as the auto fallback.
         assert Path(args[0]).name.lower() in {
-            "cmd.exe", "powershell.exe", "bash"
+            "cmd.exe", "powershell.exe", "bash", "bash.exe"
         }
     else:
         # On Linux/macOS bash is always available.

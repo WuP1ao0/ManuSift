@@ -30,14 +30,18 @@ from __future__ import annotations
 
 import pytest
 
-# Reuse the existing
-# ``system_prompt_text`` fixture
-# from ``test_system_prompt_rewrite``.
-# pytest fixtures are
-# automatically shared
-# across test files in the
-# same directory.
-pytest_plugins = ["tests.test_system_prompt_rewrite"]
+from manusift.agent import AgentLoop
+from manusift.tools.tool import ToolContext
+
+
+@pytest.fixture(scope="module")
+def system_prompt_text() -> str:
+    loop = AgentLoop(
+        client=object(),
+        tools=[],
+        ctx=ToolContext(trace_id="phase06-fixture-trace"),
+    )
+    return loop._system_prompt
 
 
 def test_honesty_about_tool_use_rule_present(

@@ -301,6 +301,11 @@ class ExtractedTable:
     # PDF-native,
     # text-stat).
     bbox: dict[str, int] | None = None
+    # Cells visibly marked in the source spreadsheet
+    # (for example a yellow fill/highlight). Coordinates are
+    # 0-based relative to ``rows`` / ``headers`` plus 1-based
+    # source spreadsheet coordinates for audit traceability.
+    highlighted_cells: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

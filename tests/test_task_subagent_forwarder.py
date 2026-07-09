@@ -149,12 +149,12 @@ def test_run_subagent_with_timeout_completes():
     fwd = forwarder_module._SubagentEventForwarder(
         new_subagent_id(), "pure"
     )
-    text, completed, err = run_subagent_with_timeout(
+    result = run_subagent_with_timeout(
         loop, "hi", timeout_seconds=2.0, forwarder=fwd
     )
-    assert completed is True
-    assert err is None
-    assert text == "all done"
+    assert result.ok is True
+    assert result.error_kind is None
+    assert result.output == "all done"
 
 
 def test_run_subagent_with_timeout_times_out():
@@ -173,12 +173,12 @@ def test_run_subagent_with_timeout_times_out():
         new_subagent_id(), "hanging"
     )
     t0 = time.monotonic()
-    text, completed, err = run_subagent_with_timeout(
+    result = run_subagent_with_timeout(
         loop, "hi", timeout_seconds=0.3, forwarder=fwd
     )
     dt = time.monotonic() - t0
-    assert completed is False
-    assert "timed out" in (err or "")
+    assert result.ok is False
+    assert "timeout" in (result.error_kind or "")
     assert 0.2 < dt < 1.5, f"timeout took {dt:.2f}s, expected < 1.5s"
 
 
@@ -314,7 +314,7 @@ def test_task_tool_timeout_returns_typed_error(
     assert dt < 2.0, f"task tool took {dt:.2f}s, expected < 2s"
     assert payload["ok"] is False
     assert payload["error_kind"] == "budget_exhausted"
-    assert "timed out" in payload["error"]
+    assert "timeout" in payload["error"]
     assert payload["timeout_seconds"] == 0.3
     # The sub-agent still got a unique id even though
     # it never returned.

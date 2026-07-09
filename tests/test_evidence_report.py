@@ -292,6 +292,127 @@ def test_explain_image_forensics_hamming_zero() -> None:
     assert explained.location_a.source_image == "/nonexistent/img.png"
 
 
+def test_explain_image_forensics_texture_overlap_provenance() -> None:
+    """Cross-image texture overlap should explain both source images."""
+
+    raw = {
+        "finding_id": "X2",
+        "kind": "texture_overlap",
+        "image_a": {"page": 0, "index": 1, "image_path": "/tmp/a.png"},
+        "image_b": {"page": 2, "index": 3, "image_path": "/tmp/b.png"},
+        "cell_a": [1, 1],
+        "cell_b": [1, 1],
+        "grid": 4,
+        "cell_side": 32,
+        "std_a": 22.5,
+        "std_b": 22.5,
+    }
+    from manusift.report.data_evidence import explain_image_forensics
+
+    explained = explain_image_forensics(raw)
+
+    assert explained.severity == evidence.Severity.HIGH
+    assert "across images" in explained.summary
+    assert "identical high-variance local texture" in explained.reasoning
+    assert explained.location_a.page == 1
+    assert explained.location_a.image_index == 1
+    assert explained.location_a.source_image == "/tmp/a.png"
+    assert explained.location_a.note == "cell (1, 1)"
+    assert explained.location_b.page == 3
+    assert explained.location_b.image_index == 3
+    assert explained.location_b.source_image == "/tmp/b.png"
+    assert explained.metrics["grid"] == 4
+    assert explained.metrics["cell_side"] == 32
+
+
+def test_explain_image_forensics_near_texture_overlap() -> None:
+    """Near texture overlap should explain both images and hash distance."""
+
+    raw = {
+        "finding_id": "X3",
+        "kind": "near_texture_overlap",
+        "image_a": {"page": 0, "index": 1, "image_path": "/tmp/a.png"},
+        "image_b": {"page": 2, "index": 3, "image_path": "/tmp/b.png"},
+        "cell_a": [1, 1],
+        "cell_b": [1, 1],
+        "grid": 4,
+        "cell_side": 32,
+        "hash_distance": 3,
+        "std_a": 23.5,
+        "std_b": 22.5,
+    }
+    from manusift.report.data_evidence import explain_image_forensics
+
+    explained = explain_image_forensics(raw)
+
+    assert explained.severity == evidence.Severity.MEDIUM
+    assert "similar" in explained.summary
+    assert "brightness or compression" in explained.reasoning
+    assert explained.metrics["hash_distance"] == 3
+    assert explained.location_a.source_image == "/tmp/a.png"
+    assert explained.location_b.source_image == "/tmp/b.png"
+
+
+def test_explain_image_forensics_rotated_texture_overlap() -> None:
+    """Rotated texture overlap should explain provenance and rotation."""
+
+    raw = {
+        "finding_id": "X4",
+        "kind": "rotated_texture_overlap",
+        "image_a": {"page": 0, "index": 1, "image_path": "/tmp/a.png"},
+        "image_b": {"page": 2, "index": 3, "image_path": "/tmp/b.png"},
+        "cell_a": [1, 1],
+        "cell_b": [1, 1],
+        "grid": 4,
+        "cell_side": 32,
+        "rotation_degrees": 90,
+        "std_a": 23.5,
+        "std_b": 22.5,
+    }
+    from manusift.report.data_evidence import explain_image_forensics
+
+    explained = explain_image_forensics(raw)
+
+    assert explained.severity == evidence.Severity.MEDIUM
+    assert "rotated" in explained.summary
+    assert "right-angle rotation" in explained.reasoning
+    assert explained.metrics["rotation_degrees"] == 90
+    assert explained.location_a.source_image == "/tmp/a.png"
+    assert explained.location_b.source_image == "/tmp/b.png"
+
+
+def test_explain_table_relationships_as_numerical_finding() -> None:
+    """Table relationship findings should become numerical evidence cards."""
+
+    raw = {
+        "finding_id": "T1",
+        "detector": "table_relationships",
+        "severity": "medium",
+        "title": "Fig.3b columns 'A' and 'B' have a fixed offset",
+        "location": "Fig.3b, columns 3 and 4",
+        "evidence": "synthetic",
+        "raw": {
+            "check": "fixed_offset",
+            "n": 6,
+            "left_column": "A",
+            "right_column": "B",
+            "offset": 0.3,
+        },
+    }
+    from manusift.report import data_evidence
+
+    explained = data_evidence.explain_finding(raw)
+
+    assert isinstance(explained, evidence.NumericalFinding)
+    assert explained.detector == "table_relationships"
+    assert explained.severity == evidence.Severity.MEDIUM
+    assert explained.test_name == "fixed_offset"
+    assert explained.input_values["offset"] == 0.3
+    assert explained.input_values["n"] == 6
+    assert "screening signal" in explained.reasoning
+    assert "manual review" in " ".join(explained.limitations).lower()
+
+
 def test_explain_panel_dup_provenance() -> None:
     """panel_dup must populate page/panel fields from the raw
     envelope."""
@@ -399,6 +520,51 @@ def test_build_evidence_index_minimal_metadata_finding(tmp_path: Path) -> None:
     )
     assert len(index.metadata_findings) == 1
     assert index.metadata_findings[0].detector == "unknown_detector"
+
+
+def test_build_evidence_index_table_relationships_is_numerical(tmp_path: Path) -> None:
+    """table_relationships findings should land in the numerical report bucket."""
+
+    findings_path = tmp_path / "findings.json"
+    findings_path.write_text(json.dumps({
+        "trace_id": "t-table-rel",
+        "detectors_run": ["table_relationships"],
+        "llm_calls": 0,
+        "duration_ms": 0,
+        "findings": [{
+            "finding_id": "T1",
+            "trace_id": "t-table-rel",
+            "detector": "table_relationships",
+            "severity": "medium",
+            "title": "Fig.3b columns 'A' and 'B' have a fixed offset",
+            "evidence": "offset 0.3 over 6 rows",
+            "location": "Fig.3b, columns 3 and 4",
+            "raw": {
+                "check": "fixed_offset",
+                "n": 6,
+                "left_column": "A",
+                "right_column": "B",
+                "offset": 0.3,
+            },
+        }],
+    }))
+    out_dir = tmp_path / "report"
+
+    index = evidence_builder.build_evidence_index(
+        findings_path=findings_path,
+        out_dir=out_dir,
+        paper_id="table-rel",
+    )
+
+    assert index.summary["medium"] == 1
+    assert len(index.numerical_findings) == 1
+    assert index.numerical_findings[0].detector == "table_relationships"
+    assert index.metadata_findings == []
+    data_json = out_dir / "data" / "finding_data_T1.json"
+    data_md = out_dir / "data" / "finding_data_T1.md"
+    assert data_json.exists()
+    assert data_md.exists()
+    assert "fixed_offset" in data_md.read_text(encoding="utf-8")
 
 
 def test_evidence_index_to_dict_normalises_lists() -> None:

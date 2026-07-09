@@ -68,7 +68,7 @@ import hashlib
 import io
 import logging
 from pathlib import Path, PurePosixPath
-from typing import Iterable
+from typing import Any, Iterable
 import zipfile
 
 from ..contracts import ExtractedTable
@@ -92,6 +92,56 @@ SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
 )
 ARCHIVE_EXTENSIONS: frozenset[str] = frozenset({".zip"})
 MAX_ARCHIVE_MEMBER_BYTES = 25 * 1024 * 1024
+
+
+def _cell_text(cell: object) -> str:
+    value = getattr(cell, "value", None)
+    if value is None:
+        return ""
+    return str(value)
+
+
+def _cell_fill(cell: object) -> str | None:
+    """Return a compact fill marker for visibly highlighted cells."""
+    fill = getattr(cell, "fill", None)
+    if fill is None or getattr(fill, "fill_type", None) in (None, "none"):
+        return None
+    color = getattr(fill, "fgColor", None) or getattr(fill, "start_color", None)
+    if color is None:
+        return None
+    rgb = getattr(color, "rgb", None)
+    if isinstance(rgb, str):
+        normalized = rgb.upper()
+        if normalized in {"00000000", "000000"}:
+            return None
+        return normalized[-6:] if len(normalized) == 8 else normalized
+    indexed = getattr(color, "indexed", None)
+    if indexed is not None:
+        return f"indexed:{indexed}"
+    theme = getattr(color, "theme", None)
+    if theme is not None:
+        return f"theme:{theme}"
+    return None
+
+
+def _highlight_entry(
+    cell: object,
+    *,
+    row: int,
+    col: int,
+    value: str,
+) -> dict[str, object] | None:
+    fill = _cell_fill(cell)
+    if fill is None:
+        return None
+    return {
+        "row": row,
+        "col": col,
+        "source_row": getattr(cell, "row", 0),
+        "source_col": getattr(cell, "column", 0),
+        "value": value,
+        "fill": fill,
+    }
 
 
 def _short_id(*parts: str) -> str:
@@ -357,14 +407,22 @@ def _parse_xlsx_sheet(
         # ``top+1..bottom``.
         headers: list[str] = []
         rows: list[list[str]] = []
+        highlighted_cells: list[dict[str, object]] = []
         for r in range(bb["top"], bb["bottom"] + 1):
             row_cells: list[str] = []
+            row_highlights: list[dict[str, object]] = []
             for c in range(bb["left"], bb["right"] + 1):
-                v = ws.cell(row=r + 1, column=c + 1).value
-                if v is None:
-                    row_cells.append("")
-                else:
-                    row_cells.append(str(v))
+                cell = ws.cell(row=r + 1, column=c + 1)
+                value = _cell_text(cell)
+                row_cells.append(value)
+                entry = _highlight_entry(
+                    cell,
+                    row=len(rows),
+                    col=c - bb["left"],
+                    value=value,
+                )
+                if entry is not None:
+                    row_highlights.append(entry)
             if r == bb["top"]:
                 # If the
                 # first
@@ -405,6 +463,7 @@ def _parse_xlsx_sheet(
                         for i in range(len(row_cells))
                     ]
                     rows.append(row_cells)
+                    highlighted_cells.extend(row_highlights)
             else:
                 # Skip
                 # fully
@@ -413,6 +472,7 @@ def _parse_xlsx_sheet(
                 if not any(c.strip() for c in row_cells):
                     continue
                 rows.append(row_cells)
+                highlighted_cells.extend(row_highlights)
         # Skip
         # bboxes
         # that
@@ -448,6 +508,7 @@ def _parse_xlsx_sheet(
                     "left": bb["left"],
                     "right": bb["right"],
                 },
+                highlighted_cells=highlighted_cells,
             )
         )
     return out
@@ -484,15 +545,24 @@ def _append_sheet_as_one_table(
     """
     headers: list[str] = []
     rows: list[list[str]] = []
-    for i, row in enumerate(ws.iter_rows(values_only=True)):
-        cells = [
-            "" if v is None else str(v) for v in row
-        ]
+    highlighted_cells: list[dict[str, object]] = []
+    for i, row in enumerate(ws.iter_rows()):
+        cells = [_cell_text(cell) for cell in row]
         if i == 0:
             headers = cells
             continue
         if not any(c.strip() for c in cells):
             continue
+        table_row = len(rows)
+        for j, cell in enumerate(row):
+            entry = _highlight_entry(
+                cell,
+                row=table_row,
+                col=j,
+                value=cells[j],
+            )
+            if entry is not None:
+                highlighted_cells.append(entry)
         rows.append(cells)
     if not rows:
         return
@@ -511,6 +581,7 @@ def _append_sheet_as_one_table(
             rows=rows,
             fig_name=fig_name,
             bbox=bbox,
+            highlighted_cells=highlighted_cells,
         )
     )
 

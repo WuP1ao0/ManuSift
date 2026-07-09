@@ -196,6 +196,15 @@ def reset_disabled() -> None:
     _DISABLED.clear()
 
 
+def reset_builtin_cache() -> None:
+    """Test hook. Drop the builtin-tools cache so the next
+    ``iter_registered_tools()`` call re-loads from scratch.
+    Production code should not call this.
+    """
+    global _BUILTIN_TOOLS
+    _BUILTIN_TOOLS = []
+
+
 def iter_registered_tools() -> Iterable[Tool]:
     """Yield every built-in tool followed by every third-party
     tool installed via entry_points.

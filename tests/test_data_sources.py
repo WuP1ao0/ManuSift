@@ -200,6 +200,85 @@ def test_parse_xlsx_two_sheets(
     assert fig1.table_id != by_sheet["Fig2"].table_id
 
 
+def test_parse_xlsx_records_highlighted_cells(
+    tmp_path: Path,
+) -> None:
+    """Yellow-filled XLSX cells are preserved as table metadata."""
+    openpyxl = pytest.importorskip("openpyxl")
+    from openpyxl.styles import PatternFill
+
+    from manusift.ingest.xlsx import parse_xlsx
+
+    p = tmp_path / "highlighted.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Plain"
+    ws.append(["Group", "Value"])
+    ws.append(["A", 11.1])
+    ws.append(["B", 22.2])
+    ws["B3"].fill = PatternFill(
+        fill_type="solid",
+        fgColor="FFFF00",
+    )
+    wb.save(p)
+
+    tables = parse_xlsx(p)
+
+    assert len(tables) == 1
+    assert tables[0].highlighted_cells == [
+        {
+            "row": 1,
+            "col": 1,
+            "source_row": 3,
+            "source_col": 2,
+            "value": "22.2",
+            "fill": "FFFF00",
+        }
+    ]
+
+
+def test_parse_xlsx_keeps_highlights_on_their_fig(
+    tmp_path: Path,
+) -> None:
+    """Marked cells in Fig.3c stay attached to the Fig.3c table."""
+    openpyxl = pytest.importorskip("openpyxl")
+    from openpyxl.styles import PatternFill
+
+    from manusift.ingest.xlsx import parse_xlsx
+
+    p = tmp_path / "fig_highlighted.xlsx"
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Mixed"
+    ws.cell(1, 1, "Fig.3b")
+    ws.cell(1, 4, "Fig.3c")
+    ws.cell(2, 1, "Group")
+    ws.cell(2, 2, "Value")
+    ws.cell(2, 4, "Group")
+    ws.cell(2, 5, "Value")
+    ws.cell(3, 1, "B-control")
+    ws.cell(3, 2, 1.2)
+    ws.cell(3, 4, "C-control")
+    ws.cell(3, 5, 9.8)
+    ws.cell(3, 5).fill = PatternFill(
+        fill_type="solid",
+        fgColor="FFFF00",
+    )
+    wb.save(p)
+
+    by_fig = {t.fig_name: t for t in parse_xlsx(p)}
+
+    assert by_fig["Fig.3b"].highlighted_cells == []
+    assert by_fig["Fig.3c"].highlighted_cells[0] == {
+        "row": 1,
+        "col": 1,
+        "source_row": 3,
+        "source_col": 5,
+        "value": "9.8",
+        "fill": "FFFF00",
+    }
+
+
 def test_parse_csv_quoted(tmp_path: Path) -> None:
     from manusift.ingest.xlsx import parse_csv
 
@@ -604,6 +683,65 @@ def test_read_data_source_returns_rows(
     assert env["truncated"] is False
 
 
+def test_data_source_tools_return_highlighted_cells() -> None:
+    from manusift.contracts import (
+        ExtractedTable,
+        ParsedDoc,
+    )
+    from manusift.tools.table_stats_tools import (
+        ListDataSourcesTool,
+        ReadDataSourceTool,
+    )
+
+    highlighted = [
+        {
+            "row": 0,
+            "col": 1,
+            "source_row": 2,
+            "source_col": 2,
+            "value": "9.8",
+            "fill": "FFFF00",
+        }
+    ]
+    doc = ParsedDoc(
+        trace_id="tid",
+        source_path="x.pdf",
+        text_blocks=[],
+        images=[],
+        metadata={},
+        tables=[
+            ExtractedTable(
+                table_id="marked",
+                source_kind="xlsx",
+                source_path="x.xlsx",
+                sheet_name="Fig.3",
+                source_index=0,
+                headers=["Group", "Value"],
+                rows=[["C-control", "9.8"]],
+                fig_name="Fig.3c",
+                highlighted_cells=highlighted,
+            )
+        ],
+    )
+
+    listed = json.loads(
+        ListDataSourcesTool().execute(
+            {"trace_id": "tid"}, _make_ctx(doc)
+        )
+    )
+    entry = listed["tables"][0]
+    assert entry["n_highlighted_cells"] == 1
+    assert entry["highlighted_preview"] == highlighted
+
+    read = json.loads(
+        ReadDataSourceTool().execute(
+            {"trace_id": "tid", "table_id": "marked"},
+            _make_ctx(doc),
+        )
+    )
+    assert read["highlighted_cells"] == highlighted
+
+
 def test_read_data_source_truncates() -> None:
     from manusift.contracts import (
         ExtractedTable,
@@ -684,7 +822,7 @@ def test_read_data_source_unknown_id() -> None:
     )
     assert "error" in env
     assert "available" in env
-    assert "real" in env["available"]
+    assert "real" in env["available_table_ids"]
 
 
 def test_table_benford_runs_on_xlsx_data() -> None:

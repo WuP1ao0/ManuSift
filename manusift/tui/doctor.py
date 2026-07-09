@@ -1102,13 +1102,14 @@ def _check_detector_registry() -> CheckResult:
 def _check_tool_registry() -> CheckResult:
     """The tool registry loads at least one tool."""
     try:
-        from ..tools import iter_registered_tools
+        from ..tools import iter_registered_tools, registry
         n = sum(1 for _ in iter_registered_tools())
+        disabled_count = len(registry.list_disabled())
         return CheckResult(
             name="tool_registry",
             status=STATUS_OK if n >= 1 else STATUS_FAIL,
             summary=f"registered {n} tool(s)",
-            details={"count": n},
+            details={"count": n, "registry_disable_count": disabled_count},
         )
     except Exception as exc:  # noqa: BLE001
         return CheckResult(

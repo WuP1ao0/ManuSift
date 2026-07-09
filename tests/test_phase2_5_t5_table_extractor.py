@@ -172,6 +172,28 @@ def test_extract_tables_from_text_groups_by_page() -> None:
     assert len(tables[0].rows) == 2
 
 
+def test_extract_tables_from_text_splits_same_page_by_fig_name() -> None:
+    """Same-page Fig.3b/Fig.3c stat blocks stay distinguishable."""
+
+    b1 = TextBlock(
+        page=5,
+        bbox=(0, 0, 100, 100),
+        text="Fig. 3b: control n=5, mean=1.2, SD=0.1.",
+    )
+    b2 = TextBlock(
+        page=5,
+        bbox=(120, 0, 220, 100),
+        text="Fig. 3c: treated n=5, mean=2.4, SD=0.2.",
+    )
+
+    tables = extract_tables_from_text([b1, b2])
+
+    assert [t.fig_name for t in tables] == ["Fig.3b", "Fig.3c"]
+    assert len({t.table_id for t in tables}) == 2
+    assert tables[0].rows[0][tables[0].headers.index("mean")] == "1.2"
+    assert tables[1].rows[0][tables[1].headers.index("mean")] == "2.4"
+
+
 def test_extract_tables_from_text_uses_canonical_column_order() -> None:
     b = TextBlock(
         page=1,

@@ -69,6 +69,10 @@ def _build_chat_app(mock_client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     app._agent_running = False
     app._parsed_doc = None
     app._ctx = ToolContext(trace_id=app._session_id)
+    # Force synchronous mode: without app.run_test(), the Textual
+    # event loop is not running, so threaded _run_agent would post
+    # callbacks via call_from_thread that never get delivered.
+    app._thread_id = None
     # Honor the env var if the helper
     # was called with ``plan_mode=True``;
     # the App's __init__ already did this

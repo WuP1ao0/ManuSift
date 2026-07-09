@@ -275,7 +275,7 @@ def test_finding_evidence_includes_both_images() -> None:
 
 # ---------- 6. threshold is respected ----------
 
-def test_higher_threshold_yields_more_findings() -> None:
+def test_higher_threshold_yields_more_findings(monkeypatch) -> None:
     """Bumping the threshold up
     should produce at least as
     many findings as the lower
@@ -290,17 +290,16 @@ def test_higher_threshold_yields_more_findings() -> None:
     s = get_settings()
     # Strict: require near-
     # identical.
-    orig = s.image_duplicate_hamming_threshold
-    s.image_duplicate_hamming_threshold = 0
+    s_strict = s.model_copy(update={"image_duplicate_hamming_threshold": 0})
+    monkeypatch.setattr("manusift.config.get_settings", lambda: s_strict)
     strict_count = len(
         PHashDetector().run(doc).findings
     )
     # Permissive: anything within
     # 64 bits counts.
-    s.image_duplicate_hamming_threshold = 64
+    s_loose = s.model_copy(update={"image_duplicate_hamming_threshold": 64})
+    monkeypatch.setattr("manusift.config.get_settings", lambda: s_loose)
     loose_count = len(
         PHashDetector().run(doc).findings
     )
-    # Restore.
-    s.image_duplicate_hamming_threshold = orig
     assert loose_count >= strict_count

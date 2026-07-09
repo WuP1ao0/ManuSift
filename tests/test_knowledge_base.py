@@ -443,14 +443,11 @@ def test_rest_backend_recent_falls_back_to_alpha() -> None:
 
 
 def test_resolver_returns_none_when_unconfigured() -> None:
-    s = Settings()
-    # Reset to empty
-    # just in case the
-    # test env has env
-    # vars set.
-    s.obsidian_vault_path = ""
-    s.obsidian_rest_api_url = ""
-    s.obsidian_rest_api_key = None
+    s = Settings(
+        obsidian_vault_path="",
+        obsidian_rest_api_url="",
+        obsidian_rest_api_key=None,
+    )
     assert resolve_backend(s) is None
 
 
@@ -460,10 +457,11 @@ def test_resolver_picks_file_when_only_vault_set(
     # Build a 1-note
     # vault.
     (tmp_path / "n.md").write_text("hi")
-    s = Settings()
-    s.obsidian_vault_path = str(tmp_path)
-    s.obsidian_rest_api_url = ""
-    s.obsidian_rest_api_key = None
+    s = Settings(
+        obsidian_vault_path=str(tmp_path),
+        obsidian_rest_api_url="",
+        obsidian_rest_api_key=None,
+    )
     b = resolve_backend(s)
     assert b is not None
     assert b.name == "obsidian_files"
@@ -474,10 +472,11 @@ def test_resolver_picks_rest_when_both_set(
 ) -> None:
     from pydantic import SecretStr
     (tmp_path / "n.md").write_text("hi")
-    s = Settings()
-    s.obsidian_vault_path = str(tmp_path)
-    s.obsidian_rest_api_url = "https://x:27124"
-    s.obsidian_rest_api_key = SecretStr("k")
+    s = Settings(
+        obsidian_vault_path=str(tmp_path),
+        obsidian_rest_api_url="https://x:27124",
+        obsidian_rest_api_key=SecretStr("k"),
+    )
     with patch(
         "manusift.knowledge.obsidian_rest.httpx.Client",
     ) as mock_cls:
@@ -495,10 +494,11 @@ def test_resolver_falls_back_to_file_when_rest_unreachable(
 ) -> None:
     from pydantic import SecretStr
     (tmp_path / "n.md").write_text("hi")
-    s = Settings()
-    s.obsidian_vault_path = str(tmp_path)
-    s.obsidian_rest_api_url = "https://x:27124"
-    s.obsidian_rest_api_key = SecretStr("k")
+    s = Settings(
+        obsidian_vault_path=str(tmp_path),
+        obsidian_rest_api_url="https://x:27124",
+        obsidian_rest_api_key=SecretStr("k"),
+    )
 
     class _BrokenClient:
         def __init__(self, *a: Any, **kw: Any) -> None:
@@ -520,8 +520,9 @@ def test_resolver_falls_back_to_file_when_rest_unreachable(
 
 
 def test_resolver_returns_none_when_path_is_bad() -> None:
-    s = Settings()
-    s.obsidian_vault_path = "C:/no/such/dir"
-    s.obsidian_rest_api_url = ""
-    s.obsidian_rest_api_key = None
+    s = Settings(
+        obsidian_vault_path="C:/no/such/dir",
+        obsidian_rest_api_url="",
+        obsidian_rest_api_key=None,
+    )
     assert resolve_backend(s) is None

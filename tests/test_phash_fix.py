@@ -303,7 +303,7 @@ def _extracted(
         phash=phash,
         width=width,
         height=height,
-        bytes_size=1000,
+        bytes_size=10_000,
         exif={},
         image_path=None,
     )

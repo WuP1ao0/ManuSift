@@ -74,10 +74,20 @@ def _build_synthetic_pdf(
     # finding as before.
     from PIL import Image, ImageDraw
 
-    img = Image.new("RGB", (64, 64), color=(255, 255, 255))
+    img = Image.new("RGB", (96, 96), color=(255, 255, 255))
     d = ImageDraw.Draw(img)
-    d.rectangle([8, 8, 32, 32], fill=(200, 50, 50))
-    d.ellipse([36, 16, 60, 48], fill=(50, 100, 200))
+    for y in range(96):
+        for x in range(96):
+            img.putpixel(
+                (x, y),
+                (
+                    (x * 17 + y * 31) % 256,
+                    (x * 47 + y * 13) % 256,
+                    (x * 7 + y * 73) % 256,
+                ),
+            )
+    d.rectangle([8, 8, 40, 40], outline=(255, 255, 255), width=3)
+    d.ellipse([48, 20, 84, 66], outline=(0, 0, 0), width=3)
     img_bytes_io = io.BytesIO()
     img.save(img_bytes_io, format="PNG")
     img_bytes = img_bytes_io.getvalue()

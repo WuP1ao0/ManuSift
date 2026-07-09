@@ -193,6 +193,162 @@ def test_copy_move_cloned_region_flags(tmp_path: Path) -> None:
     assert cm[0].raw["match_count"] >= 1
 
 
+def test_cross_image_texture_overlap_flags_reused_band_patch(
+    tmp_path: Path,
+) -> None:
+    """Identical local texture reused in two independent images is flagged."""
+    rng = np.random.default_rng(2026)
+    patch_arr = rng.integers(20, 235, (64, 64, 3), dtype=np.uint8)
+    # Add horizontal dark lanes so the patch resembles a western-blot band
+    # texture rather than a flat icon.
+    patch_arr[18:26, :, :] //= 4
+    patch_arr[40:48, :, :] //= 5
+    patch = Image.fromarray(patch_arr)
+
+    img_a = Image.fromarray(
+        rng.integers(150, 255, (256, 256, 3), dtype=np.uint8)
+    )
+    img_b = Image.fromarray(
+        rng.integers(0, 120, (256, 256, 3), dtype=np.uint8)
+    )
+    # Same grid cell in otherwise unrelated images.
+    img_a.paste(patch, (64, 64))
+    img_b.paste(patch, (64, 64))
+    path_a = tmp_path / "gel_a.png"
+    path_b = tmp_path / "gel_b.png"
+    _save_image(img_a, path_a)
+    _save_image(img_b, path_b)
+
+    det = ImageForensicsDetector()
+    doc = _make_doc(
+        "t-texture",
+        _make_extracted_image(path_a, page=0, index=0),
+        _make_extracted_image(path_b, page=1, index=0),
+    )
+
+    result = det.run(doc)
+
+    texture = [
+        f for f in result.findings if f.raw.get("kind") == "texture_overlap"
+    ]
+    assert len(texture) == 1
+    assert texture[0].severity == "high"
+    assert texture[0].raw["image_a"]["index"] == 0
+    assert texture[0].raw["image_b"]["index"] == 0
+    assert texture[0].raw["cell_a"] == [1, 1]
+    assert texture[0].raw["cell_b"] == [1, 1]
+
+
+def test_cross_image_texture_overlap_flags_brightness_shifted_band_patch(
+    tmp_path: Path,
+) -> None:
+    """Reused band texture with mild brightness changes is still flagged."""
+    rng = np.random.default_rng(2027)
+    patch_arr = rng.integers(20, 235, (64, 64, 3), dtype=np.uint8)
+    patch_arr[18:26, :, :] //= 4
+    patch_arr[40:48, :, :] //= 5
+    bright_arr = np.clip(patch_arr.astype(np.int16) + 18, 0, 255).astype(np.uint8)
+
+    img_a = Image.fromarray(
+        rng.integers(150, 255, (256, 256, 3), dtype=np.uint8)
+    )
+    img_b = Image.fromarray(
+        rng.integers(0, 120, (256, 256, 3), dtype=np.uint8)
+    )
+    img_a.paste(Image.fromarray(patch_arr), (64, 64))
+    img_b.paste(Image.fromarray(bright_arr), (64, 64))
+    path_a = tmp_path / "gel_a_bright.png"
+    path_b = tmp_path / "gel_b_bright.png"
+    _save_image(img_a, path_a)
+    _save_image(img_b, path_b)
+
+    det = ImageForensicsDetector()
+    doc = _make_doc(
+        "t-texture-near",
+        _make_extracted_image(path_a, page=0, index=0),
+        _make_extracted_image(path_b, page=1, index=0),
+    )
+
+    result = det.run(doc)
+
+    texture = [
+        f for f in result.findings if f.raw.get("kind") == "near_texture_overlap"
+    ]
+    assert len(texture) == 1
+    assert texture[0].severity == "medium"
+    assert texture[0].raw["hash_distance"] <= 4
+
+
+def test_cross_image_texture_overlap_flags_rotated_band_patch(
+    tmp_path: Path,
+) -> None:
+    """Reused local texture rotated by 90 degrees is still flagged."""
+    rng = np.random.default_rng(2028)
+    patch_arr = rng.integers(20, 235, (64, 64, 3), dtype=np.uint8)
+    patch_arr[16:24, :, :] //= 4
+    patch_arr[:, 42:50, :] //= 5
+    patch = Image.fromarray(patch_arr)
+
+    img_a = Image.fromarray(
+        rng.integers(150, 255, (256, 256, 3), dtype=np.uint8)
+    )
+    img_b = Image.fromarray(
+        rng.integers(0, 120, (256, 256, 3), dtype=np.uint8)
+    )
+    img_a.paste(patch, (64, 64))
+    img_b.paste(patch.rotate(90), (64, 64))
+    path_a = tmp_path / "gel_a_rot.png"
+    path_b = tmp_path / "gel_b_rot.png"
+    _save_image(img_a, path_a)
+    _save_image(img_b, path_b)
+
+    det = ImageForensicsDetector()
+    doc = _make_doc(
+        "t-texture-rotated",
+        _make_extracted_image(path_a, page=0, index=0),
+        _make_extracted_image(path_b, page=1, index=0),
+    )
+
+    result = det.run(doc)
+
+    texture = [
+        f for f in result.findings if f.raw.get("kind") == "rotated_texture_overlap"
+    ]
+    assert len(texture) == 1
+    assert texture[0].severity == "medium"
+    assert texture[0].raw["rotation_degrees"] in (90, 180, 270)
+
+
+def test_cross_image_texture_overlap_ignores_unrelated_noise(
+    tmp_path: Path,
+) -> None:
+    rng = np.random.default_rng(7)
+    img_a = Image.fromarray(
+        rng.integers(0, 255, (256, 256, 3), dtype=np.uint8)
+    )
+    img_b = Image.fromarray(
+        rng.integers(0, 255, (256, 256, 3), dtype=np.uint8)
+    )
+    path_a = tmp_path / "noise_a.png"
+    path_b = tmp_path / "noise_b.png"
+    _save_image(img_a, path_a)
+    _save_image(img_b, path_b)
+
+    det = ImageForensicsDetector()
+    doc = _make_doc(
+        "t-texture-clean",
+        _make_extracted_image(path_a, page=0, index=0),
+        _make_extracted_image(path_b, page=1, index=0),
+    )
+
+    result = det.run(doc)
+
+    texture = [
+        f for f in result.findings if f.raw.get("kind") == "texture_overlap"
+    ]
+    assert texture == []
+
+
 
 # ---- R-2026-06-15 (Phase 6 + #6) regression tests ----
 #

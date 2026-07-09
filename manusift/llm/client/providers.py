@@ -33,10 +33,10 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import Any
+from typing import Any, Iterator
 
 import httpx
-from pydantic import SecretStr
+from pydantic import SecretStr, ValidationError
 
 # R-2026-06-15 (Phase 4 + P4-2):
 # the original

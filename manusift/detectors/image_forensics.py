@@ -395,19 +395,284 @@ def _copy_move_check(
 # Detector
 # ---------------------------------------------------------------------------
 
+_TEXTURE_GRID = 4
+_TEXTURE_CELL_SIDE = 32
+_TEXTURE_MIN_STD = 12.0
+_TEXTURE_MAX_FINDINGS = 20
+_TEXTURE_NEAR_HASH_DISTANCE = 4
+
+
+def _rotated_cell_hashes(cell: Image.Image) -> dict[int, str]:
+    """Average-hash variants for right-angle rotations of a texture cell."""
+    # ponytail: right-angle rotations cover common copied-panel rotation
+    # mistakes; upgrade path is keypoint matching for arbitrary angles/scale.
+    return {
+        degrees: _cell_phash(cell.rotate(degrees))
+        for degrees in (90, 180, 270)
+    }
+
+
+def _texture_cells(
+    img: ExtractedImage,
+) -> list[tuple[int, int, bytes, str, dict[int, str], float]]:
+    """Return high-information grid-cell fingerprints for one image."""
+    if img.image_path is None:
+        return []
+    path = Path(img.image_path)
+    if not path.exists():
+        return []
+    try:
+        with Image.open(path) as im:
+            im = im.convert("L").resize((256, 256))
+            w, h = im.size
+            cell_w = w // _TEXTURE_GRID
+            cell_h = h // _TEXTURE_GRID
+            cells: list[tuple[int, int, bytes, str, dict[int, str], float]] = []
+            for r in range(_TEXTURE_GRID):
+                for c in range(_TEXTURE_GRID):
+                    cell = im.crop(
+                        (
+                            c * cell_w,
+                            r * cell_h,
+                            (c + 1) * cell_w,
+                            (r + 1) * cell_h,
+                        )
+                    ).resize(
+                        (
+                            _TEXTURE_CELL_SIDE,
+                            _TEXTURE_CELL_SIDE,
+                        )
+                    )
+                    arr = np.asarray(cell, dtype=np.uint8)
+                    std = float(arr.std())
+                    if std < _TEXTURE_MIN_STD:
+                        continue
+                    cells.append(
+                        (
+                            r,
+                            c,
+                            arr.tobytes(),
+                            _cell_phash(cell),
+                            _rotated_cell_hashes(cell),
+                            std,
+                        )
+                    )
+            return cells
+    except Exception as exc:  # noqa: BLE001
+        log.warning(
+            "texture-overlap decode failed",
+            extra={"path": str(path), "err": str(exc)},
+        )
+        return []
+
+
+def _texture_overlap_findings(
+    doc: ParsedDoc,
+) -> list[Finding]:
+    """Find exact high-texture cell reuse across different images."""
+    seen: dict[bytes, tuple[ExtractedImage, int, int, str, dict[int, str], float]] = {}
+    near_seen: list[tuple[ExtractedImage, int, int, str, dict[int, str], float]] = []
+    findings: list[Finding] = []
+    for img in doc.images:
+        for row, col, fp, ahash, rotated_hashes, std in _texture_cells(img):
+            prev = seen.get(fp)
+            if prev is None:
+                seen[fp] = (img, row, col, ahash, rotated_hashes, std)
+            else:
+                other, other_row, other_col, _other_hash, _other_rotated_hashes, other_std = prev
+                if (other.page, other.index) == (img.page, img.index):
+                    continue
+                findings.append(
+                    Finding.make(
+                        trace_id=doc.trace_id,
+                        detector=ImageForensicsDetector.name,
+                        severity="high",
+                        title=(
+                            "Near-identical local image texture reused "
+                            "across images"
+                        ),
+                        evidence=(
+                            "Two different extracted images contain an "
+                            "identical high-variance local texture block. "
+                            "This is consistent with reused gel/band, "
+                            "shadow, or defect texture and warrants manual "
+                            "inspection of the source panels."
+                        ),
+                        location=(
+                            f"Page {other.page + 1} / image {other.index} "
+                            f"cell ({other_row},{other_col}) -> "
+                            f"Page {img.page + 1} / image {img.index} "
+                            f"cell ({row},{col})"
+                        ),
+                        raw={
+                            "kind": "texture_overlap",
+                            "image_a": {
+                                "page": other.page,
+                                "index": other.index,
+                                "image_path": other.image_path,
+                            },
+                            "image_b": {
+                                "page": img.page,
+                                "index": img.index,
+                                "image_path": img.image_path,
+                            },
+                            "cell_a": [other_row, other_col],
+                            "cell_b": [row, col],
+                            "grid": _TEXTURE_GRID,
+                            "cell_side": _TEXTURE_CELL_SIDE,
+                            "std_a": other_std,
+                            "std_b": std,
+                        },
+                    )
+                )
+                if len(findings) >= _TEXTURE_MAX_FINDINGS:
+                    return findings
+                continue
+            for (
+                other,
+                other_row,
+                other_col,
+                other_hash,
+                other_rotated_hashes,
+                other_std,
+            ) in near_seen:
+                if (other.page, other.index) == (img.page, img.index):
+                    continue
+                rotation_match = next(
+                    (
+                        degrees
+                        for degrees, rotated_hash in other_rotated_hashes.items()
+                        if rotated_hash == ahash
+                    ),
+                    None,
+                )
+                if rotation_match is None:
+                    rotation_match = next(
+                        (
+                            degrees
+                            for degrees, rotated_hash in rotated_hashes.items()
+                            if rotated_hash == other_hash
+                        ),
+                        None,
+                    )
+                if rotation_match is not None:
+                    findings.append(
+                        Finding.make(
+                            trace_id=doc.trace_id,
+                            detector=ImageForensicsDetector.name,
+                            severity="medium",
+                            title=(
+                                "Rotated local image texture reused across images"
+                            ),
+                            evidence=(
+                                "Two different extracted images contain a "
+                                "matching high-variance local texture block "
+                                "after a right-angle rotation. This can match "
+                                "reused gel/band, shadow, or defect texture "
+                                "and warrants manual inspection."
+                            ),
+                            location=(
+                                f"Page {other.page + 1} / image {other.index} "
+                                f"cell ({other_row},{other_col}) -> "
+                                f"Page {img.page + 1} / image {img.index} "
+                                f"cell ({row},{col})"
+                            ),
+                            raw={
+                                "kind": "rotated_texture_overlap",
+                                "image_a": {
+                                    "page": other.page,
+                                    "index": other.index,
+                                    "image_path": other.image_path,
+                                },
+                                "image_b": {
+                                    "page": img.page,
+                                    "index": img.index,
+                                    "image_path": img.image_path,
+                                },
+                                "cell_a": [other_row, other_col],
+                                "cell_b": [row, col],
+                                "grid": _TEXTURE_GRID,
+                                "cell_side": _TEXTURE_CELL_SIDE,
+                                "rotation_degrees": rotation_match,
+                                "std_a": other_std,
+                                "std_b": std,
+                            },
+                        )
+                    )
+                    if len(findings) >= _TEXTURE_MAX_FINDINGS:
+                        return findings
+                    break
+                distance = bin(int(ahash, 16) ^ int(other_hash, 16)).count("1")
+                if distance > _TEXTURE_NEAR_HASH_DISTANCE:
+                    continue
+                findings.append(
+                    Finding.make(
+                        trace_id=doc.trace_id,
+                        detector=ImageForensicsDetector.name,
+                        severity="medium",
+                        title=(
+                            "Similar local image texture reused across images"
+                        ),
+                        evidence=(
+                            "Two different extracted images contain highly "
+                            "similar high-variance local texture. This can "
+                            "match reused gel/band, shadow, or defect texture "
+                            "after brightness or compression changes and "
+                            "warrants manual inspection."
+                        ),
+                        location=(
+                            f"Page {other.page + 1} / image {other.index} "
+                            f"cell ({other_row},{other_col}) -> "
+                            f"Page {img.page + 1} / image {img.index} "
+                            f"cell ({row},{col})"
+                        ),
+                        raw={
+                            "kind": "near_texture_overlap",
+                            "image_a": {
+                                "page": other.page,
+                                "index": other.index,
+                                "image_path": other.image_path,
+                            },
+                            "image_b": {
+                                "page": img.page,
+                                "index": img.index,
+                                "image_path": img.image_path,
+                            },
+                            "cell_a": [other_row, other_col],
+                            "cell_b": [row, col],
+                            "grid": _TEXTURE_GRID,
+                            "cell_side": _TEXTURE_CELL_SIDE,
+                            "hash_distance": distance,
+                            "std_a": other_std,
+                            "std_b": std,
+                        },
+                    )
+                )
+                if len(findings) >= _TEXTURE_MAX_FINDINGS:
+                    return findings
+                break
+            # ponytail: keep a flat list of prior high-texture cells; upgrade
+            # path is bucketing by hash prefix if large image sets make this
+            # O(n^2) comparison too slow.
+            near_seen.append((img, row, col, ahash, rotated_hashes, std))
+    return findings
+
 class ImageForensicsDetector:
     """Image-forensics analysis: Error Level Analysis (ELA) on every
-    extracted image, plus a copy-move check inside each image. ELA
+    extracted image, a copy-move check inside each image, and exact
+    high-texture block reuse across different images. ELA
     surfaces regions that were re-encoded at a different JPEG quality
     than the surrounding background -- the typical signal of a region
     pasted in from another source. The copy-move check tiles the image
     into a grid and looks for two cells whose pixel histograms are
     nearly identical, which indicates a region was cloned within the
-    same image to cover something up. Images that lack a file path on
-    disk (synthetic test fixtures, for example) are skipped; this
-    detector never produces a finding for an image it cannot decode.
-    Returns one ``DetectorResult`` carrying zero or more findings,
-    one per image that triggered either check.
+    same image to cover something up. The cross-image check flags
+    identical high-variance local texture blocks, such as reused
+    protein-band texture, repeated shadows, or copied defects. Images
+    that lack a file path on disk (synthetic test fixtures, for
+    example) are skipped; this detector never produces a finding for
+    an image it cannot decode. Returns one ``DetectorResult`` carrying
+    zero or more findings.
     """
 
     name = "image_forensics"
@@ -444,4 +709,5 @@ class ImageForensicsDetector:
                         raw=raw,
                     )
                 )
+        findings.extend(_texture_overlap_findings(doc))
         return DetectorResult(detector=self.name, ok=True, findings=findings)

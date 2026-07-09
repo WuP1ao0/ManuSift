@@ -579,8 +579,7 @@ class _HistoryList(list):
         scroll = getattr(self, "_scroll_ref", None)
         if scroll is not None:
             try:
-                # Remove all non-banner
-                children
+                # Remove all non-banner children.
                 for child in list(scroll.children):
                     if getattr(child, "id", None) != "banner":
                         try:
@@ -958,6 +957,7 @@ class ChatApp(App):
         (TextArea) + ``#status-line``
         (Horizontal with 3 chips).
         """
+        # status order contract: id="input-row" before id="status-line"
         from ..splash import render_compact_splash
         from .right_rail import RightRail
 
@@ -1851,29 +1851,7 @@ class ChatApp(App):
         # ``"pdf=(no pdf loaded)"``.
         pdf_part = "pdf=(no pdf loaded)"
         if self._ctx.current_pdf:
-            # Shorten
-            # long
-            # paths
-            # to
-            # the
-            # basename
-            # -- the
-            # full
-            # path
-            # is
-            # in
-            # the
-            # status
-            # bar
-            # when
-            # relevant.
-            pdf_path = self._ctx.current_pdf
-            try:
-                from pathlib import Path as _P
-                pdf_name = _P(pdf_path).name
-            except Exception:  # noqa: BLE001
-                pdf_name = pdf_path
-            pdf_part = f"pdf={pdf_name}"
+            pdf_part = f"pdf={self._ctx.current_pdf}"
         # Plan
         # mode
         # indicator
@@ -2425,39 +2403,66 @@ class ChatApp(App):
     def _cmd_plan(self, arg: str = "") -> None:
         """Toggle plan mode
         (Step P4.3)."""
+        if arg == "":
+            # No arg: report current state without changing it
+            state = "on" if self._plan_mode_flag else "off"
+            self._append_message(ChatMessage(
+                role="system",
+                content=f"plan mode is {state}",
+            ))
+            self._set_status(f"plan mode: {state}")
+            self._refresh_subtitle()
+            return
         on = arg.lower() in ("on", "1", "true", "yes")
-        if arg == "" and not self._plan_mode_flag:
-            on = True
-        if arg == "" and self._plan_mode_flag:
-            on = False
         self._plan_mode_flag = on
-        self._set_status(
-            f"plan mode: {'on' if on else 'off'}"
-        )
-        # CDE-UI-P1.5: ContextBar picks up the plan toggle
+        state = "on" if on else "off"
+        self._append_message(ChatMessage(
+            role="system",
+            content=f"plan mode: {state}",
+        ))
+        self._set_status(f"plan mode: {state}")
         self._refresh_subtitle()
 
     def _cmd_go(self, arg: str = "") -> None:
         """Plan-mode dispatch
         (Step P4.3)."""
         if not self._plan_mode_flag:
-            self._set_status("/go: not in plan mode")
+            self._append_message(ChatMessage(
+                role="system",
+                content="/go: not in plan mode",
+            ))
             return
         self._plan_mode_flag = False
-        # re-submit the last pending user message, if any
+        # If arg is provided, submit it directly
+        arg = (arg or "").strip()
+        if arg:
+            self._submit_user_message(arg)
+            return
+        # Otherwise, drain pending input
         if self._pending_input:
-            txt = self._pending_input.pop(0)
-            self._submit_user_message(txt)
+            self._drain_pending_input()
+            return
+        # No arg and no pending input: show usage
+        self._append_message(ChatMessage(
+            role="system",
+            content="usage: /go <message> -- run the agent with the given message",
+        ))
 
     def _cmd_list_skills(self) -> None:
         """List all available
         skills (Step P4.2)."""
         try:
-            from ..skills import list_skill_names
-            names = list_skill_names()
+            from ..config import get_settings
+            from ..skills import list_skills
+            skills_dir = get_settings().skills_dir
+            names = list_skills(skills_dir)
         except Exception:  # noqa: BLE001
             names = []
-        text = "Skills: " + ", ".join(names) if names else "(no skills)"
+            skills_dir = None
+        if names:
+            text = "skills: " + ", ".join(names)
+        else:
+            text = f"no skills found in {skills_dir or '(unset)'}"
         self._append_message(ChatMessage(role="system", content=text))
 
     def _cmd_skill(self, arg: str) -> None:
@@ -2468,19 +2473,33 @@ class ChatApp(App):
             self._cmd_list_skills()
             return
         try:
-            from ..skills import load_skill
-            skill = load_skill(name)
+            from ..config import get_settings
+            from ..skills import load_skill, SkillNotFound
+            skills_dir = get_settings().skills_dir
+            skill = load_skill(name, skills_dir)
             self._ctx = self._ctx.with_metadata(
-                {"skill": skill.name}
+                skill=skill.name
             )
             self._append_message(
                 ChatMessage(
                     role="system",
-                    content=f"loaded skill: {skill.name}",
+                    content=f"running skill: {skill.name}\n\n{skill.body}",
+                )
+            )
+        except SkillNotFound:
+            self._append_message(
+                ChatMessage(
+                    role="system",
+                    content=f"no skill named {name}. Type /skills for a list.",
                 )
             )
         except Exception as exc:  # noqa: BLE001
-            self._set_status(f"/skill {name}: {exc}")
+            self._append_message(
+                ChatMessage(
+                    role="system",
+                    content=f"/skill {name}: {exc}",
+                )
+            )
 
     # ===== message rendering =====
 
@@ -2669,9 +2688,21 @@ class ChatApp(App):
             # the top.
             self._refresh_subtitle()
             return
+        # Agent busy: queue the message with a system row
+        if self._agent_running:
+            self._append_message(ChatMessage(role="user", content=text))
+            self._pending_input.append(text)
+            self._append_message(ChatMessage(
+                role="system",
+                content=(
+                    f"queued ({len(self._pending_input)} pending) -- "
+                    "the agent will pick this up when the current turn finishes"
+                ),
+            ))
+            return
         # Drain queue first
         if self._pending_input:
-            self._pending_input.insert(0, text)
+            self._pending_input.append(text)
             self._drain_pending_input()
             return
         msg = ChatMessage(role="user", content=text)
@@ -2683,10 +2714,13 @@ class ChatApp(App):
         """Send queued pending
         input one at a time.
         """
-        while self._pending_input and not self._agent_running:
-            txt = self._pending_input.pop(0)
-            self._submit_user_message(txt)
-            break
+        if self._agent_running:
+            return
+        if not self._pending_input:
+            return
+        txt = self._pending_input.pop(0)
+        self._mount_placeholder()
+        self._run_agent(txt)
 
     def _append_queue_row(self, text: str) -> None:
         """R-2026-06-20 (CDE-UI-P0.8):
@@ -3235,8 +3269,7 @@ class ChatApp(App):
             )
         # Drain pending input (next message)
         if self._pending_input and not self._plan_mode_flag:
-            nxt = self._pending_input.pop(0)
-            self._submit_user_message(nxt)
+            self._drain_pending_input()
             return
         # Build a friendly assistant text.
         text = ""
@@ -4518,8 +4551,12 @@ class ChatApp(App):
         if self._detector_count is None:
             return
         try:
-            block = getattr(self, "_active_detector_block", None)
-            n = len(block.findings) if block is not None else 0
+            n = getattr(self, "_detector_total_count", None)
+            if n is None:
+                from ..detectors import iter_registered_detectors
+
+                n = sum(1 for _ in iter_registered_detectors())
+                self._detector_total_count = n
             self._detector_count.update(f"detectors: {n}")
         except Exception:  # noqa: BLE001
             try:
@@ -4900,7 +4937,8 @@ register(
         description="show this help message",
         category="UI",
         handler=lambda app, arg: app._cmd_help(),
-    )
+    ),
+    replace=True,
 )
 # 16. /budget
 register(

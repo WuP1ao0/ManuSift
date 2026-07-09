@@ -275,6 +275,7 @@ def test_bash_settings_bash_cwd_overrides_input_cwd(
 
 def test_bash_settings_bash_cwd_nonexistent_path_returns_error(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     """A
     ``settings.bash_cwd``
@@ -314,15 +315,11 @@ def test_bash_settings_bash_cwd_nonexistent_path_returns_error(
     # overrides.
     import manusift.config as cfg_mod
 
-    original = cfg_mod.get_settings
-    cfg_mod.get_settings = lambda: s  # type: ignore[assignment]
-    try:
-        out = tool.execute(
-            {"command": "echo hello"},
-            ToolContext(trace_id="t-3"),
-        )
-    finally:
-        cfg_mod.get_settings = original  # type: ignore[assignment]
+    monkeypatch.setattr(cfg_mod, "get_settings", lambda: s)
+    out = tool.execute(
+        {"command": "echo hello"},
+        ToolContext(trace_id="t-3"),
+    )
     env = json.loads(out)
     assert env["ok"] is False
     assert (
@@ -333,6 +330,7 @@ def test_bash_settings_bash_cwd_nonexistent_path_returns_error(
 
 def test_bash_settings_bash_cwd_relative_path_returns_error(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     """A
     ``settings.bash_cwd``
@@ -351,15 +349,11 @@ def test_bash_settings_bash_cwd_relative_path_returns_error(
     )
     import manusift.config as cfg_mod
 
-    original = cfg_mod.get_settings
-    cfg_mod.get_settings = lambda: s  # type: ignore[assignment]
-    try:
-        out = tool.execute(
-            {"command": "echo hello"},
-            ToolContext(trace_id="t-4"),
-        )
-    finally:
-        cfg_mod.get_settings = original  # type: ignore[assignment]
+    monkeypatch.setattr(cfg_mod, "get_settings", lambda: s)
+    out = tool.execute(
+        {"command": "echo hello"},
+        ToolContext(trace_id="t-4"),
+    )
     env = json.loads(out)
     assert env["ok"] is False
     assert (

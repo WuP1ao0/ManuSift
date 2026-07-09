@@ -7,11 +7,18 @@ god-file extraction.
 from __future__ import annotations
 
 import json
+import os
+import re
+import shutil
+import subprocess
+import sys
 import urllib.parse
 import urllib.request
 from typing import Any
 
 from ..tool import Tool, ToolContext
+
+_MAX_FETCH_BYTES = 50 * 1024
 
 
 class WebFetchTool:

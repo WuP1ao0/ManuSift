@@ -268,6 +268,7 @@ def test_detector_names_for_progress_is_canonical() -> None:
         "stat_grim",
         "stat_pvalue",
         "stat_percent",
+        "table_relationships",
         "image_noise_inconsistency",
         "panel_duplicate",
         "ai_generated_figure",

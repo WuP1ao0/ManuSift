@@ -1085,6 +1085,16 @@ def extract_xlsx_text(path: str) -> str:
         ) from exc
     try:
         out_lines: list[str] = []
+        from ..ingest.xlsx import _cell_fill
+
+        def render_cell(cell) -> str:
+            value = cell.value
+            text = "" if value is None else str(value)
+            fill = _cell_fill(cell)
+            if fill is None:
+                return text
+            return f"{text} [highlight:{fill}]"
+
         for sheet_name in wb.sheetnames:
             ws = wb[sheet_name]
             out_lines.append(f"## Sheet: {sheet_name}")
@@ -1112,10 +1122,8 @@ def extract_xlsx_text(path: str) -> str:
                 # common
                 # single-table
                 # case).
-                for row in ws.iter_rows(values_only=True):
-                    cells = [
-                        "" if v is None else str(v) for v in row
-                    ]
+                for row in ws.iter_rows():
+                    cells = [render_cell(cell) for cell in row]
                     out_lines.append("\t".join(cells))
             else:
                 # Multiple
@@ -1187,13 +1195,10 @@ def extract_xlsx_text(path: str) -> str:
                         for c in range(
                             bb["left"], bb["right"] + 1
                         ):
-                            v = ws.cell(
+                            cell = ws.cell(
                                 row=r + 1, column=c + 1
-                            ).value
-                            if v is None:
-                                row_cells.append("")
-                            else:
-                                row_cells.append(str(v))
+                            )
+                            row_cells.append(render_cell(cell))
                         out_lines.append("\t".join(row_cells))
                         rendered += 1
             out_lines.append("")

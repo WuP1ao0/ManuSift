@@ -69,7 +69,7 @@ import hashlib
 import json
 from pathlib import Path
 import shutil
-from typing import Any
+from typing import Any, Mapping
 
 from ..report import save_narrative_report
 from ..workspace import JobPaths
@@ -116,6 +116,8 @@ def _ctx_metadata(ctx: ToolContext | None) -> dict[str, Any]:
     metadata = getattr(ctx, "metadata", None)
     if isinstance(metadata, dict):
         return metadata
+    if isinstance(metadata, Mapping):
+        return dict(metadata)
     return {}
 
 

@@ -77,6 +77,14 @@ class ScreenVerdictTool:
                         "offline screen)."
                     ),
                 },
+                "include_sidecar": {
+                    "type": "boolean",
+                    "description": (
+                        "Auto-include companion data files (XLSX/CSV/"
+                        "TSV/JSON) found in the PDF's directory as "
+                        "auditable sources (default true)."
+                    ),
+                },
             },
             "additionalProperties": False,
         }
@@ -86,6 +94,7 @@ class ScreenVerdictTool:
 
         path_arg = input.get("path")
         use_llm = bool(input.get("use_llm"))
+        include_sidecar = bool(input.get("include_sidecar", True))
         if path_arg:
             pdf = Path(str(path_arg)).expanduser()
             if not pdf.is_absolute():
@@ -99,7 +108,9 @@ class ScreenVerdictTool:
                     {"error": "not_a_pdf", "path": str(path_arg)}
                 )
             try:
-                verdict = screen.run_screen(pdf, use_llm=use_llm)
+                verdict = screen.run_screen(
+                    pdf, use_llm=use_llm, include_sidecar=include_sidecar
+                )
             except Exception as exc:  # noqa: BLE001
                 return json.dumps(
                     {

@@ -470,3 +470,61 @@ def test_screen_tools_on_default_mcp_surface() -> None:
         "get_job_result",
     ]
     assert len(MCP_DEFAULT_TOOLS) == 40
+
+
+# ---------------------------------------------------------------------------
+# sidecar companion discovery (2026-07-18)
+# ---------------------------------------------------------------------------
+
+
+def test_copy_sidecar_data_copies_only_data_files(tmp_path: Path) -> None:
+    """Companion XLSX/CSV/TSV/JSON next to the PDF are copied into
+    the job materials dir; PDFs, videos and other files are not."""
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "paper.pdf").write_bytes(b"%PDF-1.4 fake")
+    (src / "Source_Data.xlsx").write_bytes(b"PK fake xlsx")
+    (src / "values.csv").write_text("a,b\n1,2\n", encoding="utf-8")
+    (src / "notes.txt").write_text("not data", encoding="utf-8")
+    (src / "movie.mov").write_bytes(b"\x00")
+    materials = tmp_path / "job" / "inputs" / "materials"
+
+    copied = screen._copy_sidecar_data(src, materials)
+
+    assert sorted(copied) == ["Source_Data.xlsx", "values.csv"]
+    assert (materials / "Source_Data.xlsx").is_file()
+    assert (materials / "values.csv").is_file()
+    assert not (materials / "notes.txt").exists()
+    assert not (materials / "movie.mov").exists()
+
+
+def test_copy_sidecar_data_missing_dir(tmp_path: Path) -> None:
+    assert screen._copy_sidecar_data(tmp_path / "nope", tmp_path / "m") == []
+
+
+def test_run_screen_sidecar_toggle(tmp_path: Path, monkeypatch) -> None:
+    """include_sidecar=True copies companions before the pipeline;
+    False leaves the materials dir alone."""
+    src = tmp_path / "src"
+    src.mkdir()
+    pdf = src / "paper.pdf"
+    pdf.write_bytes(b"%PDF-1.4 fake")
+    (src / "Source_Data.xlsx").write_bytes(b"PK fake xlsx")
+
+    class _FakeResult:
+        findings: list = []
+        duration_ms = 1
+
+    monkeypatch.setattr(
+        "manusift.pipeline.run_pipeline", lambda *a, **k: _FakeResult()
+    )
+    ws = tmp_path / "ws"
+    verdict = screen.run_screen(pdf, workspace_dir=ws)
+    assert verdict["sidecar_files"] == 1
+    tid = verdict["trace_id"]
+    assert (ws / tid / "inputs" / "materials" / "Source_Data.xlsx").is_file()
+
+    ws2 = tmp_path / "ws2"
+    verdict2 = screen.run_screen(pdf, workspace_dir=ws2, include_sidecar=False)
+    assert verdict2["sidecar_files"] == 0
+    assert not (ws2 / verdict2["trace_id"] / "inputs" / "materials").exists()

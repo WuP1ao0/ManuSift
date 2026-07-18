@@ -413,3 +413,207 @@ def test_detects_cross_table_terminal_digit_concentration() -> None:
     assert evidence["n"] == 8
     assert "Fig.3b" in evidence["tables"][0]
     assert "Fig.3c" in evidence["tables"][1]
+
+
+# ---------- statistical column checks (2026-07) ----------
+
+def _checks(result) -> set[str]:
+    return {
+        json.loads(f.evidence).get("check", "")
+        for f in result.findings
+    }
+
+
+def test_arithmetic_sequence_sorted_caught_scrambled() -> None:
+    """A scrambled arithmetic progression (constant step after
+    sorting) must fire even though raw-order diffs vary."""
+    table = _table(
+        ["v"],
+        [[str(v)] for v in [10.0, 40.0, 20.0, 50.0, 30.0, 70.0, 60.0, 90.0, 80.0]],
+    )
+
+    result = TableRelationshipDetector().run(_doc(table))
+
+    finding = _finding(result, "arithmetic sequence")
+    assert _evidence(finding)["check"] == "arithmetic_sequence_sorted"
+    assert finding.severity == "medium"
+
+
+def test_arithmetic_sequence_skips_regular_axis() -> None:
+    """A monotonic, regularly spaced column (instrument bin axis /
+    sampling grid) must NOT be flagged."""
+    table = _table(
+        ["size"],
+        [[str(i * 0.5)] for i in range(12)],
+    )
+
+    result = TableRelationshipDetector().run(_doc(table))
+
+    assert "arithmetic_sequence_sorted" not in _checks(result)
+    assert "modal_gap_sequence" not in _checks(result)
+
+
+def test_arithmetic_sequence_skips_pure_index() -> None:
+    """Plain 1..n index columns must NOT be flagged."""
+    table = _table(["id"], [[str(i)] for i in range(1, 11)])
+
+    result = TableRelationshipDetector().run(_doc(table))
+
+    assert "arithmetic_sequence_sorted" not in _checks(result)
+    assert "modal_gap_sequence" not in _checks(result)
+
+
+def test_modal_gap_sequence_caught_time_schedule() -> None:
+    """Fig-1i-like sampling column: dominant 12.0 spacing after an
+    irregular start."""
+    table = _table(
+        ["time"],
+        [[str(v)] for v in [0.5, 1, 3, 5, 12, 24, 36, 48, 60, 72, 84, 96, 120]],
+    )
+
+    result = TableRelationshipDetector().run(_doc(table))
+
+    finding = _finding(result, "dominant repeated spacing")
+    evidence = _evidence(finding)
+    assert evidence["check"] == "modal_gap_sequence"
+    assert evidence["modal_gap"] == 12
+    assert evidence["mode_count"] == 7
+    assert evidence["on_quantization_lattice"] is False
+    assert finding.severity == "medium"
+
+
+def test_modal_gap_on_lattice_is_low() -> None:
+    """S16-like dense two-decimal column: the modal gap equals the
+    quantization step, so severity must drop to low."""
+    values = [
+        1.08, 1.04, 0.95, 0.97, 0.95, 1.0, 0.96, 1.11,
+        1.02, 0.94, 0.99, 1.03, 1.02, 0.98, 0.97,
+    ]
+    table = _table(["sham"], [[str(v)] for v in values])
+
+    result = TableRelationshipDetector().run(_doc(table))
+
+    finding = _finding(result, "dominant repeated spacing")
+    evidence = _evidence(finding)
+    assert evidence["on_quantization_lattice"] is True
+    assert finding.severity == "low"
+
+
+def test_duplicate_excess_caught() -> None:
+    """Six identical two-decimal values among 20 must hugely exceed
+    the birthday-problem collision expectation."""
+    values = [12.34] * 6 + [
+        10.01, 11.02, 13.03, 14.04, 15.05, 16.06, 17.07,
+        18.08, 19.09, 20.10, 21.11, 22.12, 23.13, 24.14,
+    ]
+    table = _table(["v"], [[str(v)] for v in values])
+
+    result = TableRelationshipDetector().run(_doc(table))
+
+    finding = _finding(result, "statistically improbable duplicate values")
+    evidence = _evidence(finding)
+    assert evidence["check"] == "duplicate_excess"
+    assert evidence["duplicate_pairs"] == 15
+    assert finding.severity == "high"
+
+
+def test_duplicate_excess_clean_column_quiet() -> None:
+    table = _table(
+        ["v"],
+        [[f"{10 + i}.{i:02d}"] for i in range(20)],
+    )
+
+    result = TableRelationshipDetector().run(_doc(table))
+
+    assert "duplicate_excess" not in _checks(result)
+
+
+def test_duplicate_excess_excludes_zero_ties() -> None:
+    """Instrument floor zeros are legitimately tied; a column with
+    8 zeros (below the improbable_repeated fraction gate) must not
+    fire duplicate_excess on zero pairs alone."""
+    values = [0.0] * 8 + [1.01, 2.02, 3.03, 4.04, 5.05, 6.06, 7.07, 8.08, 9.09, 10.10, 11.11, 12.12]
+    table = _table(["v"], [[str(v)] for v in values])
+
+    result = TableRelationshipDetector().run(_doc(table))
+
+    assert "duplicate_excess" not in _checks(result)
+
+
+def test_duplicate_excess_does_not_double_report_dominant_value() -> None:
+    """Columns already caught by ``improbable_repeated_values``
+    (top fraction >= MIN_DUPLICATE_FRACTION) must not ALSO get a
+    duplicate_excess finding."""
+    values = [7.5] * 12 + [1.1, 2.2, 3.3, 4.4]
+    table = _table(["v"], [[str(v)] for v in values])
+
+    result = TableRelationshipDetector().run(_doc(table))
+
+    checks = _checks(result)
+    assert "improbable_repeated_values" in checks
+    assert "duplicate_excess" not in checks
+
+
+def test_duplicate_excess_pooled_across_columns() -> None:
+    """Fig-1i-like cross-group value reuse: two parallel columns
+    sharing many exact values must fire the pooled scope."""
+    shared = ["20.15", "21.13", "25.89", "31", "44.94", "50.1"]
+    left = shared + ["10.31", "51.63"]
+    right = shared + ["18.68", "50.68"]
+    table = _table(
+        ["a", "b"],
+        [[l, r] for l, r in zip(left, right)],
+    )
+
+    result = TableRelationshipDetector().run(_doc(table))
+
+    finding = _finding(
+        result, "statistically improbable duplicate values across columns"
+    )
+    assert _evidence(finding)["duplicate_pairs"] == 6
+
+
+def test_mixed_decimal_places_caught() -> None:
+    """Extended-data-like precision mix: 5 integers / 3 one-decimal
+    / 2 two-decimal values in one column."""
+    values = ["4", "1", "1", "4", "5", "1.25", "1.75", "4.5", "1.5", "0.8"]
+    table = _table(["score"], [[v] for v in values])
+
+    result = TableRelationshipDetector().run(_doc(table))
+
+    finding = _finding(result, "mixes decimal precision levels")
+    evidence = _evidence(finding)
+    assert evidence["check"] == "mixed_decimal_places"
+    assert evidence["precision_counts"] == {"0": 5, "1": 3, "2": 2}
+    assert finding.severity == "low"
+
+
+def test_mixed_decimal_places_consistent_column_quiet() -> None:
+    table = _table(
+        ["v"],
+        [[f"1.{i:02d}"] for i in range(12)],
+    )
+
+    result = TableRelationshipDetector().run(_doc(table))
+
+    assert "mixed_decimal_places" not in _checks(result)
+
+
+def test_duplicate_excess_excludes_boundary_ties() -> None:
+    """Floor/ceiling clamping: many ties at the observed max (e.g.
+    P-values rounded to 1.000) must not fire duplicate_excess."""
+    values = ["1.000"] * 6 + ["0.012", "0.031", "0.045", "0.058", "0.071", "0.083", "0.094", "0.210"]
+    table = _table(["v"], [[v] for v in values])
+
+    result = TableRelationshipDetector().run(_doc(table))
+
+    assert "duplicate_excess" not in _checks(result)
+
+
+def test_duplicate_excess_skips_p_value_columns() -> None:
+    values = ["0.050"] * 6 + ["0.012", "0.031", "0.045", "0.058", "0.071", "0.083", "0.094", "0.210"]
+    table = _table(["P-values (group A vs B)"], [[v] for v in values])
+
+    result = TableRelationshipDetector().run(_doc(table))
+
+    assert "duplicate_excess" not in _checks(result)

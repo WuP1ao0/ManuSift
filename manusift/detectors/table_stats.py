@@ -543,6 +543,148 @@ def _chi2_sf(x: float, k: int) -> float:
     ) * total
 
 
+# ---------- shared tail probabilities / multiple testing ----------
+
+def _binom_tail(k: int, n: int, p: float) -> float:
+    """Upper tail ``P(X >= k)`` for ``X ~ Binomial(n, p)``.
+
+    Pure-Python (log-PMF + upward recurrence) so the detectors stay
+    scipy-free like ``manusift.stats_algo``. Callers gate on effect
+    size first, so ``k`` is always well above ``n * p`` and the
+    recurrence converges in a handful of terms.
+    """
+    if k <= 0:
+        return 1.0
+    if k > n or p <= 0.0:
+        return 0.0
+    if p >= 1.0:
+        return 1.0
+    log_pmf = (
+        math.lgamma(n + 1)
+        - math.lgamma(k + 1)
+        - math.lgamma(n - k + 1)
+        + k * math.log(p)
+        + (n - k) * math.log1p(-p)
+    )
+    pmf = math.exp(log_pmf)
+    total = pmf
+    x = k
+    while x < n:
+        nxt = pmf * (n - x) / (x + 1) * p / (1.0 - p)
+        total += nxt
+        # Terms grow until the mode; only stop once they shrink again.
+        if nxt < pmf and nxt < 1e-14 * max(total, 1e-300):
+            break
+        pmf = nxt
+        x += 1
+    return min(1.0, total)
+
+
+def _poisson_tail(k: int, lam: float) -> float:
+    """Upper tail ``P(X >= k)`` for ``X ~ Poisson(lam)``."""
+    if k <= 0:
+        return 1.0
+    if lam <= 0.0:
+        return 0.0
+    pmf = math.exp(-lam + k * math.log(lam) - math.lgamma(k + 1))
+    total = pmf
+    x = k
+    while x < k + 100000:
+        nxt = pmf * lam / (x + 1)
+        total += nxt
+        if nxt < pmf and nxt < 1e-14 * max(total, 1e-300):
+            break
+        pmf = nxt
+        x += 1
+    return min(1.0, total)
+
+
+def _bh_adjust(pvals: list[float]) -> list[float]:
+    """Benjamini-Hochberg adjusted p-values (same order as input).
+
+    Every per-column digit/duplicate test in this module is corrected
+    against the family of all tests run on the same table -- without
+    this, screening dozens of columns would false-positive by
+    construction.
+    """
+    m = len(pvals)
+    order = sorted(range(m), key=lambda i: pvals[i])
+    qvals = [1.0] * m
+    prev = 1.0
+    for rank_from_end, i in enumerate(reversed(order)):
+        rank = m - rank_from_end
+        prev = min(prev, pvals[i] * m / rank)
+        qvals[i] = min(1.0, prev)
+    return qvals
+
+
+def _severity_for_q(q: float) -> str | None:
+    """Severity discipline (2026-07 research review):
+
+    * corrected p < 0.001 -> ``high``
+    * corrected p < 0.01  -> ``medium``
+    * corrected p < 0.05  -> ``low`` (screening hint)
+    * otherwise           -> no finding
+
+    A single weak signal must never be reported as ``high``.
+    """
+    if q < 0.001:
+        return "high"
+    if q < 0.01:
+        return "medium"
+    if q < 0.05:
+        return "low"
+    return None
+
+
+def _chi2_sf_exact(x: float, df: int) -> float:
+    """Survival function of the chi-squared distribution with ``df``
+    degrees of freedom.
+
+    Regularized upper incomplete gamma ``Q(df/2, x/2)``: series
+    expansion below the mode, Lentz continued fraction above it
+    (Numerical Recipes ``gammq``). Unlike the older ``_chi2_sf``
+    above (kept for the legacy ``_benford_chi2`` helper), this is a
+    true upper tail for all x, which the terminal-digit uniformity
+    test needs for mid-range chi2 values.
+    """
+    if x <= 0:
+        return 1.0
+    a = df / 2.0
+    z = x / 2.0
+    if z < a + 1.0:
+        term = 1.0 / a
+        total = term
+        for n in range(1, 1000):
+            term *= z / (a + n)
+            total += term
+            if abs(term) < 1e-14 * abs(total):
+                break
+        p = math.exp(-z + a * math.log(z) - math.lgamma(a)) * total
+        return max(0.0, min(1.0, 1.0 - p))
+    tiny = 1e-300
+    b = z + 1.0 - a
+    c = 1.0 / tiny
+    d = 1.0 / b
+    h = d
+    for i in range(1, 1000):
+        an = -i * (i - a)
+        b += 2.0
+        d = an * d + b
+        if abs(d) < tiny:
+            d = tiny
+        c = b + an / c
+        if abs(c) < tiny:
+            c = tiny
+        d = 1.0 / d
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < 1e-14:
+            break
+    q = math.exp(-z + a * math.log(z) - math.lgamma(a)) * h
+    return max(0.0, min(1.0, q))
+
+
 # ---------- 2. Duplicate-row detection ----------
 
 def _row_key_exact(row: list[Any]) -> tuple[str, ...]:
@@ -786,12 +928,180 @@ class OutlierDetector:
 
 # ---------- 4. Round-number bias ----------
 
+# Thresholds for the hypothesis-tested terminal-digit checks.
+# References: Al-Marzouki et al. 2005 (BMJ), Beber & Scacco 2012,
+# Preece 1981 -- last digits of honestly reported measurements are
+# ~uniform over 0-9, so each digit is expected at 10%, 0/5 together
+# at 20%, and any specific two-digit terminal pair at 1%.
+_TERMINAL_DIGIT_MIN_N = 30
+_TERMINAL_UNIFORM_EFFECT = 1.5  # max digit count >= 1.5x uniform expectation
+_TERMINAL_FIVE_MIN_FRAC = 0.15  # effect gate before testing digit 5 vs 10%
+_TERMINAL_ROUND_MIN_FRAC = 0.30  # effect gate before testing {0,5} vs 20%
+_TERMINAL_PAIR_MIN_COUNT = 5
+_TERMINAL_PAIR_EFFECT = 3.0  # top pair count >= 3x the 1% expectation
+_TERMINAL_PAIR_BONFERRONI = 100  # selecting the max of 100 pairs
+
+
+def _numeric_text_columns(
+    headers: list[str],
+    rows: list[list[str]],
+) -> dict[int, list[str]]:
+    """Like ``_numeric_columns`` but keeps the raw cell *strings*.
+
+    Terminal-digit and precision analysis must work on the reported
+    text, not on parsed floats: parsing collapses trailing zeros
+    (``"1.50"`` -> ``1.5``) and destroys the very signal under test.
+    """
+    out: dict[int, list[str]] = {}
+    for col in range(len(headers)):
+        texts: list[str] = []
+        for row in rows:
+            if col >= len(row):
+                continue
+            text = str(row[col]).strip()
+            if _coerce_number(text) is not None:
+                texts.append(text)
+        if len(texts) >= 2:
+            out[col] = texts
+    return out
+
+
+def _last_digit_of_text(text: str) -> str | None:
+    """Last digit character of a numeric cell string."""
+    for char in reversed(text.strip()):
+        if char.isdigit():
+            return char
+    return None
+
+
+def _fraction_of_text(text: str) -> str:
+    """Fraction digits of a plain decimal cell string (``""`` if none).
+
+    Scientific-notation cells are excluded (their mantissa digits are
+    not the reported terminal digits)."""
+    t = text.strip().lstrip("+-").rstrip("%")
+    if "e" in t.lower() or "." not in t:
+        return ""
+    frac = t.split(".", 1)[1]
+    return frac if frac.isdigit() else ""
+
+
+def _terminal_digit_tests(texts: list[str]) -> list[dict[str, Any]]:
+    """Run the terminal-digit hypothesis tests on one scope of cells.
+
+    Returns a list of test records ``{"check", "p", "detail"}``;
+    tests whose effect-size gate fails are skipped entirely (this
+    keeps large-n instrument columns from going "significant" on
+    trivial deviations). P-values are *raw*: the caller BH-corrects
+    them across the table family.
+    """
+    records: list[dict[str, Any]] = []
+    digit_counts: Counter[str] = Counter()
+    for text in texts:
+        digit = _last_digit_of_text(text)
+        if digit is not None:
+            digit_counts[digit] += 1
+    n_digits = sum(digit_counts.values())
+    if n_digits >= _TERMINAL_DIGIT_MIN_N:
+        exp = n_digits / 10.0
+        top_digit, top_count = digit_counts.most_common(1)[0]
+        if top_count >= _TERMINAL_UNIFORM_EFFECT * exp:
+            chi2 = sum(
+                (digit_counts.get(str(d), 0) - exp) ** 2 / exp
+                for d in range(10)
+            )
+            records.append(
+                {
+                    "check": "terminal_digit_uniformity",
+                    "p": _chi2_sf_exact(chi2, 9),
+                    "detail": {
+                        "n": n_digits,
+                        "chi2": round(chi2, 4),
+                        "top_digit": [top_digit, top_count],
+                        "counts": {
+                            str(d): digit_counts.get(str(d), 0)
+                            for d in range(10)
+                        },
+                    },
+                }
+            )
+        five = digit_counts.get("5", 0)
+        if five / n_digits >= _TERMINAL_FIVE_MIN_FRAC:
+            records.append(
+                {
+                    "check": "terminal_digit_five_bias",
+                    "p": _binom_tail(five, n_digits, 0.1),
+                    "detail": {
+                        "n": n_digits,
+                        "digit": "5",
+                        "count": five,
+                        "fraction": round(five / n_digits, 4),
+                        "expected_fraction": 0.1,
+                    },
+                }
+            )
+        round_ = digit_counts.get("0", 0) + five
+        if round_ / n_digits >= _TERMINAL_ROUND_MIN_FRAC:
+            records.append(
+                {
+                    "check": "terminal_digit_round_bias",
+                    "p": _binom_tail(round_, n_digits, 0.2),
+                    "detail": {
+                        "n": n_digits,
+                        "digits": ["0", "5"],
+                        "count": round_,
+                        "fraction": round(round_ / n_digits, 4),
+                        "expected_fraction": 0.2,
+                    },
+                }
+            )
+    # Last-two-decimal-digit pair concentration (Beber & Scacco
+    # style): test the single most frequent pair against its 1%
+    # null with a Bonferroni x100 for max-selection. We deliberately
+    # do NOT chi-square over all 100 pairs -- power is far too low.
+    pair_counts: Counter[str] = Counter()
+    for text in texts:
+        frac = _fraction_of_text(text)
+        if len(frac) >= 2:
+            pair_counts[frac[-2:]] += 1
+    m = sum(pair_counts.values())
+    if m >= _TERMINAL_DIGIT_MIN_N and pair_counts:
+        pair, k = pair_counts.most_common(1)[0]
+        if k >= _TERMINAL_PAIR_MIN_COUNT and k >= _TERMINAL_PAIR_EFFECT * m / 100.0:
+            p = _binom_tail(k, m, 0.01) * _TERMINAL_PAIR_BONFERRONI
+            records.append(
+                {
+                    "check": "terminal_digit_pair_binomial",
+                    "p": min(1.0, p),
+                    "detail": {
+                        "n": m,
+                        "pair": pair,
+                        "count": k,
+                        "expected_fraction": 0.01,
+                        "bonferroni_pairs": _TERMINAL_PAIR_BONFERRONI,
+                    },
+                }
+            )
+    return records
+
+
 class RoundBiasDetector:
     """Last-digit forensic bias (0/5 over-representation).
 
-    Uses :func:`manusift.stats_algo.last_digit_round_bias` (forensic
-    accounting last-digit uniformity + 0/5 ratio), compatible with
-    common open-source Benford/forensics tooling.
+    Two layers:
+
+    * Hypothesis-tested terminal-digit checks (2026-07): per column
+      and pooled per table -- last-digit uniformity (chi2, 9 df),
+      digit-5 bias and 0/5 bias (binomial vs 0.1 / 0.2), and most-
+      frequent last-two-decimal-digit pair (binomial vs 0.01,
+      Bonferroni x100). All p-values in a table are BH-corrected as
+      one family; severity follows the corrected p (``<0.001`` high,
+      ``<0.01`` medium, ``<0.05`` low). Requires n>=30 per scope.
+    * Legacy ratio heuristic via
+      :func:`manusift.stats_algo.last_digit_round_bias`, kept for
+      small columns (n 10-29) where the chi-square/binomial tests
+      are underpowered. Columns already flagged by the statistical
+      layer are not double-reported.
     """
 
     name = "table_round_bias"
@@ -803,9 +1113,16 @@ class RoundBiasDetector:
         for t_index, table in enumerate(_safe_tables(doc)):
             headers = getattr(table, "headers", []) or []
             rows = getattr(table, "rows", []) or []
+            label = _format_table_label(table, t_index)
+            text_cols = _numeric_text_columns(headers, rows)
+            covered = self._statistical_findings(
+                doc, table, t_index, label, headers, text_cols, findings
+            )
+            # Legacy heuristic for columns the statistical layer did
+            # not cover (mostly n < 30).
             cols = _numeric_columns(headers, rows)
             for col_idx, values in cols.items():
-                if len(values) < 10:
+                if col_idx in covered or len(values) < 10:
                     continue
                 analysis = last_digit_round_bias(values)
                 ratio = float(analysis.get("round_ratio") or 0.0)
@@ -846,3 +1163,101 @@ class RoundBiasDetector:
         return DetectorResult(
             detector=self.name, findings=findings, ok=True
         )
+
+    def _statistical_findings(
+        self,
+        doc: ParsedDoc,
+        table: Any,
+        t_index: int,
+        label: str,
+        headers: list[str],
+        text_cols: dict[int, list[str]],
+        findings: list[Finding],
+    ) -> set[int]:
+        """Run the BH-corrected terminal-digit tests for one table.
+
+        Appends at most one finding per scope (per column, plus one
+        pooled per-table finding when the table has >= 2 numeric
+        columns -- small lab tables only reach n>=30 when pooled).
+        Returns the set of column indices that received a finding so
+        the legacy layer does not double-report them.
+        """
+        records: list[dict[str, Any]] = []
+        for col_idx, texts in sorted(text_cols.items()):
+            if len(texts) < _TERMINAL_DIGIT_MIN_N:
+                continue
+            for rec in _terminal_digit_tests(texts):
+                rec["scope"] = ("column", col_idx)
+                records.append(rec)
+        if len(text_cols) >= 2:
+            pooled = [t for texts in text_cols.values() for t in texts]
+            if len(pooled) >= _TERMINAL_DIGIT_MIN_N:
+                for rec in _terminal_digit_tests(pooled):
+                    rec["scope"] = ("table", None)
+                    records.append(rec)
+        if not records:
+            return set()
+        qvals = _bh_adjust([float(rec["p"]) for rec in records])
+        for rec, q in zip(records, qvals):
+            rec["q_bh"] = q
+        # Group by scope; emit one finding per significant scope.
+        by_scope: dict[tuple[str, Any], list[dict[str, Any]]] = {}
+        for rec in records:
+            sev = _severity_for_q(float(rec["q_bh"]))
+            if sev is not None:
+                by_scope.setdefault(rec["scope"], []).append(rec)
+        covered: set[int] = set()
+        for (scope, col_idx), scope_records in sorted(
+            by_scope.items(), key=lambda item: str(item[0])
+        ):
+            best_q = min(float(r["q_bh"]) for r in scope_records)
+            severity = _severity_for_q(best_q) or "low"
+            checks = [str(r["check"]) for r in scope_records]
+            if scope == "column":
+                header = (
+                    headers[col_idx] if col_idx < len(headers) else f"col_{col_idx + 1}"
+                )
+                title = (
+                    f"{label} column '{header}' shows statistically "
+                    f"improbable terminal digits"
+                )
+                location = f"{label}, column {col_idx} ('{header}')"
+                covered.add(col_idx)
+            else:
+                title = (
+                    f"{label} shows statistically improbable terminal "
+                    f"digits (pooled across columns)"
+                )
+                location = label
+            findings.append(
+                Finding.make(
+                    trace_id=doc.trace_id,
+                    detector=self.name,
+                    severity=severity,
+                    title=title,
+                    location=location,
+                    evidence=json.dumps(
+                        {
+                            "method": (
+                                "terminal_digit_hypothesis_tests "
+                                "(uniformity chi2 / binomial 5-bias / "
+                                "binomial 0,5-bias / pair binomial), "
+                                "BH-corrected per table"
+                            ),
+                            "scope": scope,
+                            "checks": checks,
+                            "tests": [
+                                {
+                                    "check": r["check"],
+                                    "p_raw": r["p"],
+                                    "q_bh": round(float(r["q_bh"]), 6),
+                                    **r["detail"],
+                                }
+                                for r in scope_records
+                            ],
+                            "family_size": len(records),
+                        }
+                    ),
+                )
+            )
+        return covered

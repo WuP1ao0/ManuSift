@@ -7,6 +7,11 @@ decimal tails, integer-shift decimal-tail reuse, concentrated one- or two-digit
 terminal patterns within and across tables, high duplicate rates, improbable
 repeated values, three-column arithmetic identities, and zero-variance columns.
 
+Statistical additions (2026-07, see ``_statistical_column_findings``):
+(near-)arithmetic sequences via sorted-gap CV / rank R^2 with index-axis
+guards, dominant-spacing (modal-gap) series, Poisson duplicate-excess tests
+(BH-corrected per table), and mixed decimal-precision screening.
+
 P1 thresholds (env / profile)
 -----------------------------
 ``MANUSIFT_TABLE_THRESHOLD_PROFILE`` = ``strict`` | ``default`` | ``sensitive``
@@ -28,13 +33,20 @@ from __future__ import annotations
 
 import json
 import os
+import statistics
 from collections import Counter
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from ..contracts import Finding, ParsedDoc
 from .base import DetectorResult
-from .table_stats import _format_table_label, _safe_tables
+from .table_stats import (
+    _bh_adjust,
+    _format_table_label,
+    _poisson_tail,
+    _safe_tables,
+    _severity_for_q,
+)
 
 
 def _env_int(name: str, default: int) -> int:
@@ -145,6 +157,26 @@ def reload_thresholds() -> None:
     ) = _load_thresholds()
 
 
+# Statistical column checks (2026-07 research-backed additions).
+# Sorted-gap arithmetic-sequence test: CV of sorted first differences
+# or value-vs-rank R^2. Modal-gap variant catches "almost" arithmetic
+# series (a dominant repeated spacing) that CV misses.
+_SEQ_MIN_VALUES = 8
+_SEQ_CV_MAX = 0.05
+_SEQ_R2_MIN = 0.999
+_MODAL_GAP_MIN_COUNT = 5
+_MODAL_GAP_MIN_FRACTION = 0.5
+# Duplicate-excess test: expected collisions E ~ C(n,2)/R where R is
+# the number of representable values at the column's decimal
+# precision; Poisson upper tail on the observed duplicate pairs.
+_DUP_EXCESS_MIN_VALUES = 8
+_DUP_EXCESS_MIN_PAIRS = 3
+# Mixed decimal-precision check (heuristic, low severity only).
+_PRECISION_MIN_VALUES = 8
+_PRECISION_MODE_MAX_FRACTION = 0.95
+_PRECISION_MIN_LEVEL_COUNT = 2
+
+
 def _decimal_cell(cell: Any) -> Decimal | None:
     text = str(cell).strip()
     if not text:
@@ -170,6 +202,47 @@ def _numeric_columns(table: Any) -> dict[int, list[Decimal]]:
         if len(values) >= MIN_COLUMN_VALUES:
             out[col] = values
     return out
+
+
+def _numeric_columns_with_texts(table: Any) -> dict[int, tuple[list[Decimal], list[str]]]:
+    """Numeric columns with the raw cell strings kept alongside.
+
+    The statistical checks below (duplicate excess, decimal
+    precision) need the *reported* text: ``Decimal``/float parsing
+    collapses trailing zeros and would hide precision signals."""
+    headers = getattr(table, "headers", []) or []
+    rows = getattr(table, "rows", []) or []
+    out: dict[int, tuple[list[Decimal], list[str]]] = {}
+    for col in range(len(headers)):
+        values: list[Decimal] = []
+        texts: list[str] = []
+        for row in rows:
+            if col >= len(row):
+                continue
+            text = str(row[col]).strip()
+            value = _decimal_cell(text)
+            if value is not None:
+                values.append(value)
+                texts.append(text)
+        if len(values) >= 2:
+            out[col] = (values, texts)
+    return out
+
+
+def _fraction_len(text: str) -> int | None:
+    """Number of decimal places in a plain numeric cell string.
+
+    Returns ``None`` for scientific-notation or non-plain cells.
+    NOTE: xlsx ingest goes through ``str(cell.value)``, so trailing
+    zeros of *float* cells are already lost upstream; this measures
+    significant reported decimals, not display formatting."""
+    t = text.strip().lstrip("+-").rstrip("%")
+    if "e" in t.lower():
+        return None
+    if "." not in t:
+        return 0
+    frac = t.split(".", 1)[1]
+    return len(frac) if frac.isdigit() else None
 
 
 def _cell_texts(table: Any, col: int) -> list[str]:
@@ -249,6 +322,260 @@ def _as_json(payload: dict[str, Any]) -> str:
     return json.dumps(_json_ready(payload), ensure_ascii=False)
 
 
+# ---------- statistical column checks (2026-07) ----------
+
+def _is_pure_index_or_axis(values: list[Decimal], sorted_values: list[Decimal]) -> bool:
+    """FP guard for the sequence checks.
+
+    Pure index sequences (consecutive integers such as 1..n or
+    0..n-1) and strictly increasing all-integer axes (year / day /
+    dose-number columns) are *expected* to be perfectly regular, so
+    the arithmetic-sequence checks must not fire on them."""
+    if not all(v == v.to_integral_value() for v in sorted_values):
+        return False
+    ints = [int(v) for v in sorted_values]
+    if ints == list(range(ints[0], ints[0] + len(ints))):
+        return True
+    return all(values[i] < values[i + 1] for i in range(len(values) - 1))
+
+
+def _is_axis_like(values: list[Decimal]) -> bool:
+    """FP guard: monotonic, near-regularly-spaced column.
+
+    Instrument bin axes and regular sampling grids (DLS/NTA size
+    bins, fixed-step time axes) are non-decreasing with (nearly)
+    constant spacing *by design* -- regular spacing there is not a
+    fabrication signal. A column like ``0.5, 1, 3, 5, 12, 24, 36``
+    (irregular early spacing, dominant later spacing) is NOT
+    axis-like and still reaches the checks.
+
+    Also treats a column made of K >= 2 verbatim repeats of the
+    same block as structural (repeated instrument sweeps share the
+    same bin grid, e.g. two 1803-bin NTA scans stacked in one
+    column)."""
+    n = len(values)
+    if n < 3:
+        return False
+    for k in (2, 3, 4):
+        if n % k:
+            continue
+        chunk = n // k
+        if chunk < 3:
+            continue
+        first = values[:chunk]
+        if all(
+            values[i * chunk : (i + 1) * chunk] == first
+            for i in range(1, k)
+        ):
+            return True
+    if not all(values[i] <= values[i + 1] for i in range(n - 1)):
+        return False
+    nz = [
+        values[i + 1] - values[i]
+        for i in range(n - 1)
+        if values[i + 1] != values[i]
+    ]
+    if len(nz) < 2:
+        return False
+    gf = [float(g) for g in nz]
+    mean = statistics.fmean(gf)
+    return mean > 0 and statistics.pstdev(gf) / mean < 0.05
+
+
+def _sequence_check(values: list[Decimal], texts: list[str]) -> dict[str, Any] | None:
+    """Detect (near-)arithmetic sequences in one column.
+
+    Two statistics on the *sorted* values (order-independent):
+
+    * ``arithmetic_sequence_sorted`` -- CV of sorted first
+      differences < 0.05, or value-vs-rank linear regression
+      R^2 > 0.999. Severity ``medium``.
+    * ``modal_gap_sequence`` -- a dominant repeated spacing (mode
+      gap in >= 50% of nonzero gaps, >= 5 occurrences). Severity
+      ``medium``, downgraded to ``low`` when the modal gap equals
+      the column's quantization step (dense two-decimal data hits
+      adjacent lattice points by chance).
+
+    Columns already caught by the raw-order ``arithmetic_progression``
+    / ``near_perfect_arithmetic_progression`` checks above are skipped
+    so the same signal is not reported twice.
+    """
+    n = len(values)
+    if n < _SEQ_MIN_VALUES or len(set(values)) == 1:
+        return None
+    raw_diffs = [
+        _round_decimal(values[i + 1] - values[i]) for i in range(n - 1)
+    ]
+    if len(set(raw_diffs)) == 1:
+        return None  # covered by ``arithmetic_progression``
+    top_raw, top_raw_count = Counter(raw_diffs).most_common(1)[0]
+    if top_raw != 0 and top_raw_count / len(raw_diffs) >= 0.8:
+        return None  # covered by ``near_perfect_arithmetic_progression``
+    sv = sorted(values)
+    if _is_pure_index_or_axis(values, sv) or _is_axis_like(values):
+        return None
+    gaps = [sv[i + 1] - sv[i] for i in range(n - 1)]
+    nz_gaps = [g for g in gaps if g != 0]
+    if len(nz_gaps) < 2:
+        return None
+    floats = [float(v) for v in sv]
+    mean_rank = (n - 1) / 2.0
+    mean_val = statistics.fmean(floats)
+    sxx = sum((i - mean_rank) ** 2 for i in range(n))
+    syy = sum((v - mean_val) ** 2 for v in floats)
+    r2 = 0.0
+    if sxx > 0 and syy > 0:
+        sxy = sum(
+            (i - mean_rank) * (v - mean_val) for i, v in enumerate(floats)
+        )
+        r2 = (sxy * sxy) / (sxx * syy)
+    gap_floats = [float(g) for g in nz_gaps]
+    gap_mean = statistics.fmean(gap_floats)
+    cv = (
+        statistics.pstdev(gap_floats) / gap_mean if gap_mean > 0 else None
+    )
+    if (cv is not None and cv < _SEQ_CV_MAX) or r2 > _SEQ_R2_MIN:
+        return {
+            "check": "arithmetic_sequence_sorted",
+            "severity": "medium",
+            "n": n,
+            "gap_cv": round(cv, 5) if cv is not None else None,
+            "rank_r2": round(r2, 6),
+        }
+    counts = Counter(nz_gaps)
+    mode_gap, mode_count = counts.most_common(1)[0]
+    if (
+        mode_count >= _MODAL_GAP_MIN_COUNT
+        and mode_count / len(nz_gaps) >= _MODAL_GAP_MIN_FRACTION
+        and len(counts) >= 2
+    ):
+        precs = [p for p in (_fraction_len(t) for t in texts) if p is not None]
+        step = Decimal(1).scaleb(-max(precs)) if precs else None
+        on_lattice = step is not None and abs(mode_gap - step) < step / 2
+        return {
+            "check": "modal_gap_sequence",
+            "severity": "low" if on_lattice else "medium",
+            "n": n,
+            "modal_gap": mode_gap,
+            "mode_count": mode_count,
+            "nonzero_gaps": len(nz_gaps),
+            "mode_fraction": round(mode_count / len(nz_gaps), 4),
+            "on_quantization_lattice": on_lattice,
+        }
+    return None
+
+
+def _precision_check(texts: list[str]) -> dict[str, Any] | None:
+    """Flag columns mixing decimal-precision levels.
+
+    The decimal-places distribution within a column should be
+    (nearly) constant for one instrument; a mode share < 95% with
+    >= 2 precision levels that each occur >= 2 times is a screening
+    signal. Heuristic only -- always severity ``low``."""
+    if len(texts) < _PRECISION_MIN_VALUES:
+        return None
+    precs = [p for p in (_fraction_len(t) for t in texts) if p is not None]
+    if len(precs) < _PRECISION_MIN_VALUES:
+        return None
+    counts = Counter(precs)
+    levels = {
+        p: c for p, c in counts.items() if c >= _PRECISION_MIN_LEVEL_COUNT
+    }
+    if len(levels) < 2:
+        return None
+    mode_places, mode_count = counts.most_common(1)[0]
+    if mode_count / len(precs) >= _PRECISION_MODE_MAX_FRACTION:
+        return None
+    return {
+        "check": "mixed_decimal_places",
+        "severity": "low",
+        "n": len(precs),
+        "precision_counts": {str(p): c for p, c in sorted(counts.items())},
+        "mode_places": mode_places,
+        "mode_fraction": round(mode_count / len(precs), 4),
+    }
+
+
+def _duplicate_excess_record(
+    values: list[Decimal], texts: list[str], header: str = ""
+) -> dict[str, Any] | None:
+    """Poisson test for excess exact duplicates in one scope.
+
+    Infer the column's decimal precision ``d``, count representable
+    values ``R = span / 10^-d + 1``, expected collision pairs
+    ``E = C(n,2) / R`` (birthday problem), and take the Poisson
+    upper tail of the observed duplicate pairs. The raw p-value is
+    BH-corrected by the caller across the table family.
+
+    Columns whose top value already exceeds
+    ``MIN_DUPLICATE_FRACTION`` are skipped -- the deterministic
+    ``improbable_repeated_values`` check above reports those.
+    """
+    n = len(values)
+    if n < _DUP_EXCESS_MIN_VALUES:
+        return None
+    counts = Counter(values)
+    top_value, top_count = counts.most_common(1)[0]
+    if top_count / n >= MIN_DUPLICATE_FRACTION:
+        return None  # covered by ``improbable_repeated_values``
+    if _is_axis_like(values):
+        return None  # instrument bin axis / sampling grid
+    header_l = header.lower()
+    if "p-value" in header_l or "p value" in header_l:
+        # P-value columns legitimately repeat rounded thresholds
+        # (0.05, 0.01, 1.000); collision counts are meaningless there.
+        return None
+    precs = [p for p in (_fraction_len(t) for t in texts) if p is not None]
+    if not precs:
+        return None
+    step = Decimal(1).scaleb(-min(max(precs), 8))
+    span = max(values) - min(values)
+    if span == 0:
+        return None  # constant column -- covered by ``zero_variance``
+    # Effective value count: the uniform-occupancy (birthday) null
+    # only makes sense over the range where the data actually live.
+    # Min-max span is inflated by outliers and would make collisions
+    # look impossible for concentrated data (e.g. instrument count
+    # columns), so use 3x IQR capped by the observed span instead.
+    sv = sorted(values)
+    iqr = sv[(3 * len(sv)) // 4] - sv[len(sv) // 4]
+    effective_span = min(max(iqr * 3, step), span)
+    r_values = (
+        int((effective_span / step).to_integral_value(rounding=ROUND_HALF_UP))
+        + 1
+    )
+    if r_values < 2:
+        return None
+    lo, hi = min(values), max(values)
+    dup_pairs = sum(
+        c * (c - 1) // 2
+        for v, c in counts.items()
+        if c > 1 and v != 0 and v != lo and v != hi
+    )
+    # Exact-zero ties are excluded: 0.0 is the floor value of most
+    # instruments (below-threshold readings), so zero collisions are
+    # expected. Ties at the observed min/max are excluded for the
+    # same reason: floor/ceiling effects (detection limits,
+    # saturation, P-values rounded to 1.000) legitimately clamp many
+    # measurements to the range boundary. Zero-*dominated* columns
+    # are still reported by the ``improbable_repeated_values``
+    # fraction check above.
+    if dup_pairs < _DUP_EXCESS_MIN_PAIRS:
+        return None
+    expected = (n * (n - 1) / 2.0) / r_values
+    return {
+        "check": "duplicate_excess",
+        "p": _poisson_tail(dup_pairs, expected),
+        "n": n,
+        "duplicate_pairs": dup_pairs,
+        "expected_pairs": round(expected, 4),
+        "representable_values": r_values,
+        "decimal_places": min(max(precs), 8),
+        "top_value": top_value,
+        "top_count": top_count,
+    }
+
+
 class TableRelationshipDetector:
     """Flag exact arithmetic relationships across manuscript data tables."""
 
@@ -265,6 +592,7 @@ class TableRelationshipDetector:
             findings.extend(self._pair_findings(doc, table, t_index, label, headers, cols))
             findings.extend(self._multi_column_findings(doc, label, headers, cols))
             findings.extend(self._triple_findings(doc, label, headers, cols))
+            findings.extend(self._statistical_column_findings(doc, table, t_index, label, headers))
         findings.extend(self._cross_table_findings(doc, tables))
         findings.extend(self._cross_table_terminal_digit_findings(doc, tables))
         return DetectorResult(detector=self.name, findings=findings, ok=True)
@@ -894,6 +1222,110 @@ class TableRelationshipDetector:
                 },
             )
         ]
+
+    def _statistical_column_findings(
+        self,
+        doc: ParsedDoc,
+        table: Any,
+        t_index: int,
+        label: str,
+        headers: list[str],
+    ) -> list[Finding]:
+        """Research-backed per-column statistical checks (2026-07).
+
+        * ``arithmetic_sequence_sorted`` / ``modal_gap_sequence`` --
+          (near-)arithmetic series via sorted-gap CV / rank R^2 and
+          dominant-spacing mode (deterministic, no p-value).
+        * ``mixed_decimal_places`` -- precision-level mixing
+          (heuristic, low only).
+        * ``duplicate_excess`` -- Poisson collision-excess test per
+          column, plus one pooled per-table scope (catches values
+          re-used across parallel group columns); p-values are
+          BH-corrected as one family per table.
+        """
+        findings: list[Finding] = []
+        cols = _numeric_columns_with_texts(table)
+        for col, (values, texts) in sorted(cols.items()):
+            header = headers[col] if col < len(headers) else f"col_{col + 1}"
+            location = f"{label}, column {col + 1} ('{header}')"
+            seq = _sequence_check(values, texts)
+            if seq is not None:
+                severity = str(seq.pop("severity"))
+                title = (
+                    f"{label} column '{header}' forms an arithmetic sequence"
+                    if seq["check"] == "arithmetic_sequence_sorted"
+                    else f"{label} column '{header}' shows a dominant repeated spacing"
+                )
+                findings.append(
+                    self._finding(doc, severity, title, location, seq)
+                )
+            prec = _precision_check(texts)
+            if prec is not None:
+                findings.append(
+                    self._finding(
+                        doc,
+                        str(prec.pop("severity")),
+                        f"{label} column '{header}' mixes decimal precision levels",
+                        location,
+                        prec,
+                    )
+                )
+        # p-value family: duplicate-excess per column + pooled table.
+        records: list[dict[str, Any]] = []
+        for col, (values, texts) in sorted(cols.items()):
+            header = headers[col] if col < len(headers) else f"col_{col + 1}"
+            rec = _duplicate_excess_record(values, texts, header=header)
+            if rec is not None:
+                rec["scope"] = ("column", col)
+                records.append(rec)
+        if len(cols) >= 2:
+            # Exclude axis-like columns from the pooled scope --
+            # their ties are structural (repeated sweeps share the
+            # same bin grid), not copied data. P-value columns are
+            # excluded too (rounded thresholds repeat legitimately).
+            data_cols = []
+            for col, (values, texts) in cols.items():
+                col_header = (
+                    headers[col] if col < len(headers) else ""
+                ).lower()
+                if "p-value" in col_header or "p value" in col_header:
+                    continue
+                if _is_axis_like(values):
+                    continue
+                data_cols.append((values, texts))
+            all_values = [v for values, _ in data_cols for v in values]
+            all_texts = [t for _, texts in data_cols for t in texts]
+            rec = _duplicate_excess_record(all_values, all_texts)
+            if rec is not None:
+                rec["scope"] = ("table", None)
+                records.append(rec)
+        if not records:
+            return findings
+        qvals = _bh_adjust([float(rec["p"]) for rec in records])
+        for rec, q in zip(records, qvals):
+            severity = _severity_for_q(q)
+            if severity is None:
+                continue
+            scope, col = rec.pop("scope")
+            rec["p_raw"] = rec.pop("p")
+            rec["q_bh"] = round(q, 6)
+            rec["family_size"] = len(records)
+            if scope == "column":
+                header = headers[col] if col < len(headers) else f"col_{col + 1}"
+                title = (
+                    f"{label} column '{header}' has statistically "
+                    f"improbable duplicate values"
+                )
+                location = f"{label}, column {col + 1} ('{header}')"
+                rec["column"] = header
+            else:
+                title = (
+                    f"{label} has statistically improbable duplicate "
+                    f"values across columns"
+                )
+                location = label
+            findings.append(self._finding(doc, severity, title, location, rec))
+        return findings
 
     def _finding(
         self,

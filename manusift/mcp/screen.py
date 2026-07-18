@@ -261,11 +261,42 @@ def verdict_for_trace(
     return verdict
 
 
+def _copy_sidecar_data(pdf_dir: Path, materials_dir: Path) -> list[str]:
+    """Copy companion data files (XLSX/CSV/TSV/JSON) found next to the
+    source PDF into the job's materials dir.
+
+    The pipeline analyses a *copy* of the PDF inside the job
+    workspace, so the ingest layer's "look in the PDF's parent dir"
+    fallback never sees the user's original directory -- this is what
+    made ``screen_verdict`` silently skip same-directory source data
+    (2026-07-18 Codex MCP session on s41565-025-02082-0). Mirroring
+    the CLI's ``--with-sidecar`` behaviour here makes it the default
+    for the MCP screen flow. Returns the copied file names.
+    """
+    from ..ingest.xlsx import discover_companion_files
+
+    copied: list[str] = []
+    if not pdf_dir.is_dir():
+        return copied
+    for fp in discover_companion_files(pdf_dir):
+        try:
+            materials_dir.mkdir(parents=True, exist_ok=True)
+            dest = materials_dir / fp.name
+            if dest.exists():
+                continue
+            dest.write_bytes(fp.read_bytes())
+            copied.append(fp.name)
+        except OSError:
+            continue
+    return copied
+
+
 def run_screen(
     pdf_path: Path,
     *,
     trace_id: str | None = None,
     use_llm: bool = False,
+    include_sidecar: bool = True,
     workspace_dir: Path | None = None,
     on_step_complete: Callable[[Any, Any], None] | None = None,
 ) -> dict[str, Any]:
@@ -296,6 +327,7 @@ def run_screen(
     paths = JobPaths.for_trace(tid, ws)
     paths.ensure()
     paths.original.write_bytes(pdf_path.read_bytes())
+    sidecar = _copy_sidecar_data(pdf_path.parent, paths.materials_dir) if include_sidecar else []
 
     job = JobState(trace_id=tid, status="queued", source_filename=pdf_path.name)
 
@@ -320,6 +352,7 @@ def run_screen(
         report_path=str(paths.report_html.resolve()),
     )
     verdict["duration_ms"] = result.duration_ms
+    verdict["sidecar_files"] = len(sidecar)
     _atomic_write_json(_verdict_path(tid, ws), verdict)
     return verdict
 

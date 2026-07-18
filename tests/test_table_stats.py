@@ -303,3 +303,179 @@ def test_outlier_skips_short_columns() -> None:
     doc = FakeDoc([FakeTable(headers, rows)])
     result = OutlierDetector().run(doc)
     assert result.findings == []
+
+
+# ---------- 6. terminal-digit hypothesis tests (2026-07) ----------
+
+def _digit_column(digit_counts: dict) -> list[list[str]]:
+    """Build rows of integer cells with the given last-digit counts."""
+    rows = []
+    serial = 0
+    for digit, count in sorted(digit_counts.items()):
+        for _ in range(count):
+            rows.append([str(serial * 10 + int(digit))])
+            serial += 1
+    return rows
+
+
+def _stat_findings(result):
+    out = []
+    for f in result.findings:
+        ev = json.loads(f.evidence)
+        if "tests" in ev:
+            out.append((f, ev))
+    return out
+
+
+def test_terminal_digit_five_bias_caught() -> None:
+    """70 values with 26 ending in 5 (Fig.4c-like) must produce a
+    high-severity statistical finding."""
+    from manusift.detectors import RoundBiasDetector
+    counts = {"5": 26, "1": 8, "2": 8, "4": 8, "6": 7, "7": 7, "8": 6}
+    rows = _digit_column(counts)
+    doc = FakeDoc([FakeTable(["v"], rows)])
+    result = RoundBiasDetector().run(doc)
+    stat = _stat_findings(result)
+    assert len(stat) == 1
+    finding, ev = stat[0]
+    assert finding.severity == "high"
+    assert "terminal_digit_five_bias" in ev["checks"]
+    assert "terminal_digit_uniformity" in ev["checks"]
+
+
+def test_terminal_digit_round_bias_caught() -> None:
+    """40 of 60 values ending in 0 or 5 must trip the 0/5 binomial."""
+    from manusift.detectors import RoundBiasDetector
+    counts = {"0": 20, "5": 20, "1": 4, "2": 4, "3": 4, "4": 4, "6": 4}
+    rows = _digit_column(counts)
+    doc = FakeDoc([FakeTable(["v"], rows)])
+    result = RoundBiasDetector().run(doc)
+    stat = _stat_findings(result)
+    assert len(stat) == 1
+    finding, ev = stat[0]
+    assert finding.severity == "high"
+    assert "terminal_digit_round_bias" in ev["checks"]
+
+
+def test_terminal_digit_uses_raw_strings_trailing_zero() -> None:
+    """Trailing zeros only exist in the raw cell text: ``"1.50"``
+    parsed as a float loses the terminal 0. The statistical layer
+    must see 40/40 zeros."""
+    from manusift.detectors import RoundBiasDetector
+    rows = [[f"{i + 1}.50"] for i in range(40)]
+    doc = FakeDoc([FakeTable(["v"], rows)])
+    result = RoundBiasDetector().run(doc)
+    stat = _stat_findings(result)
+    assert len(stat) == 1
+    finding, ev = stat[0]
+    assert finding.severity == "high"
+    uniformity = next(
+        t for t in ev["tests"] if t["check"] == "terminal_digit_uniformity"
+    )
+    assert uniformity["counts"]["0"] == 40
+
+
+def test_terminal_digit_pair_binomial_caught() -> None:
+    """A repeated last-two-decimal pair ('.34' x10 of 60) must trip
+    the pair binomial even though 100-class chi-square would not."""
+    from manusift.detectors import RoundBiasDetector
+    rows = [[f"{i + 1}.34"] for i in range(10)]
+    pair = 0
+    i = 20
+    while len(rows) < 60:
+        pair = (pair + 7) % 100
+        if pair == 34:
+            continue
+        rows.append([f"{i}.{pair:02d}"])
+        i += 1
+    doc = FakeDoc([FakeTable(["v"], rows)])
+    result = RoundBiasDetector().run(doc)
+    stat = _stat_findings(result)
+    assert len(stat) == 1
+    finding, ev = stat[0]
+    assert finding.severity == "high"
+    assert "terminal_digit_pair_binomial" in ev["checks"]
+    pair_test = next(
+        t for t in ev["tests"] if t["check"] == "terminal_digit_pair_binomial"
+    )
+    assert pair_test["pair"] == "34"
+    assert pair_test["count"] == 10
+
+
+def test_terminal_digit_clean_column_quiet() -> None:
+    """Near-uniform last digits must not produce any finding."""
+    from manusift.detectors import RoundBiasDetector
+    rows = _digit_column({str(d): 6 for d in range(10)})
+    doc = FakeDoc([FakeTable(["v"], rows)])
+    result = RoundBiasDetector().run(doc)
+    assert result.findings == []
+
+
+def test_terminal_digit_small_columns_fall_back_to_legacy() -> None:
+    """Columns below n=30 are out of scope for the statistical
+    layer; the legacy ratio heuristic still covers them."""
+    from manusift.detectors import RoundBiasDetector
+    rows = [[str(i * 5)] for i in range(1, 16)]  # 15 values, all 0/5
+    doc = FakeDoc([FakeTable(["v"], rows)])
+    result = RoundBiasDetector().run(doc)
+    assert len(result.findings) == 1
+    ev = json.loads(result.findings[0].evidence)
+    assert ev["method"] == "last_digit_forensics"
+
+
+def _brush_column() -> list[list[str]]:
+    """Column that brushes the uniformity effect gate (p~1) but
+    triggers nothing else -- used to inflate the BH family."""
+    counts = {"0": 6, "1": 9, "2": 6, "3": 6, "4": 6, "5": 5,
+              "6": 6, "7": 6, "8": 5, "9": 5}
+    return _digit_column(counts)
+
+
+def _weak_rigged_column() -> list[list[str]]:
+    """Weak five-bias column (12/60 fives): raw p ~ 0.01."""
+    counts = {"5": 12, "0": 6, "1": 6, "2": 6, "3": 6, "4": 6,
+              "6": 6, "7": 6, "8": 3, "9": 3}
+    return _digit_column(counts)
+
+
+def test_bh_correction_suppresses_weak_signal_in_large_family() -> None:
+    """The same weak column that yields a low finding on its own
+    must disappear once the table family contains many null tests
+    (Benjamini-Hochberg across the table)."""
+    from manusift.detectors import RoundBiasDetector
+    alone = FakeDoc([FakeTable(["rigged"], _weak_rigged_column())])
+    result = RoundBiasDetector().run(alone)
+    stat = _stat_findings(result)
+    assert len(stat) == 1
+    assert stat[0][0].severity == "low"
+
+    headers = ["rigged"] + [f"null_{i}" for i in range(12)]
+    rigged = [r[0] for r in _weak_rigged_column()]
+    nulls = [[r[0] for r in _brush_column()] for _ in range(12)]
+    rows = [
+        [rigged[i]] + [nulls[c][i] for c in range(12)]
+        for i in range(60)
+    ]
+    crowded = FakeDoc([FakeTable(headers, rows)])
+    result = RoundBiasDetector().run(crowded)
+    assert _stat_findings(result) == []
+
+
+def test_bh_adjust_math() -> None:
+    from manusift.detectors.table_stats import _bh_adjust
+    q = _bh_adjust([0.001, 0.5, 0.04])
+    assert q[0] == pytest.approx(0.003)
+    assert q[2] == pytest.approx(0.06)
+    assert q[1] == pytest.approx(0.5)
+    assert _bh_adjust([]) == []
+
+
+def test_tail_probability_helpers() -> None:
+    from manusift.detectors.table_stats import _binom_tail, _poisson_tail
+    assert _binom_tail(0, 10, 0.1) == 1.0
+    assert _binom_tail(11, 10, 0.1) == 0.0
+    assert _binom_tail(26, 70, 0.1) < 1e-6
+    assert _binom_tail(2, 70, 0.1) > 0.9
+    assert _poisson_tail(0, 2.0) == 1.0
+    assert _poisson_tail(1128, 0.3) < 1e-30
+    assert _poisson_tail(1, 5.0) > 0.9

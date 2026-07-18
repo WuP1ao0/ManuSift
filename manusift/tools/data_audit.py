@@ -364,6 +364,51 @@ def _analyze_column(
 # --------------------------------------------------------------------
 
 
+def normalize_data_source(data_source: dict[str, Any]) -> dict[str, Any]:
+    """Normalize ingest / list_data_sources shapes to audit shape.
+
+    Ingest returns::
+        {table_id, source_kind, source_path, sheet_name, ...}
+    Audit historically expected::
+        {id, format, path}
+    Accept either (and common aliases) so agent tools stop
+    failing with ``data_source_missing`` after a successful ingest.
+    """
+    if not isinstance(data_source, dict):
+        return {}
+    ds_id = (
+        data_source.get("id")
+        or data_source.get("table_id")
+        or data_source.get("data_source_id")
+        or "?"
+    )
+    path = (
+        data_source.get("path")
+        or data_source.get("source_path")
+        or data_source.get("file")
+        or ""
+    )
+    fmt = (
+        data_source.get("format")
+        or data_source.get("source_kind")
+        or data_source.get("kind")
+        or ""
+    )
+    fmt = str(fmt).lower().strip()
+    # Infer format from path suffix when kind is generic/missing.
+    if not fmt or fmt in {"companion", "file", "table", "pdf_native"}:
+        suffix = Path(str(path)).suffix.lower().lstrip(".")
+        if suffix in {"xlsx", "xlsm", "csv", "tsv", "json"}:
+            fmt = "xlsx" if suffix == "xlsm" else suffix
+    if fmt == "xlsm":
+        fmt = "xlsx"
+    out = dict(data_source)
+    out["id"] = str(ds_id)
+    out["path"] = str(path)
+    out["format"] = fmt
+    return out
+
+
 def audit_data_source(
     data_source: dict[str, Any],
     max_rows: int = 0,
@@ -374,6 +419,8 @@ def audit_data_source(
     ----------
     data_source
         ``{"id": ..., "format": ..., "path": ...}``
+        or ingest-style
+        ``{"table_id", "source_kind", "source_path"}``.
     max_rows
         Per-call cap. ``0`` = use
         ``Settings.table_scan_max_rows`` (200_000
@@ -388,6 +435,7 @@ def audit_data_source(
         # chunks explicitly.
         max_rows = 200_000
 
+    data_source = normalize_data_source(data_source)
     ds_id = str(data_source.get("id", "?"))
     fmt = str(data_source.get("format", "")).lower()
     path = Path(str(data_source.get("path", "")))
@@ -601,6 +649,72 @@ def _schema_hash(
 # --------------------------------------------------------------------
 
 
+def _resolve_data_sources(
+    ctx: "ToolContext",
+    input: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Collect data sources from ctx metadata, or reload from job.
+
+    Order:
+      1. ``ctx.metadata['data_sources']`` (ingest / list_data_sources)
+      2. ``doc.tables`` if ``parsed_doc`` is cached
+      3. re-parse PDF materials via ``JobPaths`` + ``parse_pdf`` when
+         ``trace_id`` is known (agent often forgets to pass sources)
+    """
+    input = input or {}
+    meta = ctx.metadata or {}
+    sources = meta.get("data_sources")
+    if isinstance(sources, list) and sources:
+        return [s for s in sources if isinstance(s, dict)]
+
+    doc = meta.get("parsed_doc")
+    if doc is not None:
+        tables = list(getattr(doc, "tables", []) or [])
+        if tables:
+            return [_table_to_source(t) for t in tables]
+
+    trace_id = (
+        str(input.get("trace_id") or "").strip()
+        or str(getattr(ctx, "trace_id", "") or "").strip()
+        or str((meta.get("conversation_state") or {}).get("active_trace_id") or "").strip()
+    )
+    if not trace_id:
+        return []
+    try:
+        from ..config import get_settings
+        from ..ingest.pdf import parse_pdf
+        from ..workspace import JobPaths
+
+        settings = get_settings()
+        paths = JobPaths.for_trace(trace_id, settings.workspace_dir)
+        if not paths.original.exists():
+            return []
+        doc = parse_pdf(
+            paths.original,
+            trace_id=trace_id,
+            workspace_dir=settings.workspace_dir,
+        )
+        tables = list(getattr(doc, "tables", []) or [])
+        return [_table_to_source(t) for t in tables]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _table_to_source(table: Any) -> dict[str, Any]:
+    """Map ExtractedTable / duck table to audit data_source dict."""
+    return {
+        "id": getattr(table, "table_id", "") or "",
+        "table_id": getattr(table, "table_id", "") or "",
+        "format": getattr(table, "source_kind", "") or "",
+        "source_kind": getattr(table, "source_kind", "") or "",
+        "path": getattr(table, "source_path", "") or "",
+        "source_path": getattr(table, "source_path", "") or "",
+        "sheet_name": getattr(table, "sheet_name", "") or "",
+        "row_count": len(getattr(table, "rows", []) or []),
+        "column_count": len(getattr(table, "headers", []) or []),
+    }
+
+
 class SourceDataAuditTool:
     """Run a deterministic audit on every registered
     data source and return a JSON-friendly report.
@@ -646,9 +760,20 @@ class SourceDataAuditTool:
                     "items": {"type": "string"},
                     "description": (
                         "Optional list of data_source ids "
-                        "to audit. Default: audit all "
-                        "registered data sources in "
-                        "ctx.metadata['data_sources']."
+                        "or table_ids to audit. Default: "
+                        "audit all registered sources "
+                        "(ctx.metadata, or re-load from "
+                        "trace materials)."
+                    ),
+                },
+                "trace_id": {
+                    "type": "string",
+                    "description": (
+                        "Optional job trace_id. Used to "
+                        "reload companion tables from "
+                        "workspace when "
+                        "ctx.metadata['data_sources'] is "
+                        "empty."
                     ),
                 },
                 "max_rows": {
@@ -670,9 +795,7 @@ class SourceDataAuditTool:
     ) -> str:
         ds_ids = input.get("data_source_ids") or None
         max_rows = int(input.get("max_rows") or 0)
-        sources = (ctx.metadata or {}).get(
-            "data_sources"
-        ) or []
+        sources = _resolve_data_sources(ctx, input)
         if not isinstance(sources, list):
             return json.dumps({
                 "ok": False,
@@ -684,13 +807,42 @@ class SourceDataAuditTool:
                     "Run ingest_from_path first."
                 ),
             })
+        # Normalize every entry to {id, format, path}.
+        sources = [
+            normalize_data_source(s)
+            for s in sources
+            if isinstance(s, dict)
+        ]
+        # Drop unusable rows (no path) before filtering.
+        sources = [s for s in sources if s.get("path")]
         if ds_ids is not None:
             wanted = set(str(x) for x in ds_ids)
             sources = [
                 s for s in sources
                 if str(s.get("id", "")) in wanted
+                or str(s.get("table_id", "")) in wanted
             ]
+        # Deduplicate by path so multi-sheet xlsx is audited once.
+        seen_paths: set[str] = set()
+        deduped: list[dict[str, Any]] = []
+        for s in sources:
+            p = str(s.get("path") or "")
+            if not p or p in seen_paths:
+                continue
+            seen_paths.add(p)
+            deduped.append(s)
+        sources = deduped
         if not sources:
+            avail = []
+            raw = (ctx.metadata or {}).get("data_sources") or []
+            if isinstance(raw, list):
+                for s in raw:
+                    if isinstance(s, dict):
+                        avail.append(
+                            s.get("id")
+                            or s.get("table_id")
+                            or s.get("source_path")
+                        )
             return json.dumps({
                 "ok": False,
                 "error_kind": "data_source_missing",
@@ -698,13 +850,12 @@ class SourceDataAuditTool:
                     "no data sources match the filter; "
                     "either the trace has no registered "
                     "sources, or the requested ids do "
-                    "not exist"
+                    "not exist. Tip: pass table_id from "
+                    "list_data_sources, or re-run "
+                    "ingest_from_path / list_data_sources "
+                    "so ctx.metadata['data_sources'] is set."
                 ),
-                "data_sources_available": [
-                    s.get("id") for s in (
-                        ctx.metadata or {}
-                    ).get("data_sources") or []
-                ],
+                "data_sources_available": avail,
             })
         summaries = [
             audit_data_source(s, max_rows=max_rows)

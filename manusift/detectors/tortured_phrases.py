@@ -19,15 +19,28 @@ Lovet-Lorski (2021,
 "Detection of tortured
 phrases in scientific
 literature") compiled a
-dictionary of 250+ tortured
+dictionary of tortured
 phrases by mining
-PubMed-retracted papers.
-The full list is available
-on GitHub; for our detector
-we curate a subset of the
-most common 50 phrases,
-covering biology, medicine
-and computer science.
+retracted papers.
+
+2026-07 precision overhaul:
+the dictionary now comes
+from a *verified* curated
+source -- the PaperGuard /
+Cabanac-derived CSV (5,802
+phrases), loaded at import
+time from
+``tortured_phrases_data.json``
+(built by
+``scripts/build_tortured_dict.py``).
+The previous hand-written
+dictionary flagged *ordinary*
+scientific English ("data
+availability", "p-value",
+"cell viability", ...) as
+tortured, which fired on
+every legitimate paper;
+those entries were removed.
 
 The detector is read-only
 and string-based: we scan
@@ -37,155 +50,56 @@ emit a finding per match.
 The severity is
 "medium" for any single
 match and "high" when the
-document contains 3+ distinct
-tortured phrases (the
-threshold at which the
-authors of the original
-paper consider the
+document contains 3+ total
+occurrences (the threshold
+at which the authors of the
+original paper consider the
 document suspicious).
 
 Borrowed from Cabanac et
 al. 2021 / 2024 (Springer
 Scientometrics) and the
-GitHub repo
-``cabanac/tortured-phrases``.
+PaperGuard curated CSV
+(Cabanac-derived, verified).
 """
 from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 from ..contracts import Finding, ParsedDoc
 from .base import DetectorResult
 
 
-# Curated list of tortured
-# phrases. The keys are
-# lower-cased exact-match
-# phrases; the values are
-# short explanations of the
-# *intended* phrase the
-# author meant. We do not
-# cover every phrase in the
-# Cabanac list -- only the
-# 50 most common ones in
-# the biomedical literature.
-# A future revision can
-# load the full list from a
-# JSON file at module
-# import time.
+# Hand-curated core list of
+# tortured phrases, EXTENDED at
+# import time by the verified
+# Cabanac-derived dictionary in
+# ``tortured_phrases_data.json``
+# (see ``_load_external`` below;
+# built by
+# ``scripts/build_tortured_dict.py``).
+# Only *non-standard* phrasings
+# belong here: entries that are
+# ordinary scientific English
+# (e.g. "data availability",
+# "p-value", "cell viability")
+# were removed in the 2026-07
+# precision overhaul because they
+# fired on every legitimate paper.
 _TORTURED: dict[str, str] = {
     "unpresidented": "unprecedented",
     "non-negotiated": "non-negotiable",
     "non-negotiables": "non-negotiable",
-    "the coronavirus disease": "COVID-19",
-    "sars-cov-2": "SARS-CoV-2",
     "sars-cov-19": "SARS-CoV-2",
-    "covid-19": "COVID-19",
     "covid-2019": "COVID-19",
     "deeply learning": "deep learning",
     "deeply-learned": "deep learning",
     "deeply learnt": "deep learning",
     "machine-learned": "machine learning",
-    "machine-learning based": "machine learning",
-    "sklearn-based": "scikit-learn",
-    "tensorflow-based": "TensorFlow",
-    "pytorch-based": "PyTorch",
     "to computationally": "to compute",
-    "computationally expensive": "computationally intensive",
-    "high-quality data": "high-quality data",
-    "high-quality datasets": "high-quality datasets",
-    "real-time pcr": "real-time PCR",
-    "real time pcr": "real-time PCR",
-    "qpcr": "qPCR",
-    "rt-pcr": "RT-PCR",
-    "western blots": "Western blots",
-    "western blot analysis": "Western blot analysis",
-    "immunohistochemistry staining": "immunohistochemistry",
-    "immunofluorescence staining": "immunofluorescence",
-    "cell viability": "cell viability",
-    "cell proliferation": "cell proliferation",
-    "cell apoptosis": "cell apoptosis",
-    "cell migration": "cell migration",
-    "cell invasion": "cell invasion",
-    "tumor growth": "tumour growth",
-    "tumor size": "tumour size",
-    "tumor volume": "tumour volume",
-    "patient cohort": "patient cohort",
-    "patient cohorts": "patient cohorts",
-    "clinical characteristics": "clinical characteristics",
-    "clinical outcomes": "clinical outcomes",
-    "treatment outcomes": "treatment outcomes",
-    "adverse events": "adverse events",
-    "side effects": "side effects",
-    "adverse effects": "adverse effects",
-    "follow-up period": "follow-up period",
-    "follow up period": "follow-up period",
-    "data availability": "data availability",
-    "data availabilities": "data availability",
-    "code availability": "code availability",
-    "code availabilities": "code availability",
-    "materials and methods": "Materials and methods",
-    "results and discussion": "Results and discussion",
-    "conclusions and discussion": "Conclusions and discussion",
-    "introduction and background": "Introduction",
-    "limitations of the study": "Limitations",
-    "strengths of the study": "Strengths",
-    "author contributions": "Author contributions",
-    "conflict of interest": "Conflict of interest",
-    "conflicts of interest": "Conflicts of interest",
-    "funding source": "Funding source",
-    "funding sources": "Funding sources",
-    "ethical approval": "Ethics approval",
-    "ethical considerations": "Ethics approval",
-    "informed consent": "Informed consent",
-    "patient consent": "Informed consent",
-    "trial registration": "Trial registration",
-    "clinical trial registration": "Trial registration",
-    "institutional review board": "IRB approval",
-    "irb approval": "IRB approval",
-    "randomly assigned": "randomised",
-    "randomized controlled trial": "RCT",
-    "randomised controlled trial": "RCT",
-    "placebo-controlled trial": "placebo-controlled trial",
-    "double-blind trial": "double-blind trial",
-    "single-blind trial": "single-blind trial",
-    "open-label trial": "open-label trial",
-    "systematic review": "systematic review",
-    "meta-analysis": "meta-analysis",
-    "meta analyses": "meta-analysis",
-    "forest plot": "forest plot",
-    "funnel plot": "funnel plot",
-    "risk of bias": "risk of bias",
-    "publication bias": "publication bias",
-    "sensitivity analysis": "sensitivity analysis",
-    "subgroup analysis": "subgroup analysis",
-    "post-hoc analysis": "post hoc analysis",
-    "intention-to-treat": "intention to treat",
-    "per-protocol analysis": "per protocol analysis",
-    "intention to treat analysis": "intention-to-treat analysis",
-    "Kaplan-Meier curve": "Kaplan-Meier curve",
-    "Kaplan-Meier curves": "Kaplan-Meier curves",
-    "log-rank test": "log-rank test",
-    "cox regression": "Cox regression",
-    "hazard ratio": "hazard ratio",
-    "odds ratio": "odds ratio",
-    "confidence interval": "confidence interval",
-    "interquartile range": "interquartile range",
-    "standard deviation": "standard deviation",
-    "standard error": "standard error",
-    "p-value": "p-value",
-    "p-values": "p-values",
-    "p values": "p-values",
-    "p < 0.05": "p < 0.05",
-    "p < 0.01": "p < 0.01",
-    "p < 0.001": "p < 0.001",
-    "non-significant": "non-significant",
-    "statistically significant": "statistically significant",
-    "highly significant": "statistically significant",
-    "very highly significant": "statistically significant",
-    "extremely significant": "statistically significant",
 }
 
 
@@ -209,77 +123,6 @@ _TORTURED: dict[str, str] = {
 # form.  The detector
 # merges both dicts at
 # import time.
-#
-# Why a small starter set
-# and not a 5,000-entry
-# comprehensive list?
-# 1. The 30 v2 cases
-#    include
-#    NO
-#    Chinese
-#    papers,
-#    so
-#    we
-#    have
-#    no
-#    ground-truth
-#    for
-#    what
-#    constitutes
-#    a
-#    FP
-#    in
-#    Chinese.
-# 2. Comprehensive
-#    Chinese
-#    scientific
-#    dictionaries
-#    require
-#    domain
-#    experts
-#    (biologists
-#    /
-#    CS
-#    /
-#    chem)
-#    to
-#    curate.
-# 3. The
-#    detection
-#    contract
-#    is
-#    the
-#    same
-#    as
-#    English
-#    --
-#    if
-#    a
-#    phrase
-#    is
-#    in
-#    the
-#    dict
-#    AND
-#    matches
-#    the
-#    paper
-#    text,
-#    it's
-#    a
-#    finding.
-#    Adding
-#    more
-#    entries
-#    later
-#    is
-#    a
-#    pure
-#    data
-#    change
-#    (no
-#    code
-#    change).
 _TORTURED_CN: dict[str, str] = {
     # English
     # terms
@@ -371,114 +214,87 @@ def _normalise_phrase(s: str) -> str:
     return re.sub(r"\s+", " ", s.strip().lower())
 
 
+def _load_external() -> dict[str, str]:
+    """Load the verified Cabanac-derived dictionary
+    (``tortured_phrases_data.json``, built by
+    ``scripts/build_tortured_dict.py`` from the
+    PaperGuard curated CSV). Returns an empty dict
+    when the data file is missing -- the hand-curated
+    core in ``_TORTURED`` still works on its own."""
+    data_path = Path(__file__).with_name("tortured_phrases_data.json")
+    try:
+        raw = json.loads(data_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return {}
+    return {
+        _normalise_phrase(str(k)): str(v)
+        for k, v in raw.items()
+        if str(k).strip()
+    }
+
+
+# Merge: external verified dictionary first,
+# hand-curated core wins on key conflicts.
+_EXTERNAL = _load_external()
+_TORTURED = {**_EXTERNAL, **_TORTURED}
+
 # Pre-compile the
 # normalised dictionary
-# once at import time. We
-# match each phrase with a
-# word-boundary regex so we
-# do not match "pcr" inside
-# "pcr-tests" -- wait, we
-# *do* want to match
-# "pcr" inside that
-# string. The boundary is
-# only useful for
-# single-word phrases; for
-# multi-word phrases we
-# use a literal substring
-# match.
+# once at import time.
 _NORMALISED = {
     _normalise_phrase(k): v for k, v in _TORTURED.items()
 }
 # R-2026-06-19 (P2-C8):
-# also normalize
-# the Chinese
-# dict and
-# merge it
-# into
-# ``_NORMALISED``.
-# Chinese
-# phrases are
-# stored
-# verbatim
-# (no
-# case-folding
-# because
-# Chinese
-# has no
-# case);
-# ``_normalise_phrase``
-# is a
-# no-op
-# for them
-# (lowercase
-# is a
-# no-op
-# on
-# CJK).
+# also merge the Chinese
+# dict into
+# ``_NORMALISED``
+# (stored verbatim --
+# lowercase is a no-op
+# on CJK).
 for k, v in _TORTURED_CN.items():
     _NORMALISED.setdefault(k, v)
-# Pre-compile a single regex
-# that catches any of the
-# phrases. We sort by
-# length (descending) so
-# longer phrases match
-# before shorter ones
-# inside the same string.
-_PATTERNS: list[tuple[re.Pattern[str], str, str]] = []
-for phrase in sorted(_NORMALISED, key=len, reverse=True):
-    if not phrase:
-        continue
-    # R-2026-06-19 (P2-C8):
-    # detect whether
-    # the phrase
-    # contains
-    # CJK characters
-    # so we can use
-    # a different
-    # word-boundary
-    # anchor (Chinese
-    # has no
-    # ASCII word
-    # boundaries).
-    has_cjk = any(
-        "\u4e00" <= ch <= "\u9fff"
-        or "\u3040" <= ch <= "\u309f"
-        or "\u30a0" <= ch <= "\u30ff"
-        for ch in phrase
+
+
+def _has_cjk(s: str) -> bool:
+    return any(
+        "一" <= ch <= "鿿"
+        or "぀" <= ch <= "ゟ"
+        or "゠" <= ch <= "ヿ"
+        for ch in s
     )
-    escaped = re.escape(phrase)
-    if has_cjk:
-        # For Chinese phrases,
-        # anchor on
-        # "not
-        # another
-        # CJK
-        # character
-        # before/after"
-        # (so we
-        # don't
-        # match
-        # "深度"
-        # inside
-        # "深度学习"
-        # twice).
-        pat = re.compile(
-            r"(?<![一-鿿])" + escaped + r"(?![一-鿿])"
-        )
-    else:
-        # English: use
-        # the
-        # original
-        # ASCII
-        # word
-        # boundary.
-        pat = re.compile(
-            r"(?<![A-Za-z])"
-            + escaped
-            + r"(?![A-Za-z])",
-            re.IGNORECASE,
-        )
-    _PATTERNS.append((pat, phrase, _NORMALISED[phrase]))
+
+
+# ASCII phrases are matched with ONE combined
+# alternation regex (longest-first so the most
+# specific phrase wins at each position). With
+# several thousand verified phrases, per-phrase
+# ``finditer`` loops are too slow; a single
+# alternation scans the text in one pass.
+_ASCII_PHRASES = sorted(
+    (p for p in _NORMALISED if p and not _has_cjk(p)),
+    key=len,
+    reverse=True,
+)
+_ASCII_PATTERN: re.Pattern[str] | None = None
+if _ASCII_PHRASES:
+    _ASCII_PATTERN = re.compile(
+        r"(?<![A-Za-z])(?:"
+        + "|".join(re.escape(p) for p in _ASCII_PHRASES)
+        + r")(?![A-Za-z])",
+        re.IGNORECASE,
+    )
+
+# CJK phrases keep per-phrase patterns with
+# CJK-boundary anchors (Chinese has no ASCII
+# word boundaries).
+_CJK_PATTERNS: list[tuple[re.Pattern[str], str, str]] = []
+for _phrase in sorted(
+    (p for p in _NORMALISED if p and _has_cjk(p)),
+    key=len,
+    reverse=True,
+):
+    _pat = re.compile(r"(?<![一-鿿])" + re.escape(_phrase) + r"(?![一-鿿])")
+    _CJK_PATTERNS.append((_pat, _phrase, _NORMALISED[_phrase]))
 
 
 # Severity thresholds.
@@ -508,11 +324,18 @@ class TorturedPhrasesDetector:
                 ok=True,
             )
         text_lower = text.lower()
-        # Track which tortured
-        # phrases we have
-        # already reported.
         matches: list[dict[str, Any]] = []
-        for pat, phrase, _intended in _PATTERNS:
+        if _ASCII_PATTERN is not None:
+            for m in _ASCII_PATTERN.finditer(text_lower):
+                phrase = _normalise_phrase(m.group(0))
+                matches.append(
+                    {
+                        "phrase": phrase,
+                        "intended": _NORMALISED.get(phrase, ""),
+                        "start": m.start(),
+                    }
+                )
+        for pat, phrase, _intended in _CJK_PATTERNS:
             for m in pat.finditer(text_lower):
                 matches.append(
                     {

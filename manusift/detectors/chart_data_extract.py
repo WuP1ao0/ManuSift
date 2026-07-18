@@ -85,6 +85,7 @@ the DataThief Java tool.
 from __future__ import annotations
 
 import json
+import os
 from importlib.util import find_spec
 from typing import Any
 
@@ -103,9 +104,37 @@ MAX_BAR_WIDTH_FRACTION: float = 0.10
 MIN_BAR_PIXELS: int = 30
 
 
+def _chart_extract_enabled() -> bool:
+    """P4 (2026-07-18,
+    figure_text_v1):
+    independent gate for
+    the chart extractor now
+    that it runs in the
+    offline pipeline. The
+    CV path needs
+    numpy + OpenCV; when
+    either is missing the
+    extractor already
+    degrades to an empty
+    result, but eval / CI
+    runners can also turn
+    the detector off
+    entirely with
+    ``MANUSIFT_CHART_EXTRACT_ENABLED=0``
+    (default: on). Read at
+    call time so tests can
+    monkeypatch the env."""
+    raw = (
+        os.environ.get(
+            "MANUSIFT_CHART_EXTRACT_ENABLED"
+        )
+        or ""
+    ).strip().lower()
+    return raw not in {"0", "false", "off", "no"}
+
+
 def _load_numpy() -> Any | None:
-    np = _load_numpy()
-    if np is None:
+    if not _HAS_NUMPY:
         return None
     import numpy as np
 
@@ -123,7 +152,8 @@ def _load_cv2() -> Any | None:
 def _read_image_gray(path: str) -> Any | None:
     """Read an image as a
     grayscale numpy array."""
-    if not _HAS_NUMPY:
+    np = _load_numpy()
+    if np is None:
         return None
     try:
         img = Image.open(path)
@@ -399,6 +429,17 @@ class ChartDataExtractorDetector:
 
     def run(self, doc: ParsedDoc) -> DetectorResult:
         findings: list[Finding] = []
+        if not _chart_extract_enabled():
+            # Gated off
+            # (eval / CI):
+            # silent no-op,
+            # pipeline keeps
+            # running.
+            return DetectorResult(
+                detector=self.name,
+                findings=findings,
+                ok=True,
+            )
         for i, img in enumerate(doc.images):
             path = img.image_path
             if not path:

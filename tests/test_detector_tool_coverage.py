@@ -203,7 +203,7 @@ def test_total_tool_count() -> None:
     from manusift.tools import iter_registered_tools
 
     tools = list(iter_registered_tools())
-    # 39 detectors + 27 helpers
+    # 47 detectors + 31 helpers
     # (inspector x2, OCR,
     # list_data_sources,
     # read_data_source, latex
@@ -216,9 +216,14 @@ def test_total_tool_count() -> None:
     # web_search,
     # web_fetch,
     # bash, grep, glob,
-    # task, todo_write).
-    assert len(tools) == 66, (
-        f"expected 66 tools (39 detectors + 27 helpers), "
+    # task, todo_write,
+    # screen x4 -- 2026-07-18 P3:
+    # screen_verdict, submit_screen,
+    # get_job_status, get_job_result;
+    # +1 detector 2026-07-18 P2.2:
+    # cited_retraction).
+    assert len(tools) == 79, (
+        f"expected 79 tools (48 detectors + 31 helpers), "
         f"got {len(tools)}"
     )
 
@@ -281,14 +286,19 @@ def test_category_counts_are_stable() -> None:
         "text": 4,  # text_patterns, text_tortured_phrases,
         # paper_mill_template,
         # figure_stat_text (R-2026-06-12)
-        "reference": 3,  # citation_network, ref_duplicate,
-        # ref_format_anomaly
+        "reference": 4,  # citation_network, ref_duplicate,
+        # ref_format_anomaly, cited_retraction (2026-07-18, P2.2)
         "statistical": 4,  # stat_grim, stat_pvalue,
         # stat_percent, figure_grim (R-2026-06-12)
-        "table": 5,  # table_benford, table_duplicate_row,
-        # table_outlier, table_round_bias, table_relationships
-        "chart": 2,  # chart_data_extract,
-        # figure_table_consistency
+        "table": 11,  # table_benford, table_duplicate_row,
+        # table_outlier, table_round_bias, table_relationships,
+        # table_near_duplicate_row, table_cross_copy,
+        # table_file_metadata, table_forensics,
+        # table_highlight_focus, source_data_consistency
+        # (2026-07 coverage fix)
+        "chart": 4,  # chart_data_extract,
+        # figure_table_consistency, figure_table_ocr (2026-07)
+        # forest_plot (2026-07-18)
         "compliance": 3,  # author_emails, compliance,
         # data_availability_concern (R-2026-06-12)
     }

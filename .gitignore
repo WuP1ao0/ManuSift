@@ -4,14 +4,20 @@ __pycache__/
 *.pyo
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
 *.log
-_fix*.py
+*_pid.json
+regression_pid.json
+_test*.py
 _check*.py
 _walk*.py
 _inspect*.py
+_tmp*
 _dis.txt
 _walk_out.txt
 _decompile.log
+_out_snip.txt
+_restored.py
 data/
 .codegraph/
 external_repos/
@@ -41,7 +47,6 @@ case005.txt
 check_env.py
 diag_env.py
 diag_ocr.py
-_restored.py
 ChatApp_*.svg
 real_eval_fraud_cases_v2/cases/
 real_eval_fraud_cases_v3/
@@ -52,3 +57,12 @@ real_eval_fraud_cases/cases/*/evidence_report/figures/*.jpg
 real_eval_fraud_cases/cases/**/paper.pdf
 real_eval_fraud_cases/cases/**/evidence_report/figures/
 real_eval_fraud_cases/cases/**/manusift_run/
+
+# P5.2 CI gate corpus package (uploaded to GitHub Release manually)
+benchmark-data.tar.gz
+
+# Local agent config (per-machine)
+.manusift/
+
+# Benchmark run artifacts (generated)
+manusift_run/

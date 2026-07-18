@@ -69,17 +69,19 @@ def test_stream_timeout_setting_exists() -> None:
     assert s.llm_stream_timeout_seconds >= 30.0
 
 
-def test_stream_timeout_default_is_120s() -> None:
-    """120s is the chosen
-    default -- 3x the
-    LLM enrichment budget
-    (30s) plus 30s of
-    head-room for thinking
-    + 44-tool tool
-    emission."""
+def test_stream_timeout_default_is_600s() -> None:
+    """600s is the chosen
+    default -- thinking
+    models can pause a long
+    time between SSE events;
+    the 2026-07 pilot saw
+    TimeoutError at the old
+    120s budget, so the
+    default was raised
+    (see config.py comment)."""
     from manusift.config import Settings
 
-    assert Settings().llm_stream_timeout_seconds == 120.0
+    assert Settings().llm_stream_timeout_seconds == 600.0
 
 
 def test_stream_timeout_overridable_via_env(
@@ -100,23 +102,20 @@ def test_stream_timeout_overridable_via_env(
     assert s.llm_stream_timeout_seconds == 300.0
 
 
-def test_non_streaming_timeout_unchanged() -> None:
+def test_non_streaming_timeout_default() -> None:
     """The non-streaming
-    timeout stays at 20s.
-    We do NOT want a
-    streaming-aware bump
-    to leak into the
-    single-shot enrichment
-    path (the LLM verdict
-    loop), which calls
-    ``chat()`` and
-    should not wait 2
-    minutes for a hung
-    request.
-    """
+    timeout default is 300s.
+    Thinking models + large
+    tool schemas often
+    exceeded the old 20s
+    budget (DeepSeek /
+    Claude thinking), so the
+    default was raised --
+    see the config.py
+    comment."""
     from manusift.config import Settings
 
-    assert Settings().llm_call_timeout_seconds == 20.0
+    assert Settings().llm_call_timeout_seconds == 300.0
 
 
 def test_streaming_chat_passes_timeout_to_sdk(

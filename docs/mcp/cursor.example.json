@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "manusift": {
+      "command": "C:\\\\Users\\\\22509\\\\Desktop\\\\ManuSift1\\\\.venv\\\\Scripts\\\\python.exe",
+      "args": ["-m", "manusift.mcp"],
+      "env": {
+        "MANUSIFT_WORKSPACE_DIR": "C:\\\\Users\\\\22509\\\\Desktop\\\\ManuSift1\\\\data\\\\jobs"
+      }
+    }
+  }
+}

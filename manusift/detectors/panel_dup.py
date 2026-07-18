@@ -406,6 +406,14 @@ class PanelDuplicateDetector:
         #     page 9).
         findings: list[Finding] = []
         n = len(panels)
+        # 2026-07 (negative_controls_v1): every pair used to
+        # be emitted at HIGH, which flooded legit multi-panel
+        # papers (same-style axes/lanes match everywhere).
+        # Now: tight d<=4 is high only for *exclusive* pairs;
+        # small clusters are medium, big clusters (furniture:
+        # axis frames, lane boxes) are low.
+        matches: list[tuple[int, int, int]] = []
+        support: dict[int, set[int]] = {}
         for i in range(n):
             for j in range(i + 1, n):
                 p1, idx1, h1 = panels[i]
@@ -418,35 +426,48 @@ class PanelDuplicateDetector:
                     continue
                 d = _hamming(h1, h2)
                 if d <= threshold:
-                    findings.append(
-                        Finding.make(
-                            trace_id=doc.trace_id,
-                            detector=self.name,
-                            severity="high",
-                            title=(
-                                "Near-duplicate panel detected"
-                            ),
-                            evidence=(
-                                f"Page {p1} panel {idx1} and "
-                                f"page {p2} panel {idx2} share "
-                                f"pHash distance {d} (≤ "
-                                f"{threshold})."
-                            ),
-                            location=(
-                                f"Page {p1}/panel {idx1}  ↔  "
-                                f"Page {p2}/panel {idx2}"
-                            ),
-                            raw={
-                                "page_a": p1,
-                                "panel_a": idx1,
-                                "phash_a": h1,
-                                "page_b": p2,
-                                "panel_b": idx2,
-                                "phash_b": h2,
-                                "hamming": d,
-                            },
-                        )
-                    )
+                    matches.append((i, j, d))
+                    support.setdefault(i, set()).add(j)
+                    support.setdefault(j, set()).add(i)
+        for i, j, d in matches:
+            p1, idx1, h1 = panels[i]
+            p2, idx2, h2 = panels[j]
+            span = {i, j} | support.get(i, set()) | support.get(j, set())
+            if len(span) >= 5:
+                sev = "low"
+            elif len(span) > 2:
+                sev = "medium"
+            else:
+                sev = "high" if d <= 4 else "medium"
+            findings.append(
+                Finding.make(
+                    trace_id=doc.trace_id,
+                    detector=self.name,
+                    severity=sev,
+                    title=(
+                        "Near-duplicate panel detected"
+                    ),
+                    evidence=(
+                        f"Page {p1} panel {idx1} and "
+                        f"page {p2} panel {idx2} share "
+                        f"pHash distance {d} (≤ "
+                        f"{threshold})."
+                    ),
+                    location=(
+                        f"Page {p1}/panel {idx1}  ↔  "
+                        f"Page {p2}/panel {idx2}"
+                    ),
+                    raw={
+                        "page_a": p1,
+                        "panel_a": idx1,
+                        "phash_a": h1,
+                        "page_b": p2,
+                        "panel_b": idx2,
+                        "phash_b": h2,
+                        "hamming": d,
+                    },
+                )
+            )
 
         # R-2026-06-19 (P0-A1/C3):
         # emit size stats so

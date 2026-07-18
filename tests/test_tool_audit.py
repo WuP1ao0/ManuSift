@@ -129,7 +129,7 @@ def test_audit_sink_called_for_pre_canned_path_ingest(
             )
 
     monkeypatch.setattr(
-        "manusift.agent.get_tool",
+        "manusift.agent.legacy_loop.get_tool",
         lambda name: None,
     )
     pdf = tmp_path / "paper.pdf"

@@ -253,9 +253,11 @@ def test_p16_pop_uses_default_not_discard():
     from pathlib import Path
     import re
 
-    src = Path(
-        r"C:\Users\22509\Desktop\ManuSift1"
-        r"\manusift\agent\__init__.py"
+    src = (
+        Path(__file__).resolve().parents[1]
+        / "manusift"
+        / "agent"
+        / "__init__.py"
     ).read_text(encoding="utf-8")
     # Strip docstrings and
     # comments.

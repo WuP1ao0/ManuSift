@@ -113,6 +113,9 @@ def _load_builtin_tools() -> list[Tool]:
     # tool-gap (R-audit
     # 2026-06-10).
     from .agent_tools import register_agent_tools
+    # P3 (MCP product surface): one-call screen verdict + async
+    # screen jobs (submit / status / result).
+    from .screen_tools import register_screen_tools
     # R-audit-i18n
     # (2026-06-10):
     # one call
@@ -145,6 +148,7 @@ def _load_builtin_tools() -> list[Tool]:
         *register_render_tools(),
         *register_direct_fs_tools(),
         *register_agent_tools(),
+        *register_screen_tools(),
     ]
 
 

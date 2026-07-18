@@ -37,23 +37,23 @@ from pathlib import Path
 
 
 def main() -> None:
-    os.chdir(r"C:/Users/22509/Desktop/ManuSift1")
-    os.environ["MANUSIFT_ANTHROPIC_API_KEY"] = (
-        "sk-cp-..._sj8"
+    # Repo-relative working directory (works on any machine).
+    os.chdir(str(Path(__file__).resolve().parents[1]))
+    # The API key must come from the environment (or .env).
+    if not os.environ.get("MANUSIFT_ANTHROPIC_API_KEY"):
+        raise SystemExit(
+            "MANUSIFT_ANTHROPIC_API_KEY is not set; export it "
+            "(or put it in .env) before running this pilot."
+        )
+    os.environ.setdefault(
+        "MANUSIFT_ANTHROPIC_BASE_URL",
+        "https://api.minimaxi.com/anthropic",
     )
-    os.environ["MANUSIFT_ANTHROPIC_BASE_URL"] = (
-        "https://api.minimaxi.com/anthropic"
-    )
-    os.environ["MANUSIFT_ANTHROPIC_MODEL"] = (
-        "MiniMax-Text-01"
-    )
-    os.environ["MANUSIFT_DEFAULT_LLM_PROVIDER"] = "anthropic"
-    os.environ["MANUSIFT_WORKSPACE_DIR"] = (
-        r"C:\Users\22509\Desktop\ManuSift1\data\pilot_jobs"
-    )
-    os.environ["MANUSIFT_OBSIDIAN_VAULT_PATH"] = (
-        r"C:\Users\22509\Desktop\ScholarLens\pilot_cases"
-        r"\real_world_nature\s41565-025-02082-0\vault"
+    os.environ.setdefault("MANUSIFT_ANTHROPIC_MODEL", "MiniMax-Text-01")
+    os.environ.setdefault("MANUSIFT_DEFAULT_LLM_PROVIDER", "anthropic")
+    os.environ.setdefault(
+        "MANUSIFT_WORKSPACE_DIR",
+        str(Path("data/pilot_jobs").resolve()),
     )
 
     from manusift.config import get_settings

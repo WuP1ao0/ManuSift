@@ -1,13 +1,71 @@
 # ManuSift
 
-Paper-integrity screener. Upload a PDF, get a report listing every place
-that looks like it could be forged — suspicious metadata, duplicate
-images, image forensics (ELA, copy-move), and text patterns
-(placeholders, chatbot disclaimers, citation anomalies).
+Paper-integrity screener: PDF (+ companion Source Data) → detector suite →
+findings + HTML report. Flags suspicious metadata, image forensics
+(ELA, copy-move, texture reuse), table forgery signals (Benford with
+domain gates, near-dup rows, cross-sheet copy, …), and text/reference
+patterns.
 
-The system runs as either a **web app** (`manusift-tui` + a FastAPI
-server) or a **chat TUI** (`manusift-chat`) where an LLM agent
-decides which local detector tools to call.
+## Quickstart
+
+Requires **Python ≥ 3.10** (3.11 recommended). Windows, Linux and macOS
+are supported; heavy vision deps are installed as wheels.
+
+```bash
+git clone <repo-url> && cd ManuSift1
+python -m venv .venv
+# Windows: .venv\Scripts\activate   Linux/macOS: source .venv/bin/activate
+pip install -e .
+
+# Screen a paper (offline pipeline, no LLM keys needed)
+manusift screen path/to/paper.pdf --no-llm
+```
+
+Results land in `data/jobs/<trace_id>/output/` (`report.html`,
+`findings.json`, `issues.json`, plus `investigation_pairs.html`).
+
+Optional extras:
+
+```bash
+pip install -e ".[dev]"   # pytest + ruff, for contributors
+pip install -e ".[ocr]"   # EasyOCR+torch (~2 GB): figure_grim / figure_table_ocr
+```
+
+LLM enrichment/adjudication is **off by default**; set
+`MANUSIFT_ANTHROPIC_API_KEY` (or OpenAI equivalents) and
+`MANUSIFT_LLM_ENRICH_MODE` / `MANUSIFT_LLM_ADJUDICATE` to enable.
+Run the tests with `python -m pytest -q` (~2300 tests, no network or
+benchmark data required).
+
+## Product shape (2026-07): **B + C only**
+
+| Surface | Role |
+|---------|------|
+| **B — Batch CLI** | Strong offline `manusift screen` (no chat agent) |
+| **C — MCP tools** | Domain Kernel for *other* agents (`manusift mcp`) |
+
+**Removed:** conversational chat TUI (`chat_app`) is deleted. Optional
+job browser remains as `manusift-workspace` / `manusift-tui`.
+
+```bash
+# B — batch screen (core suite by default)
+manusift screen paper.pdf --with-sidecar --no-llm
+manusift screen paper.pdf --data-paths ./source_data --suites table
+
+# Suites: core | full | image | table | fast
+manusift suites
+
+# C — MCP for Claude Desktop / Cursor / other agents
+manusift mcp --list-tools          # curated 40 kernel tools
+manusift mcp --all-tools           # full registry (large)
+manusift-mcp --list-tools          # same server entry point
+
+# Cursor / Claude Desktop (stdio)
+# { "command": "manusift-mcp", "args": [], "env": { "MANUSIFT_WORKSPACE_DIR": "..." } }
+```
+
+See `docs/mcp/README.md` for MCP client config. Agent-loop migration notes
+remain in `docs/AGENT_RUNTIME_MIGRATION.md` for optional chat use.
 
 ## Status (2026-06)
 
@@ -83,7 +141,7 @@ ManuSift has completed:
 ./.venv/Scripts/python.exe -m uvicorn manusift.web.app:app --port 8765
 
 # Or: chat TUI (LLM agent drives detector tools)
-./.venv/Scripts/manusift-chat
+manusift screen paper.pdf
 
 # Or: jobs dashboard TUI
 ./.venv/Scripts/manusift-tui
@@ -119,49 +177,17 @@ curl http://127.0.0.1:8765/api/jobs/<trace_id>/findings
 curl http://127.0.0.1:8765/api/jobs/<trace_id>/report | head
 ```
 
-## Chat TUI
+## Optional: job workspace browser
 
-`manusift-chat` opens a textual TUI that lets you converse with an
-LLM agent. The agent decides which local detector tool to call.
-The TUI features:
+Browse finished jobs on disk (not a chat agent):
 
-- **Cyber/vaporwave splash banner** at the top of the screen
-  (Unicode block letters, ANSI 256-color gradient, box-drawing border)
-- **Token + cost status bar** with throughput indicator (`12 t/s`)
-- **LoadingIndicator** (spinner) that appears while the agent runs
-- **2-pane layout**: chat history (60%) + context sidebar (40%)
-- **Tool-call visual**: every tool invocation shows `[ tool: NAME ]`
-- **Persistent history** to `data/chats/<sid>/messages.jsonl`
-- **Cost log** to `data/cost/calls.jsonl`
+```bash
+manusift-workspace
+# or
+manusift-tui
+```
 
-### Slash commands (14)
-
-| Command           | Purpose                                           |
-|-------------------|---------------------------------------------------|
-| `/upload <path>`  | load a PDF as the active context                  |
-| `/clear`          | clear the on-screen history (file is kept)        |
-| `/tools`          | list available tools                              |
-| `/skill <name>`   | load a named skill into ctx                       |
-| `/skills`         | list all available skills                         |
-| `/plan [on/off]`  | show or toggle plan mode                          |
-| `/go`             | execute the plan the agent proposed               |
-| `/auto-accept`    | toggle auto-accept for tool calls                 |
-| `/cost`           | show running token + USD totals                   |
-| `/status`         | show session metadata                             |
-| `/resume`         | list past chat sessions                           |
-| `/model`          | show active LLM client + model                    |
-| `/tree`           | show a tree of saved sessions                     |
-| `/theme [name]`   | cycle through built-in textual themes             |
-| `/help`           | list all slash commands                           |
-
-### Keyboard shortcuts
-
-- `Ctrl+C` — clear input + status
-- `q` — quit
-- `Shift+Tab` — toggle plan mode (A.1)
-
-History is persisted to `data/chats/<sid>/messages.jsonl`.
-Tool-call audit goes to `data/chats/<sid>/tool_calls.jsonl`.
+Conversational chat TUI (`chat_app`) has been **removed**.
 
 ## Configuration
 
@@ -225,14 +251,14 @@ my_detector = "my_pkg:MyDetector"
 
 ## Architecture
 
-See `PLAN.md` for the full blueprint (36 KB). TL;DR:
+See `HANDOFF.md` §6 for the architecture overview. TL;DR:
 
 ```
-PDF → ingest (PyMuPDF) → 4 detector classes
-       (metadata, image_dup, image_forensics, text_patterns)
-       + 3rd-party detector plugins (entry_points)
-     → LLM enrichment (high/medium severity findings only)
-     → HTML report + findings.json + steps/<idx>.json checkpoint
+PDF → ingest (PyMuPDF) → pipeline detectors
+       (38 in pipeline; 3rd-party plugins via entry_points)
+     → calibration + issue aggregation
+     → LLM enrichment/adjudication (off by default)
+     → HTML reports + output/findings.json + steps/<idx>.json checkpoint
 ```
 
 The `Tool` Protocol (J1) is the same shape Claude Code uses
@@ -254,9 +280,37 @@ adapter.
 # 6 passed, 0 skipped
 ```
 
+## Benchmark regression gate (P5.2)
+
+`scripts/ci_benchmark_gate.py` runs the four benchmarks
+(`fraud_representatives_v1`, `fraud_web_v1`, `negative_controls_v1`,
+`figure_text_v1`) and turns them into a hard gate: any benchmark's
+core recall < 1.0, > 2.0 high-severity findings per legit control
+paper, or any figure-text negative-case false positive fails the run
+(exit 1). It sets the smoke env vars for the subprocesses itself
+(including `MANUSIFT_CROSSREF_OFFLINE=1`, so citation checks replay
+from `data/cache/crossref_cache.json` — no network).
+
+```bash
+# Full gate: re-run all detectors + aggregate + check (1-2 h)
+./.venv/Scripts/python.exe scripts/ci_benchmark_gate.py
+
+# Fast check against the persisted artifacts (seconds)
+./.venv/Scripts/python.exe scripts/ci_benchmark_gate.py --skip-run
+
+# Single benchmark
+./.venv/Scripts/python.exe scripts/ci_benchmark_gate.py --only fraud_web_v1
+```
+
+CI wiring lives in `.github/workflows/benchmark_gate.yml`: the gate
+*rule* tests run on every PR; the full benchmark gate runs on demand
+(`workflow_dispatch`) and restores the benchmark corpora (~430 MB,
+gitignored) from the `benchmark-data` GitHub Release asset — see the
+workflow header for the one-time upload command.
+
 ## Production-grade checklist
 
-See `PLAN.md` §9 for the full production-grade gap list. The
+See `ROADMAP.md` for the current evolution plan. The
 P0 quick wins are all done (L1–L6). Next:
 
 - **P1**: SQLite job state, Celery + Redis queue, JWT auth,

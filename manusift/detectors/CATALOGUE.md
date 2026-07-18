@@ -10,11 +10,14 @@ Each detector exposes a `Finding` with a deterministic `detector_id` (the entry-
 - [`author_emails`](#author-emails)
 - [`chart_data_extract`](#chart-data-extract)
 - [`citation_network`](#citation-network)
+- [`cited_retraction`](#cited-retraction)
 - [`compliance`](#compliance)
 - [`data_availability_concern`](#data-availability-concern)
 - [`figure_grim`](#figure-grim)
 - [`figure_stat_text`](#figure-stat-text)
 - [`figure_table_consistency`](#figure-table-consistency)
+- [`figure_table_ocr`](#figure-table-ocr)
+- [`forest_plot`](#forest-plot)
 - [`image_dup`](#image-dup)
 - [`image_forensics`](#image-forensics)
 - [`image_noise_inconsistency`](#image-noise-inconsistency)
@@ -34,12 +37,18 @@ Each detector exposes a `Finding` with a deterministic `detector_id` (the entry-
 - [`pdf_metadata`](#pdf-metadata)
 - [`ref_duplicate`](#ref-duplicate)
 - [`ref_format_anomaly`](#ref-format-anomaly)
+- [`source_data_consistency`](#source-data-consistency)
 - [`stat_grim`](#stat-grim)
 - [`stat_percent`](#stat-percent)
 - [`stat_pvalue`](#stat-pvalue)
 - [`supplementary`](#supplementary)
 - [`table_benford`](#table-benford)
+- [`table_cross_copy`](#table-cross-copy)
 - [`table_duplicate_row`](#table-duplicate-row)
+- [`table_file_metadata`](#table-file-metadata)
+- [`table_forensics`](#table-forensics)
+- [`table_highlight_focus`](#table-highlight-focus)
+- [`table_near_duplicate_row`](#table-near-duplicate-row)
 - [`table_outlier`](#table-outlier)
 - [`table_relationships`](#table-relationships)
 - [`table_round_bias`](#table-round-bias)
@@ -68,6 +77,11 @@ Each detector exposes a `Finding` with a deterministic `detector_id` (the entry-
 > P2-D1 detector. The ``name`` attribute
 
 
+### `cited_retraction`
+
+> P2.2 detector. Flags references whose DOI resolves to an
+
+
 ### `compliance`
 
 > Scan the document text
@@ -93,17 +107,24 @@ Each detector exposes a `Finding` with a deterministic `detector_id` (the entry-
 > Check that the
 
 
+### `figure_table_ocr`
+
+> Recover table-like numeric grids from figure OCR (P4a).
+
+
+### `forest_plot`
+
+> Detect forest plots and cross-check their printed numeric
+
+
 ### `image_dup`
 
-> Detect near-duplicate images inside the PDF using a
+> Detect near-duplicate images inside the PDF.
 
 
 ### `image_forensics`
 
-> Image-forensics analysis: Error Level Analysis (ELA) on every
-> extracted image, copy-move checks inside each image, and exact
-> or near high-texture block reuse across different images,
-> including right-angle rotated local texture reuse.
+> Unified image forensics (P0/P1).
 
 
 ### `image_noise_inconsistency`
@@ -113,7 +134,7 @@ Each detector exposes a `Finding` with a deterministic `detector_id` (the entry-
 
 ### `image_sift_copymove`
 
-> Run the SIFT-based copy-
+> Run SIFT-CMFD + RANSAC on every image in the document.
 
 
 ### `image_ssim`
@@ -163,12 +184,12 @@ Each detector exposes a `Finding` with a deterministic `detector_id` (the entry-
 
 ### `panel_duplicate`
 
-> For every image in the
+> For every image in the document, segment panels and
 
 
 ### `paper_mill_authorship`
 
-> Two-probe paper-mill / peer-review detector.
+> Multi-probe paper-mill / peer-review detector.
 
 
 ### `paper_mill_template`
@@ -189,6 +210,11 @@ Each detector exposes a `Finding` with a deterministic `detector_id` (the entry-
 ### `ref_format_anomaly`
 
 > Emit a single finding
+
+
+### `source_data_consistency`
+
+> Cross-check PDF table numbers against companion Source Data.
 
 
 ### `stat_grim`
@@ -216,32 +242,49 @@ Each detector exposes a `Finding` with a deterministic `detector_id` (the entry-
 > Apply the Benford goodness-
 
 
+### `table_cross_copy`
+
+> Detect identical data rows shared across different tables/sheets.
+
+
 ### `table_duplicate_row`
 
-> Find rows that are
+> Find rows that are byte-identical or numerically identical
+
+
+### `table_file_metadata`
+
+> Inspect companion spreadsheet file metadata (creator, timestamps).
+
+
+### `table_forensics`
+
+> Orchestrate all table-forgery detectors into one suite.
+
+
+### `table_highlight_focus`
+
+> Prioritize author-highlighted spreadsheet cells for deep table checks.
+
+
+### `table_near_duplicate_row`
+
+> Flag rows that differ by only 1–2 cells (copy-paste + tweak).
 
 
 ### `table_outlier`
 
-> For every numeric column,
+> Detect "too clean" numeric columns (fabrication / over-smoothing).
 
 
 ### `table_relationships`
 
-> Flag exact arithmetic relationships across manuscript data tables,
-> including pairwise and multi-column high duplicate rates, improbable
-> repeated values, cross-table repeated values and fixed offsets,
-> matching decimal tails, integer-shift decimal-tail reuse,
-> integer-part digit changes with copied decimal tails, and
-> three-column add/subtract identities, perfect or near-perfect
-> arithmetic progressions, one- or two-digit terminal concentration
-> within a column or aggregated across multiple tables, and zero or
-> constant values in SD/STD/SEM-style variability columns.
+> Flag exact arithmetic relationships across manuscript data tables.
 
 
 ### `table_round_bias`
 
-> Report the fraction of
+> Last-digit forensic bias (0/5 over-representation).
 
 
 ### `text_patterns`

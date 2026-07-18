@@ -467,6 +467,43 @@ class PdfMetadataDetector:
                         ),
                     )
                 )
+            # Abstract dumped into /Subject is common in
+            # re-exported / low-control TeX pipelines (mills
+            # and desktop recompiles). Flag when Subject is
+            # long and Producer is a raw TeX toolchain.
+            subject = str(info.get("/Subject") or "")
+            if (
+                len(subject) >= 80
+                and (
+                    "pdftex" in producer
+                    or "miktex" in producer
+                    or "latex" in creator
+                )
+            ):
+                findings.append(
+                    Finding.make(
+                        trace_id=doc.trace_id,
+                        detector=self.name,
+                        severity="low",
+                        title=(
+                            "PDF /Subject holds abstract-length "
+                            "text under a TeX producer (re-export "
+                            "/ non-journal pipeline signal)"
+                        ),
+                        location=path or "<no path>",
+                        evidence=json.dumps(
+                            {
+                                "subject_len": len(subject),
+                                "producer": str(
+                                    info.get("/Producer") or ""
+                                )[:120],
+                                "creator": str(
+                                    info.get("/Creator") or ""
+                                )[:120],
+                            }
+                        ),
+                    )
+                )
         # ---- structure findings ----
         js = structure.get("js_actions", [])
         if js:

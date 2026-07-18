@@ -34,8 +34,9 @@ from __future__ import annotations
 
 import itertools
 import os
+from pathlib import Path
 
-os.chdir(r"C:/Users/22509/Desktop/ManuSift1")
+os.chdir(str(Path(__file__).resolve().parents[1]))
 
 
 # ---------- 1. Constants ----------
@@ -51,18 +52,10 @@ def test_default_max_steps_is_unlimited() -> None:
 
 
 def test_default_max_cost_usd_is_zero() -> None:
-    """R-audit (2026-06-14): the default USD cap per
-    run is now 0 (no cap). The previous default of
-    5.0 was too tight -- the loop was hitting the
-    cap after 2-3 turns on a fresh paper, which
-    forced a re-launch mid-investigation. Operators
-    that want a finite budget can set
-    ``MANUSIFT_AGENT_MAX_COST_USD=10.0`` or pass
-    ``max_cost_usd=N`` to the Runner.
+    """Cost-cap protection was removed (2026-07).
 
-    The 0-means-"unlimited" convention is consistent
-    with ``max_steps``: 0 also means "unlimited"
-    there. The two safety nets are now symmetric.
+    DEFAULT_MAX_COST_USD remains 0 for API
+    compatibility; the loop never stops for USD.
     """
     from manusift.agent import AgentLoop
     assert AgentLoop.DEFAULT_MAX_COST_USD == 0
@@ -81,33 +74,13 @@ def test_no_progress_turn_limit_is_3() -> None:
 # ---------- 2. The cost cap fires when cost exceeds the limit ----------
 
 
-def test_cost_cap_fires_when_budget_exceeded() -> None:
-    """When a turn's cost
-    pushes the running
-    total over
-    ``max_cost_usd``, the
-    loop exits with
-    ``"cost_cap"``."""
+def test_cost_cap_no_longer_stops_the_loop() -> None:
+    """USD budget never stops the agent (feature removed 2026-07)."""
     from manusift.agent import AgentLoop
     from manusift.llm.chat import ChatResponse
     from manusift.tools.tool import ToolContext
 
     class _CostlyClient:
-        """A client whose
-        responses report
-        a USD cost of $1
-        per turn via the
-        usage dict. The
-        client keeps
-        emitting
-        ``tool_use``
-        blocks so the loop
-        never reaches
-        ``end_turn`` --
-        the only way for
-        the loop to exit
-        is the cost cap.
-        """
         name = "costly"
 
         def __init__(self) -> None:
@@ -115,6 +88,18 @@ def test_cost_cap_fires_when_budget_exceeded() -> None:
 
         def chat(self, messages, tools=None, **kw):
             self._turn += 1
+            if self._turn >= 3:
+                return ChatResponse(
+                    content_blocks=[
+                        {"type": "text", "text": "done"}
+                    ],
+                    stop_reason="end_turn",
+                    model="costly",
+                    usage={
+                        "prompt_tokens": 1_000_000,
+                        "completion_tokens": 0,
+                    },
+                )
             return ChatResponse(
                 content_blocks=[
                     {
@@ -127,16 +112,13 @@ def test_cost_cap_fires_when_budget_exceeded() -> None:
                 stop_reason="tool_use",
                 model="costly",
                 usage={
-                    # Each turn costs ~$0.75;
-                    # 3 turns would push
-                    # the running total
-                    # to $2.25, over the
-                    # $2.0 cap. The cap
-                    # fires at turn 3.
                     "prompt_tokens": 1_000_000,
                     "completion_tokens": 0,
                 },
             )
+
+        def chat_stream(self, *a, **k):
+            yield self.chat(*a, **k)
 
     class _NoopTool:
         name = "noop"
@@ -150,33 +132,18 @@ def test_cost_cap_fires_when_budget_exceeded() -> None:
         def execute(self, input, ctx):
             return "{}"
 
-    # The prompt token count is deliberately large enough
-    # that the configured cost model must trip the cap.
-    # The
-    # no-progress
-    # detector
-    # is
-    # disabled
-    # so
-    # the
-    # only
-    # exit
-    # is
-    # the
-    # cost
-    # cap.
     loop = AgentLoop(
         client=_CostlyClient(),
         tools=[_NoopTool()],
         ctx=ToolContext(trace_id="t"),
-        max_cost_usd=2.0,
-        no_progress_turn_limit=0,  # disable
+        max_cost_usd=0.01,  # ignored
+        no_progress_turn_limit=0,
+        max_steps=10,
     )
     res = loop.run("hi")
-    assert loop._streaming_turns >= 1
-    assert loop._client._turn == loop._streaming_turns
-    assert loop._streaming_cost_cap_reached is True
-    assert res.stopped_reason == "cost_cap"
+    assert res.stopped_reason != "cost_cap"
+    assert loop._streaming_cost_cap_reached is False
+    assert res.stopped_reason in ("end_turn", "stop", "max_steps")
 
 
 # ---------- 3. The no-progress detector forces a final report ----------
@@ -484,14 +451,8 @@ def test_streaming_no_progress_stops_after_forced_final_report() -> None:
 # ---------- 4. AgentLoop.run() reports the new stop reasons ----------
 
 
-def test_run_reports_cost_cap_via_stopped_reason() -> None:
-    """``AgentLoop.run()``
-    returns an
-    ``AgentLoopResult``
-    with
-    ``stopped_reason="cost_cap"``
-    when the cost cap
-    fires."""
+def test_run_never_reports_cost_cap_via_stopped_reason() -> None:
+    """Cost-cap protection removed: high usage never stops the loop."""
     from manusift.agent import AgentLoop
     from manusift.llm.chat import ChatResponse
     from manusift.tools.tool import ToolContext
@@ -501,20 +462,17 @@ def test_run_reports_cost_cap_via_stopped_reason() -> None:
 
         def chat(self, messages, tools=None, **kw):
             return ChatResponse(
-                content_blocks=[],
+                content_blocks=[{"type": "text", "text": "ok"}],
                 stop_reason="end_turn",
                 model="costly",
                 usage={
-                    # Each turn costs ~$0.75;
-                    # 3 turns would push
-                    # the running total
-                    # to $2.25, over the
-                    # $2.0 cap. The cap
-                    # fires at turn 3.
                     "prompt_tokens": 1_000_000,
                     "completion_tokens": 0,
                 },
             )
+
+        def chat_stream(self, *a, **k):
+            yield self.chat(*a, **k)
 
     res = AgentLoop(
         client=_CostlyClient(),
@@ -523,7 +481,8 @@ def test_run_reports_cost_cap_via_stopped_reason() -> None:
         max_cost_usd=1.0,
         no_progress_turn_limit=0,
     ).run("hi")
-    assert res.stopped_reason == "cost_cap"
+    assert res.stopped_reason != "cost_cap"
+    assert res.stopped_reason in ("end_turn", "stop")
 
 
 # ---------- 5. The pre-canned path-hook flow still terminates ----------
@@ -698,79 +657,43 @@ def test_no_cost_cap_when_caller_passes_zero() -> None:
             os.environ["MANUSIFT_AGENT_MAX_COST_USD"] = saved
 
 
-def test_cost_cap_still_honours_env_override() -> None:
-    """R-audit (2026-06-14): even with the new
-    "no cap by default" contract, an operator that
-    sets ``MANUSIFT_AGENT_MAX_COST_USD=2.0`` MUST
-    still see that cap honoured. The fix did not
-    remove the env-override path; it only stopped
-    silently re-mapping 0 to 5.0.
-    """
-    from manusift.agent import AgentLoop
-    from manusift.tools.tool import ToolContext
-
-    class _CheapClient:
-        name = "cheap"
-        def chat_stream(self, messages, tools=None, **kw):
-            from manusift.llm.chat import ChatResponse
-            yield ChatResponse(
-                content_blocks=[{"type": "text", "text": "x"}],
-                model="test",
-            )
-
-    saved = os.environ.get("MANUSIFT_AGENT_MAX_COST_USD")
-    os.environ["MANUSIFT_AGENT_MAX_COST_USD"] = "2.0"
-    try:
-        loop = AgentLoop(
-            client=_CheapClient(),
-            tools=[],
-            ctx=ToolContext(trace_id="t"),
-            max_cost_usd=0,  # caller wants "use the env"
-        )
-        # The env override (2.0) must win over the
-        # caller's 0.
-        assert loop._max_cost_usd == 2.0, (
-            f"expected env override 2.0 to win, "
-            f"got {loop._max_cost_usd}"
-        )
-    finally:
-        if saved is None:
-            os.environ.pop("MANUSIFT_AGENT_MAX_COST_USD", None)
-        else:
-            os.environ["MANUSIFT_AGENT_MAX_COST_USD"] = saved
-
-
-def test_cost_cap_still_honours_explicit_kwarg() -> None:
-    """R-audit (2026-06-14): passing an explicit
-    ``max_cost_usd=N`` (N > 0) MUST still trip the
-    cap. The fix only changed the *default*, not
-    the operator-overridable behaviour.
-    """
+def test_cost_cap_env_and_kwarg_no_longer_stop_loop() -> None:
+    """Env/kwarg max_cost_usd must not stop the agent (feature removed)."""
     from manusift.agent import AgentLoop
     from manusift.tools.tool import ToolContext
     from manusift.llm.chat import ChatResponse
 
     class _CheapClient:
         name = "cheap"
-        def __init__(self) -> None:
-            self._turn = 0
+
         def chat_stream(self, messages, tools=None, **kw):
-            self._turn += 1
             yield ChatResponse(
                 content_blocks=[{"type": "text", "text": "x"}],
+                stop_reason="end_turn",
                 model="test",
+                usage={"prompt_tokens": 5_000_000, "completion_tokens": 0},
             )
 
-    saved = os.environ.pop("MANUSIFT_AGENT_MAX_COST_USD", None)
+        def chat(self, *a, **k):
+            return next(self.chat_stream(*a, **k))
+
+    import os
+
+    saved = os.environ.get("MANUSIFT_AGENT_MAX_COST_USD")
+    os.environ["MANUSIFT_AGENT_MAX_COST_USD"] = "0.0001"
     try:
         loop = AgentLoop(
             client=_CheapClient(),
             tools=[],
             ctx=ToolContext(trace_id="t"),
-            max_cost_usd=10.0,  # explicit cap
+            max_cost_usd=0.0001,
             no_progress_turn_limit=0,
         )
-        assert loop._max_cost_usd == 10.0
+        res = loop.run("hi")
+        assert res.stopped_reason != "cost_cap"
+        assert loop._streaming_cost_cap_reached is False
     finally:
-        if saved is not None:
+        if saved is None:
+            os.environ.pop("MANUSIFT_AGENT_MAX_COST_USD", None)
+        else:
             os.environ["MANUSIFT_AGENT_MAX_COST_USD"] = saved

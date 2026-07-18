@@ -132,3 +132,65 @@ def test_normalise_heading_helper() -> None:
         _normalise_heading("  Introduction  ")
         == "introduction"
     )
+
+
+# ---------- 2026-07 regression: headings in separate text blocks ----------
+
+class _Block:
+    def __init__(self, text):
+        self.text = text
+
+
+class MultiBlockDoc:
+    """Mimics the real pipeline's ParsedDoc where each
+    paragraph/heading is its own text block (PLOS layout).
+    The detector must NOT space-join blocks onto one line --
+    that hides block-per-line headings (fraud_web_v1
+    web_plos_02 regression)."""
+
+    def __init__(self, blocks):
+        self.trace_id = "t-mill-multi"
+        self.source_path = ""
+        self.text_blocks = [_Block(b) for b in blocks]
+        self.images = []
+        self.metadata = {}
+
+
+def test_heading_in_own_text_block_is_found() -> None:
+    from manusift.detectors import PaperMillTemplateDetector
+    doc = MultiBlockDoc(
+        [
+            "Yu Zhang1, Yongjun Zhu2, Baolin Yao3*",
+            "1. Introduction",
+            "Some introductory paragraph text that is long.",
+            "2. Material and methods\n2.1. Experiment design",
+            "More body text about soil salinity experiments.",
+            "3. Results",
+            "4. Discussion",
+        ]
+    )
+    result = PaperMillTemplateDetector().run(doc)
+    assert len(result.findings) == 1
+    ev = json.loads(result.findings[0].evidence)
+    flagged = {h["heading"].lower() for h in ev["flagged_headings"]}
+    assert "material and methods" in flagged
+
+
+def test_associated_works_cs_heading_flagged() -> None:
+    """CS paper-mill heading from the retracted Swin
+    transformer paper (fraud_web_v1 web_sci_01)."""
+    from manusift.detectors import PaperMillTemplateDetector
+    doc = MultiBlockDoc(
+        [
+            "1. Introduction",
+            "2. Associated works",
+            "3. Proposed method",
+            "4. Experiments",
+            "5. Conclusion",
+        ]
+    )
+    result = PaperMillTemplateDetector().run(doc)
+    assert len(result.findings) == 1
+    ev = json.loads(result.findings[0].evidence)
+    flagged = {h["heading"].lower() for h in ev["flagged_headings"]}
+    assert "associated works" in flagged

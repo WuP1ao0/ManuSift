@@ -269,6 +269,14 @@ def test_detector_names_for_progress_is_canonical() -> None:
         "stat_pvalue",
         "stat_percent",
         "table_relationships",
+        "table_benford",
+        "table_duplicate_row",
+        "table_near_duplicate_row",
+        "table_cross_copy",
+        "table_outlier",
+        "table_round_bias",
+        "table_file_metadata",
+        "table_highlight_focus",
         "image_noise_inconsistency",
         "panel_duplicate",
         "ai_generated_figure",
@@ -276,10 +284,28 @@ def test_detector_names_for_progress_is_canonical() -> None:
         "image_dup",
         "image_forensics",
         "text_patterns",
+        # 2026-07 (fraud_web_v1): two cheap text detectors
+        # added to the pipeline after TextPatternDetector.
+        "text_tortured_phrases",
+        "paper_mill_template",
         "data_availability_concern",
         "page_raster_dup",
         "panel_dup",
         "figure_stat_text",
         "figure_grim",
+        # 2026-07-18 (P4): figure-text numeric
+        # cross-check pair, evidence from the
+        # synthetic figure_text_v1 benchmark.
+        # Local-only; run before the network
+        # detectors.
+        "chart_data_extract",
+        "figure_table_consistency",
+        # 2026-07-18: forest-plot rule pipeline
+        # (CI order/asymmetry + null-line
+        # cross-validation).
+        "forest_plot",
         "citation_network",
+        # 2026-07-18 (P2.2): OpenAlex cited-retraction check,
+        # same network gate family as citation_network.
+        "cited_retraction",
     ]

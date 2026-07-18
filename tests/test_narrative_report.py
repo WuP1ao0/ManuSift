@@ -326,7 +326,7 @@ def test_render_tool_writes_structured_trace_and_evidence_assets(
     raw_trace = Path(envelope["raw_trace_path"])
     tool_summary = Path(envelope["tool_summary_path"])
     evidence_manifest = Path(envelope["evidence_manifest_path"])
-    copied_asset = job_paths.root / "evidence_assets" / source_asset.name
+    copied_asset = job_paths.output_dir / "evidence_assets" / source_asset.name
 
     assert report_json.exists()
     assert raw_trace.exists()
@@ -700,7 +700,7 @@ def test_zh_endpoint_serves_markdown(
         "zh-endpoint-test", tmp_path / "jobs"
     )
     paths.ensure()
-    (paths.root / "report.zh.md").write_text(
+    (paths.output_dir / "report.zh.md").write_text(
         CHINESE_SAMPLE_MD, encoding="utf-8"
     )
     app = create_app()

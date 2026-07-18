@@ -1,0 +1,86 @@
+name: benchmark-gate
+
+# P5.2 CI 回归门禁。两层：
+#   1. gate-rules（每个 PR/push）：只跑门禁规则单测
+#      tests/test_ci_benchmark_gate.py，不需要基准数据，秒级。
+#   2. benchmarks（仅手动触发 workflow_dispatch）：跑全量四个基准
+#      （scripts/ci_benchmark_gate.py），约 1-2 小时。
+#
+# 基准数据（benchmarks/*/cases 下约 430MB PDF + data/cache/crossref_cache.json）
+# 不入库（.gitignore 排除 *.pdf 与 data/）。nightly job 从 GitHub
+# Release 资产恢复：首次需维护者本地打包上传一次：
+#   tar -czf benchmark-data.tar.gz benchmarks data/cache
+#   gh release create benchmark-data benchmark-data.tar.gz \
+#     --repo <owner>/<repo> --title "Benchmark data v1" --notes "P5.2 gate"
+# 之后基准内容变更时重新上传同名资产（gh release upload --clobber）。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gate-rules:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Gate rule unit tests
+        run: |
+          python -m pytest -q tests/test_ci_benchmark_gate.py
+
+  benchmarks:
+    # 全量基准门禁：只在手动触发（workflow_dispatch）时跑（PR 层由
+    # gate-rules 兜住规则本身；基准数据量大、跑一遍 1-2 小时，
+    # 不适合每个 PR）。
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Restore benchmark data
+        # 从 Release 资产恢复基准语料（见文件头注释的上传方法）。
+        # 若资产不存在此步失败，job 红——这是有意的：宁可显眼地缺数据，
+        # 也不要静默跳过一个本应跑的门禁。
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download benchmark-data \
+            --repo ${{ github.repository }} \
+            --pattern benchmark-data.tar.gz \
+            --clobber
+          tar -xzf benchmark-data.tar.gz
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+          # cv2/numpy 被图像类检测器惰性导入；装 headless 版保持与
+          # 本地 smoke 环境行为一致。OCR/LLM 重依赖（torch/easyocr）
+          # 不装——smoke 环境变量已关闭对应检测器。
+          pip install opencv-python-headless numpy
+      - name: Run benchmark gate
+        # smoke 环境变量由 scripts/ci_benchmark_gate.py 统一为子进程
+        # 设置（含 MANUSIFT_CROSSREF_OFFLINE=1，引文核验走
+        # data/cache/crossref_cache.json 回放，CI 不联网）。
+        run: |
+          python scripts/ci_benchmark_gate.py
+      - name: Upload gate artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-gate-reports
+          path: |
+            benchmarks/*/GAP_REPORT.md
+            benchmarks/*/FP_REPORT.md
+            benchmarks/*/smoke_runs.json
+            benchmarks/*/fp_report.json

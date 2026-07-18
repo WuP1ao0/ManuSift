@@ -359,11 +359,30 @@ class ListDataSourcesTool:
                         "right": bbox.get("right", 0) + 1,
                     }
                 out.append(table_entry)
+            # Also emit ``data_sources`` (ingest-compatible
+            # shape) so source_data_audit / pydantic_loop
+            # propagation can register companion files.
+            data_sources = []
+            for t in out:
+                data_sources.append(
+                    {
+                        "id": t.get("table_id", ""),
+                        "table_id": t.get("table_id", ""),
+                        "format": t.get("source_kind", ""),
+                        "source_kind": t.get("source_kind", ""),
+                        "path": t.get("source_path", ""),
+                        "source_path": t.get("source_path", ""),
+                        "sheet_name": t.get("sheet_name", ""),
+                        "row_count": t.get("n_rows", 0),
+                        "column_count": t.get("n_cols", 0),
+                    }
+                )
             return json.dumps(
                 {
                     "trace_id": trace_id,
                     "n_tables": len(out),
                     "tables": out,
+                    "data_sources": data_sources,
                 },
                 ensure_ascii=False,
             )

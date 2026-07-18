@@ -49,11 +49,24 @@ from __future__ import annotations
 import csv
 import io
 import json
+import os
 import shutil
 import zipfile
 from pathlib import Path
 
 import pytest
+
+# External pilot case (not tracked in git). Override with
+# ``MANUSIFT_PILOT_VAULT`` pointing at the case directory;
+# defaults to the in-repo ``docs/`` copy when present.
+_S41565_CASE = Path(
+    os.environ.get(
+        "MANUSIFT_PILOT_VAULT",
+        Path(__file__).resolve().parents[1]
+        / "docs"
+        / "s41565-025-02082-0",
+    )
+)
 
 
 # ---------- fixtures ----------
@@ -547,12 +560,19 @@ def test_list_data_sources_returns_xlsx(
     job = tmp_path / "ws" / "jobs" / "tid" / "materials"
     job.mkdir(parents=True)
     pdf = tmp_path / "ws" / "jobs" / "tid" / "paper.pdf"
-    shutil.copy(
-        "C:/Users/22509/Desktop/ScholarLens/pilot_cases/"
-        "real_world_nature/s41565-025-02082-0/s41565-"
-        "025-02082-0.pdf",
-        pdf,
+    pilot_pdf = _S41565_CASE / "s41565-025-02082-0.pdf"
+    pilot_xlsx = (
+        _S41565_CASE
+        / "materials"
+        / "source_data"
+        / "Source_Data_Fig1.xlsx"
     )
+    if not pilot_pdf.exists() or not pilot_xlsx.exists():
+        pytest.skip(
+            "pilot case s41565-025-02082-0 not present "
+            "(set MANUSIFT_PILOT_VAULT)"
+        )
+    shutil.copy(pilot_pdf, pdf)
     # Reuse
     # one
     # of
@@ -561,12 +581,7 @@ def test_list_data_sources_returns_xlsx(
     # Nature
     # source-data
     # files.
-    shutil.copy(
-        "C:/Users/22509/Desktop/ScholarLens/pilot_cases/"
-        "real_world_nature/s41565-025-02082-0/"
-        "materials/source_data/Source_Data_Fig1.xlsx",
-        job / "Source_Data_Fig1.xlsx",
-    )
+    shutil.copy(pilot_xlsx, job / "Source_Data_Fig1.xlsx")
     from manusift.config import get_settings
     if hasattr(get_settings, "cache_clear"):
         get_settings.cache_clear()

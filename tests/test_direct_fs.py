@@ -47,8 +47,9 @@ from __future__ import annotations
 import json
 import os
 import zipfile
+from pathlib import Path
 
-os.chdir(r"C:/Users/22509/Desktop/ManuSift1")
+os.chdir(str(Path(__file__).resolve().parents[1]))
 
 
 # ---------- 1. read_file ----------
@@ -344,6 +345,7 @@ def test_ingest_from_path_accepts_separate_data_paths(
         tmp_path
         / "ws"
         / out["trace_id"]
+        / "inputs"
         / "materials"
         / "source.csv"
     )

@@ -158,20 +158,16 @@ class Settings(BaseSettings):
     # ``llm_max_concurrency=0`` to disable enrichment entirely
     # (useful for benchmarking the pipeline without LLM cost).
     llm_max_concurrency: int = 4
-    llm_call_timeout_seconds: float = 20.0
-    # LLM timeout for STREAMING chat calls. Streaming
-    # reads are inherently long (an LLM may take
-    # 30-60s to think + emit all tokens for a complex
-    # turn with 44 tools, while non-streaming chat is a
-    # single request that should fit in 20s). The
-    # MiniMax-M3 endpoint in particular has long
-    # "thinking" pauses between SSE events; using the
-    # 20s non-streaming timeout here was the root
-    # cause of the ``httpcore.ReadTimeout`` errors we
-    # saw in the dedup pilot (2026-06-10). Bumping
-    # the streaming cap to 120s gives thinking models
-    # 3x head-room on a single turn.
-    llm_stream_timeout_seconds: float = 120.0
+    # Non-stream chat timeout. Thinking models + large
+    # tool schemas often exceed 20s (DeepSeek / Claude
+    # thinking). Pilot 2026-07 saw TimeoutError at 120s
+    # stream budget; non-stream needs headroom too.
+    llm_call_timeout_seconds: float = 300.0
+    # Streaming chat timeout (SSE). Thinking models can
+    # pause a long time between events; 600s covers a
+    # heavy multi-detector planning turn over a local
+    # proxy without aborting mid-response.
+    llm_stream_timeout_seconds: float = 600.0
     # Hard cap on total time spent enriching; after this the
     # remaining findings are marked llm_skipped.
     llm_enrichment_budget_seconds: float = 30.0
@@ -523,6 +519,14 @@ class Settings(BaseSettings):
     # Env: ``MANUSIFT_PYTHON_EXECUTABLE``.
     python_executable: str = ""
 
+    # Agent runtime driver. ``pydantic_ai`` (default)
+    # uses the PydanticAI-backed loop with ManuSift
+    # tools adapted via tool_bridge; Domain Kernel
+    # tools/detectors are unchanged. ``legacy`` keeps
+    # the hand-rolled AgentLoop in
+    # ``manusift.agent``. Env: ``MANUSIFT_AGENT_RUNTIME``.
+    agent_runtime: str = "pydantic_ai"
+
     def model_post_init(self, __context: Any) -> None:
         """Default ``python_executable`` to
         ``sys.executable`` at first instantiation.
@@ -555,9 +559,25 @@ class Settings(BaseSettings):
     # does NOT affect tests.
     benchmark_skip_detectors: str = ""
 
+    # P3.1 (MCP product surface): ``screen_verdict`` triage knobs.
+    # Verdict rule (implemented once in manusift/mcp/screen.py and
+    # mirrored in the tool description + docs/mcp/README.md):
+    # >=1 high-severity issue -> "flagged"; no high but at least
+    # ``screen_suspect_medium_issue_threshold`` medium-severity
+    # issues -> "suspect"; otherwise "clean". Issues are the P1.1
+    # aggregated view, not raw findings. ``screen_top_issues`` caps
+    # the top_issues list in the verdict payload.
+    # Env: ``MANUSIFT_SCREEN_SUSPECT_MEDIUM_ISSUE_THRESHOLD`` /
+    # ``MANUSIFT_SCREEN_TOP_ISSUES``.
+    screen_suspect_medium_issue_threshold: int = 3
+    screen_top_issues: int = 5
+
     # Detector thresholds (kept here so the same number governs both
     # production runs and unit tests).
-    image_duplicate_hamming_threshold: int = 5  # pHash bits
+    # Primary whole-image pHash band (bits of 64). Raised 5→8 so
+    # lightly re-encoded / mild-crop duplicates still fire; near-
+    # identical pairs (d≤4) stay high severity inside image_dup.
+    image_duplicate_hamming_threshold: int = 8  # pHash bits
 
     # R-2026-06-19 (P1-B2):
     # when True, ``ReadFileTool``
@@ -663,6 +683,25 @@ class Settings(BaseSettings):
     # problem.
     crossref_enabled: bool = True
     crossref_email: str = ""
+    # P2.2 — the OpenAlex cited-retraction detector is
+    # opt-IN (default off). It queries
+    # ``api.openalex.org`` once per DOI found in the
+    # reference list and flags citations of retracted
+    # works. Responses are cached on disk
+    # (``data/openalex_cache.json``) so a second run
+    # over the same PDF does not re-query. Eval /
+    # benchmark environments keep this off so the
+    # pipeline stays fully offline.
+    openalex_enabled: bool = False
+    # P2.3 — data-availability-statement link
+    # resolution is opt-IN (default off). When on, the
+    # ``data_availability_concern`` detector resolves
+    # DOI/URL links found in the data-availability
+    # statement (HEAD/GET against the repository
+    # landing page) and flags confirmed dead links.
+    # Network failures degrade to ``info`` findings,
+    # never ``high``.
+    das_resolution_enabled: bool = False
     # P4.2 — directory holding SKILL.md files.
     # The chat TUI exposes a ``/skill <name>``
     # command that loads a file from this

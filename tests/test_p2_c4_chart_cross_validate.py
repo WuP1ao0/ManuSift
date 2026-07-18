@@ -109,7 +109,7 @@ from typing import Any
 
 import pytest
 
-sys.path.insert(0, r"C:\Users\22509\Desktop\ManuSift1")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from manusift.config import get_settings  # noqa: E402
 from manusift.contracts import (  # noqa: E402
@@ -370,7 +370,7 @@ class TestP2C4CrossValidationStats:
                 "mismatch); skipping"
             )
         f = result.findings[0]
-        ev = json.loads(f.raw.get("evidence", "{}"))
+        ev = json.loads(f.evidence)
         assert "bars_pct" in ev
         assert "bars_pct_normalized" in ev
         assert "bars_max_pct" in ev
@@ -386,7 +386,7 @@ class TestP2C4CrossValidationStats:
         result = ChartDataExtractorDetector().run(doc)
         if not result.findings:
             pytest.skip("no bars found")
-        ev = json.loads(result.findings[0].raw["evidence"])
+        ev = json.loads(result.findings[0].evidence)
         for v in ev["bars_pct"]:
             assert 0.0 <= v <= 1.0, (
                 f"bars_pct out of [0, 1]: {v}"
@@ -403,7 +403,7 @@ class TestP2C4CrossValidationStats:
         result = ChartDataExtractorDetector().run(doc)
         if not result.findings:
             pytest.skip("no bars found")
-        ev = json.loads(result.findings[0].raw["evidence"])
+        ev = json.loads(result.findings[0].evidence)
         # ``bars_pct_normalized`` is
         # each bar / max_bar, so
         # the maximum value is
@@ -423,7 +423,7 @@ class TestP2C4CrossValidationStats:
         result = ChartDataExtractorDetector().run(doc)
         if not result.findings:
             pytest.skip("no bars found")
-        ev = json.loads(result.findings[0].raw["evidence"])
+        ev = json.loads(result.findings[0].evidence)
         assert ev["bars_max_pct"] == pytest.approx(
             max(ev["bars_pct"])
         )

@@ -102,7 +102,12 @@ MIN_PANEL_COUNT: int = 2
 # the same 0.85 as the
 # image-level SSIM
 # detector.
-SSIM_THRESHOLD: float = 0.85
+# Slightly below whole-image SSIM (0.85) so panel crops that
+# share a gel/blot with mild brightness shift still fire.
+SSIM_THRESHOLD: float = 0.78
+# pHash Hamming gate as a second metric when SSIM under-scores
+# re-encoded SEM / gel crops.
+PANEL_PHASH_HAMMING: int = 10
 # Maximum number of
 # panels to consider per
 # image. A figure with
@@ -258,11 +263,86 @@ def _segment_panels(
     return out
 
 
+def _grid_panel_boxes(
+    gray: Any,
+) -> list[tuple[int, int, int, int]]:
+    """Fallback: fixed 1×2 / 2×1 / 2×2 grids when contours fail.
+
+    Scientific multi-panel figures often lack a clean white
+    gutter that Otsu can split; a coarse grid still yields
+    comparable crops for SSIM / pHash.
+    """
+    h, w = gray.shape[:2]
+    if h < 64 or w < 64:
+        return []
+    candidates: list[list[tuple[int, int, int, int]]] = [
+        # 1×2 horizontal
+        [(0, 0, w // 2, h), (w // 2, 0, w - w // 2, h)],
+        # 2×1 vertical
+        [(0, 0, w, h // 2), (0, h // 2, w, h - h // 2)],
+        # 2×2
+        [
+            (0, 0, w // 2, h // 2),
+            (w // 2, 0, w - w // 2, h // 2),
+            (0, h // 2, w // 2, h - h // 2),
+            (w // 2, h // 2, w - w // 2, h - h // 2),
+        ],
+    ]
+    # Prefer the grid whose cells have the most balanced
+    # non-empty variance (not blank gutters).
+    best: list[tuple[int, int, int, int]] = []
+    best_score = -1.0
+    np = _load_numpy()
+    if np is None:
+        return candidates[0]
+    for boxes in candidates:
+        vars_: list[float] = []
+        ok = True
+        for x, y, bw, bh in boxes:
+            if bw < 32 or bh < 32:
+                ok = False
+                break
+            cell = gray[y : y + bh, x : x + bw]
+            vars_.append(float(np.std(cell)))
+        if not ok or not vars_:
+            continue
+        # Penalize blank cells; reward balanced texture.
+        if min(vars_) < 5.0:
+            continue
+        score = float(min(vars_) * (sum(vars_) / len(vars_)))
+        if score > best_score:
+            best_score = score
+            best = boxes
+    return best
+
+
+def _panel_phash_distance(a: Any, b: Any) -> int | None:
+    """Hamming distance between pHashes of two grayscale crops."""
+    try:
+        import imagehash
+        from PIL import Image
+        import numpy as np
+
+        def _to_pil(arr: Any) -> Image.Image:
+            if hasattr(arr, "dtype"):
+                a2 = np.asarray(arr)
+                if a2.ndim == 2:
+                    return Image.fromarray(a2.astype("uint8"), mode="L")
+                return Image.fromarray(a2.astype("uint8"))
+            return Image.fromarray(arr)
+
+        ha = str(imagehash.phash(_to_pil(a)))
+        hb = str(imagehash.phash(_to_pil(b)))
+        if len(ha) != len(hb):
+            return None
+        return bin(int(ha, 16) ^ int(hb, 16)).count("1")
+    except Exception:  # noqa: BLE001
+        return None
+
+
 class PanelSegmentationDetector:
-    """For every image in the
-    document, segment the
-    panels and compare each
-    pair via SSIM."""
+    """For every image in the document, segment panels and
+    compare pairs via SSIM + pHash (contour or grid)."""
 
     name = "panel_duplicate"
 
@@ -284,30 +364,44 @@ class PanelSegmentationDetector:
             if gray is None:
                 continue
             boxes = _segment_panels(gray)
+            method = "contour"
+            if len(boxes) < MIN_PANEL_COUNT:
+                boxes = _grid_panel_boxes(gray)
+                method = "grid"
             if len(boxes) < MIN_PANEL_COUNT:
                 continue
-            # Crop each panel
-            # and compare.
+            # Crop each panel and compare.
             panels: list[Any] = []
             for x, y, w, h in boxes:
                 panels.append(gray[y : y + h, x : x + w])
-            # Compare every pair.
             for a in range(len(panels)):
                 for b in range(a + 1, len(panels)):
-                    if panels[a].size == 0:
+                    if panels[a].size == 0 or panels[b].size == 0:
                         continue
-                    if panels[b].size == 0:
-                        continue
-                    score = _ssim_one_pair(
-                        panels[a], panels[b]
+                    score = _ssim_one_pair(panels[a], panels[b])
+                    ph_d = _panel_phash_distance(panels[a], panels[b])
+                    ssim_hit = score >= SSIM_THRESHOLD
+                    phash_hit = (
+                        ph_d is not None and ph_d <= PANEL_PHASH_HAMMING
                     )
-                    if score < SSIM_THRESHOLD:
+                    if not ssim_hit and not phash_hit:
                         continue
-                    severity = (
-                        "high"
-                        if score >= 0.97
-                        else "medium"
-                    )
+                    # 2026-07 (negative_controls_v1): white
+                    # backgrounds inflate SSIM between *distinct*
+                    # same-layout panels (SSIM 0.97 with pHash 28
+                    # was common on legit papers). "high" now
+                    # requires corroboration: extreme SSIM with a
+                    # compatible pHash, or a tight pHash alone.
+                    if (
+                        ssim_hit
+                        and score >= 0.97
+                        and (ph_d is None or ph_d <= 16)
+                    ):
+                        severity = "high"
+                    elif phash_hit and ph_d is not None and ph_d <= 4:
+                        severity = "high"
+                    else:
+                        severity = "medium"
                     findings.append(
                         Finding.make(
                             trace_id=doc.trace_id,
@@ -318,7 +412,8 @@ class PanelSegmentationDetector:
                                 f"{b + 1} in image {i + 1} "
                                 f"on page {img.page} are "
                                 f"near-duplicates "
-                                f"(SSIM={score:.3f})"
+                                f"(SSIM={score:.3f}"
+                                f"{'' if ph_d is None else f', pHash={ph_d}'})"
                             ),
                             location=(
                                 f"image {i + 1} on page "
@@ -332,6 +427,8 @@ class PanelSegmentationDetector:
                                     "panel_a": list(boxes[a]),
                                     "panel_b": list(boxes[b]),
                                     "ssim_score": float(score),
+                                    "phash_hamming": ph_d,
+                                    "segment_method": method,
                                 }
                             ),
                         )

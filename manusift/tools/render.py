@@ -372,7 +372,7 @@ class RenderReportTool:
         # job-workspace
         # layout
         # lives at
-        # ``<workspace_dir>/jobs/<trace_id>/``
+        # ``<workspace_dir>/<trace_id>/``
         # so we use
         # ``JobPaths``
         # which is
@@ -388,10 +388,11 @@ class RenderReportTool:
         paths = JobPaths.for_trace(
             trace_id, settings.workspace_dir
         )
+        paths.ensure()
         try:
             out = save_narrative_report(
                 markdown,
-                out_dir=paths.root,
+                out_dir=paths.output_dir,
                 trace_id=trace_id,
                 include_pdf=include_pdf,
                 language=language,
@@ -413,10 +414,10 @@ class RenderReportTool:
             else current_pdf
         )
         generated_at = _utc_now_iso()
-        report_json_path = paths.root / "report.json"
-        raw_trace_path = paths.root / "raw_trace.json"
-        tool_summary_path = paths.root / "tool_summary.json"
-        evidence_assets_dir = paths.root / "evidence_assets"
+        report_json_path = paths.output_dir / "report.json"
+        raw_trace_path = paths.output_dir / "raw_trace.json"
+        tool_summary_path = paths.output_dir / "tool_summary.json"
+        evidence_assets_dir = paths.output_dir / "evidence_assets"
         evidence_manifest_path = evidence_assets_dir / "manifest.json"
         # P1.1 content hash: the bundle-level
         # sha256 of the markdown body. We
@@ -498,11 +499,12 @@ class RenderReportTool:
         # Note for
         # future
         # debugging:
-        # paths.root
+        # paths.output_dir
         # == the
         # same dir
         # the
         # /api/upload
+        # pipeline
         # writes
         # findings.json
         # +

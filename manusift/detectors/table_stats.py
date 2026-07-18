@@ -313,30 +313,71 @@ class BenfordDetector:
     column. A p-value below
     ``0.01`` triggers a
     ``medium`` finding; below
-    ``0.001`` triggers ``high``."""
+    ``0.001`` triggers ``high``.
+
+    Domain gating (2026-07):
+    skip or downgrade when n is
+    small, values span <1 decade,
+    or fig/sheet/header looks like
+    DLS/NTA/histogram instrument
+    bins — common false positives
+    in nanotech Source Data.
+    """
 
     name = "table_benford"
 
     def run(self, doc: ParsedDoc) -> DetectorResult:
+        # Lazy import avoids circular import at module load
+        # (table_forensics imports helpers from this module).
+        from .table_forensics import (
+            assess_benford_applicability,
+            _cap_severity,
+        )
+
         findings: list[Finding] = []
         for t_index, table in enumerate(_safe_tables(doc)):
             headers = getattr(table, "headers", []) or []
             rows = getattr(table, "rows", []) or []
+            fig_name = getattr(table, "fig_name", "") or ""
+            sheet_name = getattr(table, "sheet_name", "") or ""
             cols = _numeric_columns(headers, rows)
             for col_idx, values in cols.items():
-                stat, pvalue = _benford_chi2(values)
-                if pvalue >= 0.01:
+                from ..stats_algo import benford_analyze
+
+                analysis = benford_analyze(values, alpha=0.01)
+                pvalue = float(analysis.get("pvalue") or 1.0)
+                excess = float(analysis.get("excess_mad") or 0.0)
+                conf = str(analysis.get("conformity_mad") or "")
+                # Fire on chi2 reject OR MAD nonconforming (Nigrini/Barney)
+                mad_bad = conf == "nonconforming" or excess > 0.004
+                if pvalue >= 0.01 and not mad_bad:
                     continue
-                severity = (
-                    "high" if pvalue < 0.001 else "medium"
+                observed_list = list(analysis.get("counts") or [0] * 9)
+                header = (
+                    headers[col_idx]
+                    if col_idx < len(headers)
+                    else ""
                 )
-                # Describe the leading
-                # digits the table
-                # actually has so the
-                # reader can see the
-                # mismatch without
-                # re-running the test.
-                observed = _leading_digit_counts(values)
+                gate = assess_benford_applicability(
+                    n=int(analysis.get("n") or len(values)),
+                    values=values,
+                    fig_name=fig_name,
+                    sheet_name=sheet_name,
+                    header=str(header),
+                    observed_counts=observed_list,
+                    sibling_headers=[str(h) for h in headers],
+                )
+                if not gate.get("applicable", True):
+                    continue
+                if pvalue < 0.001 or excess > 0.008:
+                    severity = "high"
+                elif pvalue < 0.01 or mad_bad:
+                    severity = "medium"
+                else:
+                    severity = "low"
+                severity = _cap_severity(
+                    severity, str(gate.get("max_severity") or "high")
+                )
                 findings.append(
                     Finding.make(
                         trace_id=doc.trace_id,
@@ -353,17 +394,25 @@ class BenfordDetector:
                         ),
                         evidence=json.dumps(
                             {
-                                "n": len(values),
-                                "chi2": stat,
+                                "n": analysis.get("n"),
+                                "chi2": analysis.get("chi2"),
                                 "pvalue": pvalue,
+                                "mad": analysis.get("mad"),
+                                "excess_mad": excess,
+                                "conformity_mad": conf,
+                                "method": "chi2+mad",
+                                "source": (
+                                    "Brown–style first-digit + Nigrini MAD "
+                                    "/ Barney Excess MAD (open-source "
+                                    "benfordslaw-compatible)"
+                                ),
                                 "expected": [
                                     round(x, 4)
                                     for x in _BENFORD_EXPECTED
                                 ],
-                                "observed": [
-                                    observed.get(d, 0)
-                                    for d in range(1, 10)
-                                ],
+                                "observed": observed_list,
+                                "applicability": gate,
+                                "algo_flags": analysis.get("flags") or [],
                             }
                         ),
                     )
@@ -496,13 +545,33 @@ def _chi2_sf(x: float, k: int) -> float:
 
 # ---------- 2. Duplicate-row detection ----------
 
+def _row_key_exact(row: list[Any]) -> tuple[str, ...]:
+    return tuple(str(c).strip() for c in row)
+
+
+def _row_key_numeric(row: list[Any]) -> tuple[str, ...] | None:
+    """Normalize a row to its numeric tokens (order-preserving).
+
+    Used to catch near-duplicates that differ only in labels /
+    whitespace / ND placeholders.
+    """
+    nums: list[str] = []
+    for c in row:
+        s = str(c).strip()
+        if not s or s.upper() in {"ND", "N/A", "NA", "-", "–", "—"}:
+            continue
+        for m in re.findall(r"\d+(?:\.\d+)?", s):
+            nums.append(m)
+    if len(nums) < 2:
+        return None
+    return tuple(nums)
+
+
 class DuplicateRowDetector:
-    """Find rows that are
-    byte-identical to another
-    row in the same table.
-    Triggers ``high`` severity
-    for >= 3 duplicates, ``medium``
-    for 2."""
+    """Find rows that are byte-identical or numerically identical
+    to another row in the same table. Also scans the PDF text
+    layer for repeated multi-number lines (table-like dups when
+    formal extraction failed)."""
 
     name = "table_duplicate_row"
 
@@ -510,23 +579,28 @@ class DuplicateRowDetector:
         findings: list[Finding] = []
         for t_index, table in enumerate(_safe_tables(doc)):
             rows = getattr(table, "rows", []) or []
-            # ``Counter`` over the
-            # stringified row keeps
-            # the comparison cheap
-            # and gives us the
-            # duplicate count for
-            # free.
-            counts = Counter(
-                tuple(str(c) for c in row) for row in rows
-            )
+            if not rows:
+                continue
+            # Exact string rows.
+            counts = Counter(_row_key_exact(row) for row in rows)
             dup_groups = [
-                (row, n) for row, n in counts.items() if n > 1
+                (row, n) for row, n in counts.items() if n > 1 and any(row)
             ]
-            if not dup_groups:
+            # Numeric near-dups (same number multiset).
+            num_counts: Counter[tuple[str, ...]] = Counter()
+            for row in rows:
+                nk = _row_key_numeric(row)
+                if nk is not None:
+                    num_counts[nk] += 1
+            num_dups = [
+                (row, n) for row, n in num_counts.items() if n > 1
+            ]
+            if not dup_groups and not num_dups:
                 continue
             severity = (
                 "high"
                 if any(n >= 3 for _, n in dup_groups)
+                or any(n >= 3 for _, n in num_dups)
                 else "medium"
             )
             findings.append(
@@ -536,7 +610,8 @@ class DuplicateRowDetector:
                     severity=severity,
                     title=(
                         f"{_format_table_label(table, t_index)} has "
-                        f"{len(dup_groups)} duplicate row(s)"
+                        f"{len(dup_groups) + len(num_dups)} duplicate "
+                        f"row group(s)"
                     ),
                     location=_format_table_label(table, t_index),
                     evidence=json.dumps(
@@ -548,35 +623,105 @@ class DuplicateRowDetector:
                                 }
                                 for row, n in dup_groups
                             ],
+                            "numeric_duplicate_groups": [
+                                {
+                                    "numbers": list(row),
+                                    "occurrences": n,
+                                }
+                                for row, n in num_dups
+                            ],
                         }
                     ),
                 )
             )
+        # Text-layer fallback: repeated multi-number lines that look
+        # like table body rows (when formal tables were empty).
+        if not findings:
+            findings.extend(_text_layer_duplicate_rows(doc))
         return DetectorResult(
             detector=self.name, findings=findings, ok=True
         )
 
 
+def _text_layer_duplicate_rows(doc: ParsedDoc) -> list[Finding]:
+    """Scan text blocks for repeated numeric-heavy lines."""
+    lines: list[str] = []
+    for b in getattr(doc, "text_blocks", None) or []:
+        t = getattr(b, "text", "") or ""
+        for ln in t.splitlines():
+            s = re.sub(r"\s+", " ", ln).strip()
+            if len(s) < 12:
+                continue
+            # Skip journal footers / running headers.
+            if re.search(
+                r"(?i)frontiers in|volume \d|article \d{3,}|doi:|"
+                r"january|february|march|april|may|june|july|"
+                r"august|september|october|november|december|"
+                r"www\.frontiersin",
+                s,
+            ):
+                continue
+            nums = re.findall(r"\d+(?:\.\d+)?", s)
+            if len(nums) < 3:
+                continue
+            lines.append(s)
+    if not lines:
+        return []
+    counts = Counter(lines)
+    dups = [(ln, n) for ln, n in counts.items() if n > 1]
+    if not dups:
+        # Also: same numeric signature, different labels.
+        sig_counts: Counter[tuple[str, ...]] = Counter()
+        sig_examples: dict[tuple[str, ...], str] = {}
+        for ln in lines:
+            sig = tuple(re.findall(r"\d+(?:\.\d+)?", ln))
+            if len(sig) >= 3:
+                sig_counts[sig] += 1
+                sig_examples.setdefault(sig, ln)
+        dups = [
+            (sig_examples[sig], n)
+            for sig, n in sig_counts.items()
+            if n > 1
+        ]
+    if not dups:
+        return []
+    return [
+        Finding.make(
+            trace_id=doc.trace_id,
+            detector="table_duplicate_row",
+            severity="medium",
+            title=(
+                f"Text layer has {len(dups)} repeated multi-number "
+                f"row(s) (table-like duplicate signal)"
+            ),
+            location="text",
+            evidence=json.dumps(
+                {
+                    "duplicate_groups": [
+                        {"row": [ln], "occurrences": n}
+                        for ln, n in dups[:10]
+                    ],
+                    "source": "text_layer",
+                }
+            ),
+        )
+    ]
+
+
 # ---------- 3. Outlier detection ----------
 
 class OutlierDetector:
-    """For every numeric column,
-    compute the Z-score of every
-    value. If the fraction of
-    values with |Z| > 3 is
-    suspiciously low (< 0.1%
-    when the table has more than
-    30 rows) the column is
-    flagged. Truly random data
-    should have roughly 0.3% of
-    its values in the >3-sigma
-    tails; human-typed or
-    hand-generated data often
-    has 0%."""
+    """Detect "too clean" numeric columns (fabrication / over-smoothing).
+
+    Combines classical z-score tails with robust MAD z-scores and IQR
+    fences (PyOD-style robust anomaly features, without sklearn).
+    """
 
     name = "table_outlier"
 
     def run(self, doc: ParsedDoc) -> DetectorResult:
+        from ..stats_algo import iqr_outlier_fraction, robust_z_scores
+
         findings: list[Finding] = []
         for t_index, table in enumerate(_safe_tables(doc)):
             headers = getattr(table, "headers", []) or []
@@ -584,21 +729,26 @@ class OutlierDetector:
             cols = _numeric_columns(headers, rows)
             for col_idx, values in cols.items():
                 if len(values) < 30:
-                    # Too few values to
-                    # say anything.
                     continue
                 mean = statistics.fmean(values)
                 stdev = statistics.pstdev(values)
                 if stdev == 0:
-                    # All-equal column;
-                    # nothing to detect.
                     continue
                 z = [(v - mean) / stdev for v in values]
                 extreme = sum(1 for x in z if abs(x) > 3)
                 ratio = extreme / len(values)
-                # Expected: ~0.3% for
-                # a normal distribution.
-                if ratio > 0.001:
+                rz = robust_z_scores(values)
+                extreme_mad = sum(1 for x in rz if abs(x) > 3.5)
+                mad_ratio = extreme_mad / len(values)
+                iqr_info = iqr_outlier_fraction(values)
+                iqr_frac = float(iqr_info.get("outlier_frac") or 0.0)
+                # "Too clean": classical AND robust tails both sparse
+                too_clean = ratio <= 0.001 and mad_ratio <= 0.001
+                # Also flag if IQR finds zero outliers on large n
+                # while classical expects some under normality
+                if len(values) >= 80 and iqr_frac == 0.0 and ratio <= 0.002:
+                    too_clean = True
+                if not too_clean:
                     continue
                 findings.append(
                     Finding.make(
@@ -621,6 +771,10 @@ class OutlierDetector:
                                 "stdev": stdev,
                                 "extreme_count": extreme,
                                 "extreme_ratio": ratio,
+                                "mad_extreme_count": extreme_mad,
+                                "mad_extreme_ratio": mad_ratio,
+                                "iqr": iqr_info,
+                                "method": "zscore+mad+iqr",
                             }
                         ),
                     )
@@ -633,15 +787,18 @@ class OutlierDetector:
 # ---------- 4. Round-number bias ----------
 
 class RoundBiasDetector:
-    """Report the fraction of
-    numeric values ending in 0
-    or 5. Truly random numeric
-    data has ~20%; human-typed
-    data often exceeds 35%."""
+    """Last-digit forensic bias (0/5 over-representation).
+
+    Uses :func:`manusift.stats_algo.last_digit_round_bias` (forensic
+    accounting last-digit uniformity + 0/5 ratio), compatible with
+    common open-source Benford/forensics tooling.
+    """
 
     name = "table_round_bias"
 
     def run(self, doc: ParsedDoc) -> DetectorResult:
+        from ..stats_algo import last_digit_round_bias
+
         findings: list[Finding] = []
         for t_index, table in enumerate(_safe_tables(doc)):
             headers = getattr(table, "headers", []) or []
@@ -650,44 +807,15 @@ class RoundBiasDetector:
             for col_idx, values in cols.items():
                 if len(values) < 10:
                     continue
-                round_count = 0
-                for v in values:
-                    # Look at the last
-                    # significant
-                    # digit; we strip
-                    # the trailing
-                    # zeros and check
-                    # the last digit.
-                    # A value is
-                    # "round" iff the
-                    # last digit is 0
-                    # or 5.
-                    a = abs(v)
-                    if a == 0:
-                        round_count += 1
-                        continue
-                    # Find the last
-                    # non-zero decimal
-                    # digit. 1.05 ->
-                    # 5; 1.5 -> 5;
-                    # 10 -> 0; 11 ->
-                    # 1.
-                    # Multiply by 10
-                    # until the value
-                    # is an integer;
-                    # then look at the
-                    # ones digit.
-                    while abs(a - round(a)) > 1e-9:
-                        a *= 10
-                    last_digit = int(round(a)) % 10
-                    if last_digit in (0, 5):
-                        round_count += 1
-                ratio = round_count / len(values)
-                if ratio <= 0.35:
+                analysis = last_digit_round_bias(values)
+                ratio = float(analysis.get("round_ratio") or 0.0)
+                flags = list(analysis.get("flags") or [])
+                # Fire if 0/5 bias OR strong non-uniform last digits
+                if ratio <= 0.35 and "last_digit_nonuniform" not in flags:
                     continue
-                severity = (
-                    "high" if ratio > 0.6 else "medium"
-                )
+                severity = "high" if ratio > 0.6 else "medium"
+                if ratio <= 0.35 and "last_digit_nonuniform" in flags:
+                    severity = "low"
                 findings.append(
                     Finding.make(
                         trace_id=doc.trace_id,
@@ -696,7 +824,7 @@ class RoundBiasDetector:
                         title=(
                             f"{_format_table_label(table, t_index)} column "
                             f"'{headers[col_idx]}' shows "
-                            f"round-number bias"
+                            f"round-number / last-digit bias"
                         ),
                         location=(
                             f"{_format_table_label(table, t_index)}, column "
@@ -704,9 +832,13 @@ class RoundBiasDetector:
                         ),
                         evidence=json.dumps(
                             {
-                                "n": len(values),
-                                "round_count": round_count,
+                                "n": analysis.get("n"),
                                 "round_ratio": ratio,
+                                "last_digit_counts": analysis.get("counts"),
+                                "last_digit_chi2": analysis.get("chi2"),
+                                "last_digit_pvalue": analysis.get("pvalue"),
+                                "flags": flags,
+                                "method": "last_digit_forensics",
                             }
                         ),
                     )

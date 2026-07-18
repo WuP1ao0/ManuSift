@@ -198,8 +198,8 @@ def test_loop_executes_tool_and_returns_result_to_llm(
     pdf.close()
     tid = "t-agent"
     job_dir = tmp_path / tid
-    job_dir.mkdir()
-    (job_dir / "original.pdf").write_bytes(pdf_path.read_bytes())
+    (job_dir / "inputs").mkdir(parents=True)
+    (job_dir / "inputs" / "original.pdf").write_bytes(pdf_path.read_bytes())
 
     script = [
         ChatResponse(
@@ -289,7 +289,7 @@ def test_pre_canned_path_calls_prefer_loop_tool_list(
         raise AssertionError(f"global lookup used for {name}")
 
     monkeypatch.setattr(
-        "manusift.agent.get_tool",
+        "manusift.agent.legacy_loop.get_tool",
         _global_lookup_should_not_run,
     )
     pdf = tmp_path / "paper.pdf"
@@ -345,11 +345,19 @@ def test_pre_canned_path_calls_prefer_loop_tool_list(
         loop._ctx.metadata["pdf_path"]
         == str(pdf)
     )
-    assert result.messages[2]["content"][0]["name"] == "ingest_from_path"
-    payload = json.loads(result.messages[3]["content"][0]["content"])
-    assert payload["trace_id"] == "local-trace"
-    assert payload["ok"] is True
-    assert payload["result"]["trace_id"] == "local-trace"
+    # Pre-canned tools no longer inject assistant tool_use /
+    # tool_result pairs (DeepSeek thinking 400). Result is a
+    # user note that still contains the ingest JSON payload.
+    pre_notes = [
+        m for m in result.messages
+        if m.get("role") == "user"
+        and isinstance(m.get("content"), str)
+        and "pre-tool" in m.get("content", "")
+    ]
+    assert pre_notes, "expected pre-tool user note"
+    note = pre_notes[0]["content"]
+    assert "ingest_from_path" in note
+    assert "local-trace" in note
 
 
 # ---------- 4. max_steps guard ----------
@@ -459,7 +467,7 @@ def test_tool_execution_error_returned_as_envelope() -> None:
     # that single function call.
     monkey = pytest.MonkeyPatch()
     monkey.setattr(
-        "manusift.agent.get_tool",
+        "manusift.agent.legacy_loop.get_tool",
         lambda n: CrashingTool() if n == "crashy" else None,
     )
     try:
@@ -646,8 +654,8 @@ def test_agent_loop_runs_real_metadata_detector(
     # Place the PDF where the tool expects: a job dir.
     tid = "t-agent-e2e"
     job_dir = tmp_path / tid
-    job_dir.mkdir()
-    (job_dir / "original.pdf").write_bytes(pdf_path.read_bytes())
+    (job_dir / "inputs").mkdir(parents=True)
+    (job_dir / "inputs" / "original.pdf").write_bytes(pdf_path.read_bytes())
 
     script = [
         ChatResponse(

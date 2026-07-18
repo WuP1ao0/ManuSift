@@ -108,13 +108,13 @@ def test_grim_fails_on_inconsistent_mean() -> None:
     )
     # The helper fails for
     # an impossible mean:
-    # 2.5 with N=3 and 0
-    # decimal places
+    # 2.5 with N=3 and 1
+    # decimal place
     # requires integers
     # averaging 2.5, but
     # 2.5 * 3 = 7.5 is not
     # an integer.
-    assert _grim_test([0.0] * 3, 2.5, 0) is False
+    assert _grim_test([0.0] * 3, 2.5, 1) is False
     # The detector still
     # runs on a clean
     # table -- no false
@@ -345,10 +345,13 @@ def test_grim_helper_function() -> None:
     # consistent.
     assert _grim_test([0.0] * 10, 3.0, 0) is True
     # 3.15 from N=10 with
-    # 0 decimal places:
-    # 31.5 is not a multiple
-    # of 1.
-    assert _grim_test([0.0] * 10, 3.15, 0) is False
+    # 2 decimal places: no
+    # integer sum S exists
+    # with S/10 rounding to
+    # 3.15 at 2 dp (the
+    # interval (31.45, 31.55]
+    # contains no integer).
+    assert _grim_test([0.0] * 10, 3.15, 2) is False
     # Empty list -- the
     # detector must short-
     # circuit to ``True``
@@ -458,41 +461,38 @@ def test_t51_sensitive_grim_catches_pct_with_n_20() -> None:
     assert len(result.findings) == 0
 
 
-def test_t51_sensitive_grim_catches_pct_with_n_3() -> None:
-    """``n=3, pct=33.3, decimals=1``:
-    33.3 * 3 = 99.9 (NOT close
-    to an integer -- 100 differs
-    by 0.1, which is greater
-    than the half-granularity
-    tolerance of 0.05 for
-    decimals=1).  GRIM fail.
-    A 3-person sample cannot
-    have an average of 33.3%
-    to 1-decimal precision
-    because 33.3% * 3 = 99.9 is
-    not a sum of 3 integers.
+def test_t51_sensitive_grim_catches_pct_with_n_9() -> None:
+    """``n=9, pct=15.71, decimals=2``:
+    no integer sum S exists with
+    S/9 rounding to 15.71 at 2 dp
+    (the interval (141.345, 141.435]
+    contains no integer).  GRIM fail.
+    Note: the previous fixture
+    (n=3, pct=33.3) was WRONG --
+    33.3% of 3 is 1/3 = 33.33...%
+    which rounds to 33.3 and is
+    genuinely GRIM-consistent.
     """
     from manusift.detectors.stat_consistency import (
         GrimTestDetector,
     )
     table = _make_table(
         ["n", "pct"],
-        [["3", "33.3"]],
+        [["9", "15.71"]],
     )
     det = GrimTestDetector()
     doc = _make_doc_with_tables(table)
     result = det.run(doc)
-    # 33.3 * 3 = 99.9.  round to
-    # integer = 100.  diff = 0.1
-    # > 0.05 (half-granularity
-    # at decimals=1).  So the
+    # 15.71 * 9 = 141.39 -- no
+    # integer sum rounds to
+    # 15.71 at 2 dp.  So the
     # GRIM check fails and we
     # expect 1 finding.
     assert len(result.findings) == 1
     f = result.findings[0]
     assert f.severity == "high"
-    assert "33.3" in f.title
-    assert "N=3" in f.title
+    assert "15.71" in f.title
+    assert "N=9" in f.title
 
 
 def test_t51_sensitive_grim_passes_for_n_multiple_of_100() -> None:
@@ -512,31 +512,17 @@ def test_t51_sensitive_grim_passes_for_n_multiple_of_100() -> None:
     assert len(result.findings) == 0
 
 
-def test_t51_sensitive_grim_catches_f_with_n_15() -> None:
-    """``n=15, F=3.43, decimals=2``:
-    3.43 * 15 = 51.45.
-    round(51.45) = 51.  diff
-    = 0.45 > 0.005 (half-
-    granularity at
-    decimals=2).  GRIM fail.
-
-    Note: for F statistics
-    (test statistics from
-    ANOVA), the value is not a
-    mean of integer values, so
-    the GRIM test is
-    theoretically not
-    applicable.  In practice
-    the test still fires
-    because the cell has
-    ``decimals >= 1`` and the
-    n_col lookup succeeds.
-    This is acceptable as a
-    *screening* signal: the
-    reviewer checks the
-    per-cell evidence and
-    decides whether the
-    finding is meaningful.
+def test_t51_sensitive_grim_skips_f_statistic_column() -> None:
+    """``n=15, F=3.43`` -- the F statistic from an
+    ANOVA is not a mean of integer values, so GRIM
+    is a category error here.  The T5.1 author
+    kept the firing as a "screening signal", but
+    negative_controls_v1 (2026-07) showed the same
+    logic systematically flags p_value columns on
+    *legitimate* clinical papers (ctrl_bmc_02: 6
+    high findings, all category errors).  The
+    sensitive check now skips statistical-
+    quantity columns entirely.
     """
     from manusift.detectors.stat_consistency import (
         GrimTestDetector,
@@ -548,11 +534,7 @@ def test_t51_sensitive_grim_catches_f_with_n_15() -> None:
     det = GrimTestDetector()
     doc = _make_doc_with_tables(table)
     result = det.run(doc)
-    assert len(result.findings) == 1
-    f = result.findings[0]
-    assert "3.43" in f.title
-    assert "N=15" in f.title
-
+    assert result.findings == []
 
 def test_t51_sensitive_grim_skips_integer_cells() -> None:
     """A cell with 0 decimal
@@ -671,7 +653,7 @@ def test_t51_sensitive_grim_evidence_includes_check_name() -> None:
     )
     table = _make_table(
         ["n", "pct"],
-        [["3", "33.3"]],
+        [["9", "15.71"]],
     )
     det = GrimTestDetector()
     doc = _make_doc_with_tables(table)
@@ -680,8 +662,8 @@ def test_t51_sensitive_grim_evidence_includes_check_name() -> None:
     f = result.findings[0]
     ev = _json.loads(f.evidence)
     assert ev.get("check") == "grim_sensitive"
-    assert ev.get("n") == 3
-    assert ev.get("reported_value") == 33.3
+    assert ev.get("n") == 9
+    assert ev.get("reported_value") == 15.71
 
 
 def test_t51_sensitive_grim_mean_column_still_works() -> None:
@@ -717,3 +699,368 @@ def test_t51_sensitive_grim_mean_column_still_works() -> None:
     # "grim_sensitive".
     assert ev.get("check") == "grim_mean"
     assert "4.21" in f.title
+
+
+# ---------------------------------------------------------------------------
+# 2026-07: table-based t/p consistency (fraud_web_v1 web_cureus_01)
+# ---------------------------------------------------------------------------
+
+
+def test_table_tp_scan_flags_inconsistent_gender_table() -> None:
+    """The retracted Cureus EDI paper reports t=1.61 with
+    p=0.646 (recomputed p≈0.107) and t=0.923 with p=0.943
+    (recomputed ≈0.357) in the same table -- 2 inconsistent
+    pairs must fire high."""
+    from manusift.detectors.stat_consistency import (
+        PValueConsistencyDetector,
+    )
+    table = _make_table(
+        ["Variable", "Gender", "N", "Mean ± SD", "t-value", "p-value"],
+        [
+            ["Perception of equity", "Male", "156", "4 ± 0.8", "1.61", "0.646"],
+            ["", "Female 172 3.9 ± 0.8", "", "", "", ""],
+            ["Perception of diversity", "Male", "156", "3.8 ± 1", "0.923", "0.943"],
+            ["Perception of inclusion", "Male", "156", "4 ± 0.9", "1.048", "0.194"],
+        ],
+    )
+    doc = _make_doc_with_tables(table)
+    result = PValueConsistencyDetector().run(doc)
+    tp = [f for f in result.findings if "t/p pair" in f.title]
+    assert len(tp) == 1
+    assert tp[0].severity == "high"
+    import json as _json
+    ev = _json.loads(tp[0].evidence)
+    assert len(ev["inconsistent_pairs"]) == 2
+
+
+def test_table_tp_scan_clean_when_consistent() -> None:
+    """t=-0.37 → p≈0.712 and t=-0.944 → p≈0.346 are
+    consistent (these rows come from the *valid* nationality
+    table of the same retracted paper) -- no finding."""
+    from manusift.detectors.stat_consistency import (
+        PValueConsistencyDetector,
+    )
+    table = _make_table(
+        ["Variable", "Nationality", "N", "Mean ± SD", "t-value", "p-value"],
+        [
+            ["Perception of equity", "Non-Saudi", "74", "3.9 ± 0.7", "-0.37", "0.712"],
+            ["Perception of diversity", "Non-Saudi", "74", "3.6 ± 1", "-0.944", "0.346"],
+        ],
+    )
+    doc = _make_doc_with_tables(table)
+    result = PValueConsistencyDetector().run(doc)
+    assert [f for f in result.findings if "t/p pair" in f.title] == []
+
+
+def test_table_tp_scan_ignores_tables_without_tp_headers() -> None:
+    """A numeric table without t/p column headers must not
+    be interpreted as t/p pairs (precision guard)."""
+    from manusift.detectors.stat_consistency import (
+        PValueConsistencyDetector,
+    )
+    table = _make_table(
+        ["ratio", "coverage"],
+        [["3.70", "0.50"], ["2.90", "0.60"]],
+    )
+    doc = _make_doc_with_tables(table)
+    result = PValueConsistencyDetector().run(doc)
+    assert [f for f in result.findings if "t/p pair" in f.title] == []
+
+
+def test_table_tp_scan_single_extreme_pair_medium() -> None:
+    """One pair with Δ > 0.35 fires medium."""
+    from manusift.detectors.stat_consistency import (
+        PValueConsistencyDetector,
+    )
+    table = _make_table(
+        ["Variable", "Group", "N", "Mean ± SD", "t-value", "p-value"],
+        [
+            ["Score", "A", "100", "4.0 ± 0.8", "1.50", "0.700"],
+            ["Score2", "B", "100", "4.1 ± 0.9", "2.90", "0.004"],
+        ],
+    )
+    doc = _make_doc_with_tables(table)
+    result = PValueConsistencyDetector().run(doc)
+    tp = [f for f in result.findings if "t/p pair" in f.title]
+    assert len(tp) == 1
+    assert tp[0].severity == "medium"
+
+
+def test_sensitive_grim_skips_stat_quantity_columns() -> None:
+    """negative_controls_v1: GRIM on a p_value column is a
+    category error (p-values are not means of integers).
+    ctrl_bmc_02 legit paper was flagged for p_value=0.05
+    at N=7 -- must not happen."""
+    from manusift.detectors.stat_consistency import (
+        GrimTestDetector,
+        _is_stat_quantity_column,
+    )
+    assert _is_stat_quantity_column("p_value")
+    assert _is_stat_quantity_column("t-value")
+    assert _is_stat_quantity_column("F")
+    assert _is_stat_quantity_column("Chi2")
+    assert not _is_stat_quantity_column("pct")
+    assert not _is_stat_quantity_column("mean")
+    table = _make_table(
+        ["n", "p_value"],
+        [["7", "0.05"], ["8", "0.05"], ["7", "0.01"]],
+    )
+    doc = _make_doc_with_tables(table)
+    result = GrimTestDetector().run(doc)
+    assert result.findings == []
+
+
+def test_sensitive_grim_still_fires_on_plain_decimal_columns() -> None:
+    """The exclusion must not neuter the sensitive check on
+    genuine average-like columns (pct-like values)."""
+    from manusift.detectors.stat_consistency import (
+        GrimTestDetector,
+    )
+    table = _make_table(
+        ["n", "pct"],
+        [["9", "15.71"]],
+    )
+    doc = _make_doc_with_tables(table)
+    result = GrimTestDetector().run(doc)
+    assert len(result.findings) == 1
+
+
+def test_summary_stat_scan_catches_welch_mismatch() -> None:
+    """fraud_web_v1 web_cureus_01 ground truth: Male 156 4±0.8
+    vs Female 172 3.9±0.8 with reported t=1.61 -- Welch
+    recompute is t≈1.13 (Δ≈0.48). Must fire."""
+    from manusift.detectors.stat_consistency import (
+        PValueConsistencyDetector,
+    )
+    table = _make_table(
+        ["Variable", "Gender", "N", "Mean ± SD", "t-value", "p-value"],
+        [
+            ["Perception of equity", "Male", "156", "4 ± 0.8", "1.61", "0.646"],
+            ["", "Female 172 3.9 ± 0.8", "", "", "", ""],
+            ["Perception of diversity", "Male", "156", "3.8 ± 1", "0.923", "0.943"],
+            ["", "Female 172 3.7 ± 1", "", "", "", ""],
+        ],
+    )
+    doc = _make_doc_with_tables(table)
+    result = PValueConsistencyDetector().run(doc)
+    mm = [f for f in result.findings if "summary-stat recompute" in f.title]
+    assert len(mm) == 1
+    import json as _json
+    ev = _json.loads(mm[0].evidence)
+    kinds = [m["kind"] for m in ev["mismatches"]]
+    assert kinds == ["welch_t"]
+
+
+def test_summary_stat_scan_silent_when_consistent() -> None:
+    """The diversity block (3.8±1 vs 3.7±1, t=0.923) IS
+    consistent (Welch ≈ 0.905) -- no finding."""
+    from manusift.detectors.stat_consistency import (
+        PValueConsistencyDetector,
+    )
+    table = _make_table(
+        ["Variable", "Gender", "N", "Mean ± SD", "t-value", "p-value"],
+        [
+            ["Perception of diversity", "Male", "156", "3.8 ± 1", "0.923", "0.357"],
+            ["", "Female 172 3.7 ± 1", "", "", "", ""],
+        ],
+    )
+    doc = _make_doc_with_tables(table)
+    result = PValueConsistencyDetector().run(doc)
+    assert [f for f in result.findings if "summary-stat" in f.title] == []
+
+
+def test_summary_stat_scan_anova_f_to_p() -> None:
+    """3-group table with F reported: F=0.701 for the Cureus
+    socioeconomic equity block is consistent with its
+    summary stats (recompute ≈0.69); a doctored F=2.8 is
+    not -- must fire."""
+    from manusift.detectors.stat_consistency import (
+        PValueConsistencyDetector,
+    )
+    base_rows = [
+        ["Perception of equity", "Low", "103", "4 ± 0.7", None, None],
+        ["", "Middle 145 3.9 ± 0.9", "", "", "", ""],
+        ["", "High", "80", "4 ± 0.9", "", ""],
+    ]
+    consistent = _make_table(
+        ["Variable", "SES", "N", "Mean ± SD", "F-value", "p-value"],
+        [base_rows[0][:4] + ["0.701", "0.497"]] + base_rows[1:],
+    )
+    doc = _make_doc_with_tables(consistent)
+    result = PValueConsistencyDetector().run(doc)
+    assert [f for f in result.findings if "summary-stat" in f.title] == []
+
+    doctored = _make_table(
+        ["Variable", "SES", "N", "Mean ± SD", "F-value", "p-value"],
+        [base_rows[0][:4] + ["2.80", "0.062"]] + base_rows[1:],
+    )
+    doc2 = _make_doc_with_tables(doctored)
+    result2 = PValueConsistencyDetector().run(doc2)
+    mm = [f for f in result2.findings if "summary-stat" in f.title]
+    assert len(mm) == 1
+
+
+# ---------------------------------------------------------------------------
+# 2026-07: GRIM N>200 skip, DEBIT, GRIMMER bound, statcheck special rules
+# ---------------------------------------------------------------------------
+
+
+def test_grim_skips_n_above_200() -> None:
+    """GRIM trap: above N=200 the 1/N granularity is so fine the test
+    has no discriminative power, so the detector skips the row.
+    ``3.337`` (3 dp) fails GRIM at both N=200 and N=201 -- the N=200
+    table MUST fire (proving the value is GRIM-inconsistent) while the
+    N=201 table must stay silent (proving the skip)."""
+    from manusift.detectors.stat_consistency import (
+        GrimTestDetector,
+    )
+    det = GrimTestDetector()
+    table_fail = _make_table(["n", "pct"], [["200", "3.337"]])
+    res_fail = det.run(_make_doc_with_tables(table_fail))
+    assert len(res_fail.findings) == 1
+    table_skip = _make_table(["n", "pct"], [["201", "3.337"]])
+    res_skip = det.run(_make_doc_with_tables(table_skip))
+    assert res_skip.findings == []
+    # Same skip on the original mean-column sub-check.
+    table_mean = _make_table(["n", "mean"], [["201", "3.337"]])
+    res_mean = det.run(_make_doc_with_tables(table_mean))
+    assert res_mean.findings == []
+
+
+def test_debit_fires_on_impossible_binary_sd() -> None:
+    """DEBIT: 50% yes at N=100 determines SD = sqrt(.25*100/99) ~=
+    0.5025; a reported SD of 0.30 is impossible for binary data."""
+    from manusift.detectors.stat_consistency import (
+        GrimTestDetector,
+    )
+    table = _make_table(
+        ["group", "n", "yes %", "sd"],
+        [["A", "100", "50.0", "0.30"]],
+    )
+    result = GrimTestDetector().run(_make_doc_with_tables(table))
+    debit = [
+        f
+        for f in result.findings
+        if json.loads(f.evidence).get("check") == "debit"
+    ]
+    assert len(debit) == 1
+    assert debit[0].severity == "high"
+    ev = json.loads(debit[0].evidence)
+    assert ev["n"] == 100
+    assert ev["reported_sd"] == 0.30
+
+
+def test_debit_silent_when_sd_matches() -> None:
+    """The same table with SD=0.50 is within rounding slack of the
+    theoretical 0.5025 -- no finding."""
+    from manusift.detectors.stat_consistency import (
+        GrimTestDetector,
+    )
+    table = _make_table(
+        ["group", "n", "yes %", "sd"],
+        [["A", "100", "50.0", "0.50"]],
+    )
+    result = GrimTestDetector().run(_make_doc_with_tables(table))
+    assert result.findings == []
+
+
+def test_debit_skips_non_binary_percentages() -> None:
+    """A continuous percentage ("body fat %") is out of DEBIT's
+    domain -- the binary-outcome header guard must prevent firing."""
+    from manusift.detectors.stat_consistency import (
+        GrimTestDetector,
+    )
+    table = _make_table(
+        ["group", "n", "body fat %", "sd"],
+        [["A", "100", "50.0", "0.30"]],
+    )
+    result = GrimTestDetector().run(_make_doc_with_tables(table))
+    assert result.findings == []
+
+
+def test_grimmer_bound_fires_on_impossible_sd() -> None:
+    """Mean 2.00 on a 1-7 scale at N=20 has a maximum possible SD of
+    ~2.29 (all responses at the endpoints); SD=3.50 cannot exist."""
+    from manusift.detectors.stat_consistency import (
+        GrimTestDetector,
+    )
+    table = _make_table(
+        ["group", "n", "mean", "sd"],
+        [["A", "20", "2.00", "3.50"]],
+    )
+    result = GrimTestDetector().run(_make_doc_with_tables(table))
+    gr = [
+        f
+        for f in result.findings
+        if json.loads(f.evidence).get("check") == "grimmer_sd_bound"
+    ]
+    assert len(gr) == 1
+    assert gr[0].severity == "high"
+    ev = json.loads(gr[0].evidence)
+    assert ev["sd_max"] < 3.50
+
+
+def test_grimmer_bound_silent_when_possible() -> None:
+    """SD=2.00 is below the 2.29 bound -- no finding."""
+    from manusift.detectors.stat_consistency import (
+        GrimTestDetector,
+    )
+    table = _make_table(
+        ["group", "n", "mean", "sd"],
+        [["A", "20", "2.00", "2.00"]],
+    )
+    result = GrimTestDetector().run(_make_doc_with_tables(table))
+    assert result.findings == []
+
+
+def test_grimmer_bound_requires_grim_consistent_mean() -> None:
+    """A mean that fails GRIM (2.03 at N=20) is not plausibly integer
+    scale data, so the SD bound must NOT fire -- the low-severity
+    grim_mean finding from sub-check (a) is the only signal."""
+    from manusift.detectors.stat_consistency import (
+        GrimTestDetector,
+    )
+    table = _make_table(
+        ["group", "n", "mean", "sd"],
+        [["A", "20", "2.03", "3.50"]],
+    )
+    result = GrimTestDetector().run(_make_doc_with_tables(table))
+    checks = [json.loads(f.evidence).get("check") for f in result.findings]
+    assert "grimmer_sd_bound" not in checks
+
+
+def test_statcheck_decision_error_in_title() -> None:
+    """t(20)=1.5 with p=.03: reported significant, recomputed ~0.15
+    (ns) -- the finding must carry the decision-error flag."""
+    from manusift.detectors import PValueConsistencyDetector
+    doc = FakeDoc(text="t(20) = 1.5, p = .03")
+    result = PValueConsistencyDetector().run(doc)
+    sc = [f for f in result.findings if "statcheck" in f.title]
+    assert len(sc) == 1
+    assert "decision error" in sc[0].title
+    ev = json.loads(sc[0].evidence)
+    assert ev["decision_error"] is True
+    assert ev["p_low"] < ev["p_up"]
+
+
+def test_statcheck_p_zero_in_title() -> None:
+    """p = .000 is a pZeroError -- always inconsistent."""
+    from manusift.detectors import PValueConsistencyDetector
+    doc = FakeDoc(text="t(20) = 2.0, p = .000")
+    result = PValueConsistencyDetector().run(doc)
+    sc = [f for f in result.findings if "statcheck" in f.title]
+    assert len(sc) == 1
+    assert "exactly 0" in sc[0].title
+    ev = json.loads(sc[0].evidence)
+    assert ev["p_zero_error"] is True
+
+
+def test_statcheck_interval_consistent_no_finding() -> None:
+    """Rounding-interval consistency: t(20)=2.0 implies p in
+    [0.0537, 0.0653]; p=.06 rounds into the interval, so the detector
+    must stay silent even though |0.06 - 0.0593| < 0.01 would also
+    have passed the old flat tolerance."""
+    from manusift.detectors import PValueConsistencyDetector
+    doc = FakeDoc(text="t(20) = 2.0, p = .06")
+    result = PValueConsistencyDetector().run(doc)
+    assert [f for f in result.findings if "statcheck" in f.title] == []

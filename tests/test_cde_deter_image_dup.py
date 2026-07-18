@@ -285,7 +285,15 @@ def test_image_dup_is_deterministic_across_processes() -> None:
         f"  stdout: {result.stdout[:500]}\n"
         f"  stderr: {result.stderr[:500]}"
     )
-    pairs_sub = json.loads(result.stdout)
+    # Newer PyMuPDF prints a one-line pymupdf_layout
+    # recommendation to stdout before the JSON payload;
+    # skip any non-JSON prefix.
+    stdout = result.stdout
+    json_start = stdout.find("[")
+    assert json_start >= 0, (
+        f"no JSON payload in subprocess stdout:\n{stdout[:500]}"
+    )
+    pairs_sub = json.loads(stdout[json_start:])
     assert pairs_main == pairs_sub, (
         f"Detector output differs between main process and subprocess.\n"
         f"  main: {len(pairs_main)} pairs\n"

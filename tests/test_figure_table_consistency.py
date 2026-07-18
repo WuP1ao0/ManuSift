@@ -90,7 +90,11 @@ def test_inconsistent_prose_and_table_flagged() -> None:
     doc = FakeDoc(text=text, tables=tables)
     result = FigureTextCrossCheckDetector().run(doc)
     assert len(result.findings) == 1
-    assert result.findings[0].severity == "medium"
+    # P4 (2026-07-18): the table header says
+    # "percent" and the prose names the row
+    # labels, so this is an explicit-pair
+    # mismatch with a 50pp+ gap -> high.
+    assert result.findings[0].severity == "high"
 
 
 # ---------- 4. no text percentages ----------
@@ -150,3 +154,177 @@ def test_evidence_includes_both() -> None:
     ev = json.loads(result.findings[0].evidence)
     assert "text_buckets" in ev
     assert "table_buckets" in ev
+
+
+# ---------- 9. explicit-pair: swapped row values -> high ----------
+
+def test_swapped_row_values_flagged_high() -> None:
+    """Prose swaps two rows'
+    values. The
+    distribution buckets
+    are identical (same
+    multiset), so only the
+    explicit-pair path can
+    catch this."""
+    from manusift.detectors import FigureTextCrossCheckDetector
+    text = (
+        "The treatment group had 45% recovery. "
+        "The control group had 60% recovery."
+    )
+    tables = [
+        FakeTable(
+            ["group", "recovery %"],
+            [["treatment", "60"], ["control", "45"]],
+        )
+    ]
+    doc = FakeDoc(text=text, tables=tables)
+    result = FigureTextCrossCheckDetector().run(doc)
+    assert len(result.findings) == 1
+    f = result.findings[0]
+    assert f.severity == "high"
+    ev = json.loads(f.evidence)
+    assert ev["kind"] == "explicit_pair_mismatch"
+    assert len(ev["pairs"]) == 2
+
+
+# ---------- 10. proximity pairing avoids the two-value trap ----------
+
+def test_two_values_in_one_sentence_not_flagged() -> None:
+    """"treatment 60% vs
+    control 45%" in one
+    sentence must NOT flag:
+    each label is paired
+    with its nearest
+    percentage, not with
+    every percentage in the
+    sentence."""
+    from manusift.detectors import FigureTextCrossCheckDetector
+    text = "Recovery was 60% for treatment vs 45% for control."
+    tables = [
+        FakeTable(
+            ["group", "recovery %"],
+            [["treatment", "60"], ["control", "45"]],
+        )
+    ]
+    doc = FakeDoc(text=text, tables=tables)
+    result = FigureTextCrossCheckDetector().run(doc)
+    assert result.findings == []
+
+
+# ---------- 11. tolerance boundary ----------
+
+def test_within_tolerance_silent() -> None:
+    """A prose value within
+    PCT_TOLERANCE of the
+    cell (rounding) is
+    silent."""
+    from manusift.detectors import FigureTextCrossCheckDetector
+    text = "The treatment group had 60% recovery."
+    tables = [
+        FakeTable(
+            ["group", "recovery %"],
+            [["treatment", "61.4"]],
+        )
+    ]
+    doc = FakeDoc(text=text, tables=tables)
+    result = FigureTextCrossCheckDetector().run(doc)
+    assert result.findings == []
+
+
+def test_just_beyond_tolerance_flagged_medium() -> None:
+    """A small explicit-pair
+    gap (> tolerance but
+    < HIGH_MIN_GAP) is
+    medium, not high --
+    conservative severity
+    for borderline
+    disagreements."""
+    from manusift.detectors import FigureTextCrossCheckDetector
+    text = "The treatment group had 68% recovery."
+    tables = [
+        FakeTable(
+            ["group", "recovery %"],
+            [["treatment", "60"]],
+        )
+    ]
+    doc = FakeDoc(text=text, tables=tables)
+    result = FigureTextCrossCheckDetector().run(doc)
+    assert len(result.findings) == 1
+    assert result.findings[0].severity == "medium"
+
+
+# ---------- 12. generic row labels are not anchored ----------
+
+def test_generic_label_stopword_skipped() -> None:
+    """A row labelled
+    "Total" must not anchor
+    explicit-pair matching
+    (the word appears in
+    almost every results
+    prose). The
+    distribution path still
+    applies."""
+    from manusift.detectors import FigureTextCrossCheckDetector
+    text = (
+        "60% of patients recovered. "
+        "65% showed improvement. "
+        "55% reported side effects."
+    )
+    tables = [
+        FakeTable(
+            ["outcome", "percent"],
+            [["Total", "60"], ["recovered", "60"],
+             ["improved", "65"], ["side effects", "55"]],
+        )
+    ]
+    doc = FakeDoc(text=text, tables=tables)
+    result = FigureTextCrossCheckDetector().run(doc)
+    assert result.findings == []
+
+
+# ---------- 13. distribution-only mismatch stays medium ----------
+
+def test_distribution_only_mismatch_medium() -> None:
+    """When the table has no
+    "%" header the explicit
+    path cannot anchor; the
+    weak distribution check
+    still fires at
+    medium."""
+    from manusift.detectors import FigureTextCrossCheckDetector
+    text = "70% recovered. 80% improved. 75% responded."
+    tables = [FakeTable(["p"], [["20"], ["25"], ["15"]])]
+    doc = FakeDoc(text=text, tables=tables)
+    result = FigureTextCrossCheckDetector().run(doc)
+    assert len(result.findings) == 1
+    assert result.findings[0].severity == "medium"
+
+
+# ---------- 14. structural total row (100%) not anchored ----------
+
+def test_total_row_100pct_not_anchored() -> None:
+    """R-2026-07-18 (negative_controls ctrl_f1000_01): a
+    percentage-of-base total row ("All CPs ... 100%") must
+    not anchor explicit-pair matching -- prose subset
+    statistics ("approximately 40% of all CPs did not ...")
+    share the label and would always mismatch by ~60pp."""
+    from manusift.detectors import FigureTextCrossCheckDetector
+    text = (
+        "Although the appropriate outcome was achieved in "
+        "approximately 60% of all visits, approximately 40% of "
+        "all CPs did not recommend that the patient consult a "
+        "doctor."
+    )
+    tables = [
+        FakeTable(
+            ["Recommendation", "Percentage (%)"],
+            [["All CPs", "100"], ["Consult doctor", "60"]],
+        )
+    ]
+    doc = FakeDoc(text=text, tables=tables)
+    result = FigureTextCrossCheckDetector().run(doc)
+    highs = [
+        f for f in result.findings
+        if f.raw.get("kind") == "explicit_pair_mismatch"
+    ]
+    assert highs == []

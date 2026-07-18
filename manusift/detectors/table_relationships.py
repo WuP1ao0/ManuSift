@@ -6,10 +6,28 @@ experimental data: copied columns, fixed offsets, mirror symmetry, repeated
 decimal tails, integer-shift decimal-tail reuse, concentrated one- or two-digit
 terminal patterns within and across tables, high duplicate rates, improbable
 repeated values, three-column arithmetic identities, and zero-variance columns.
+
+P1 thresholds (env / profile)
+-----------------------------
+``MANUSIFT_TABLE_THRESHOLD_PROFILE`` = ``strict`` | ``default`` | ``sensitive``
+
+  * **default** — balanced for SI numeric tables (slightly looser than
+    the original 4/0.75 gates so small n=3–5 lab tables still screen).
+  * **sensitive** — catch weaker fabrication patterns (more FP risk).
+  * **strict** — original conservative gates (fewer FPs).
+
+Individual overrides (win over profile)::
+
+  MANUSIFT_TABLE_MIN_COLUMN_VALUES
+  MANUSIFT_TABLE_MIN_DIGIT_VALUES
+  MANUSIFT_TABLE_MIN_DUPLICATE_FRACTION
+  MANUSIFT_TABLE_MIN_PAIR_DIGIT_FRACTION
+  MANUSIFT_TABLE_MIN_CONCENTRATION_FRACTION
 """
 from __future__ import annotations
 
 import json
+import os
 from collections import Counter
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
@@ -18,10 +36,113 @@ from ..contracts import Finding, ParsedDoc
 from .base import DetectorResult
 from .table_stats import _format_table_label, _safe_tables
 
-MIN_COLUMN_VALUES = 4
-MIN_DIGIT_VALUES = 6
-MIN_DUPLICATE_FRACTION = 0.75
-MIN_PAIR_DIGIT_FRACTION = 0.9
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    try:
+        v = float(raw)
+    except ValueError:
+        return default
+    return min(1.0, max(0.05, v))
+
+
+def _profile_defaults() -> dict[str, float | int]:
+    """Return base thresholds for the active profile."""
+    profile = (
+        os.environ.get("MANUSIFT_TABLE_THRESHOLD_PROFILE", "default")
+        .strip()
+        .lower()
+        or "default"
+    )
+    # min_col, min_digit, dup_frac, pair_digit, concentration
+    profiles: dict[str, dict[str, float | int]] = {
+        # Original conservative gates (pre-P1).
+        "strict": {
+            "min_column": 4,
+            "min_digit": 6,
+            "dup": 0.75,
+            "pair_digit": 0.90,
+            "concentration": 0.75,
+        },
+        # P1 default: SI-friendly (n=3 parallel groups still screen).
+        "default": {
+            "min_column": 3,
+            "min_digit": 5,
+            "dup": 0.70,
+            "pair_digit": 0.85,
+            "concentration": 0.70,
+        },
+        # Catch weaker signals; expect more review noise.
+        "sensitive": {
+            "min_column": 3,
+            "min_digit": 4,
+            "dup": 0.60,
+            "pair_digit": 0.80,
+            "concentration": 0.60,
+        },
+    }
+    return profiles.get(profile, profiles["default"])
+
+
+def _load_thresholds() -> tuple[int, int, float, float, float]:
+    base = _profile_defaults()
+    return (
+        _env_int(
+            "MANUSIFT_TABLE_MIN_COLUMN_VALUES",
+            int(base["min_column"]),
+        ),
+        _env_int(
+            "MANUSIFT_TABLE_MIN_DIGIT_VALUES",
+            int(base["min_digit"]),
+        ),
+        _env_float(
+            "MANUSIFT_TABLE_MIN_DUPLICATE_FRACTION",
+            float(base["dup"]),
+        ),
+        _env_float(
+            "MANUSIFT_TABLE_MIN_PAIR_DIGIT_FRACTION",
+            float(base["pair_digit"]),
+        ),
+        _env_float(
+            "MANUSIFT_TABLE_MIN_CONCENTRATION_FRACTION",
+            float(base["concentration"]),
+        ),
+    )
+
+
+(
+    MIN_COLUMN_VALUES,
+    MIN_DIGIT_VALUES,
+    MIN_DUPLICATE_FRACTION,
+    MIN_PAIR_DIGIT_FRACTION,
+    MIN_CONCENTRATION_FRACTION,
+) = _load_thresholds()
+
+
+def reload_thresholds() -> None:
+    """Re-read env thresholds (tests / runtime reconfiguration)."""
+    global MIN_COLUMN_VALUES, MIN_DIGIT_VALUES
+    global MIN_DUPLICATE_FRACTION, MIN_PAIR_DIGIT_FRACTION
+    global MIN_CONCENTRATION_FRACTION
+    (
+        MIN_COLUMN_VALUES,
+        MIN_DIGIT_VALUES,
+        MIN_DUPLICATE_FRACTION,
+        MIN_PAIR_DIGIT_FRACTION,
+        MIN_CONCENTRATION_FRACTION,
+    ) = _load_thresholds()
 
 
 def _decimal_cell(cell: Any) -> Decimal | None:
@@ -263,7 +384,7 @@ class TableRelationshipDetector:
             total_digits = sum(digit_counts.values())
             if total_digits >= MIN_DIGIT_VALUES:
                 digit, count = digit_counts.most_common(1)[0]
-                if count / total_digits >= 0.75:
+                if count / total_digits >= MIN_CONCENTRATION_FRACTION:
                     findings.append(
                         self._finding(
                             doc,
@@ -296,7 +417,10 @@ class TableRelationshipDetector:
                             )
                         )
                 matches = sum(1 for text in texts if _ones_matches_first_decimal(text))
-                if matches >= MIN_DIGIT_VALUES and matches / len(texts) >= 0.75:
+                if (
+                    matches >= MIN_DIGIT_VALUES
+                    and matches / len(texts) >= MIN_CONCENTRATION_FRACTION
+                ):
                     findings.append(
                         self._finding(
                             doc,
@@ -394,7 +518,10 @@ class TableRelationshipDetector:
                     (a, b) for a, b in zip(left_tails, right_tails) if a is not None and b is not None
                 ]
                 matching = sum(1 for a, b in tail_pairs if a == b)
-                if len(tail_pairs) >= MIN_COLUMN_VALUES and matching / len(tail_pairs) >= 0.75:
+                if (
+                    len(tail_pairs) >= MIN_COLUMN_VALUES
+                    and matching / len(tail_pairs) >= MIN_CONCENTRATION_FRACTION
+                ):
                     findings.append(
                         self._finding(
                             doc,
@@ -654,7 +781,7 @@ class TableRelationshipDetector:
                                     },
                                 )
                             )
-                        if exact / n >= 0.75:
+                        if exact / n >= MIN_DUPLICATE_FRACTION:
                             findings.append(
                                 self._finding(
                                     doc,
@@ -687,7 +814,11 @@ class TableRelationshipDetector:
                             if a is not None and b is not None
                         ]
                         matching = sum(1 for a, b in tail_pairs if a == b)
-                        if len(tail_pairs) >= MIN_COLUMN_VALUES and matching / len(tail_pairs) >= 0.75:
+                        if (
+                            len(tail_pairs) >= MIN_COLUMN_VALUES
+                            and matching / len(tail_pairs)
+                            >= MIN_CONCENTRATION_FRACTION
+                        ):
                             findings.append(
                                 self._finding(
                                     doc,
@@ -740,7 +871,11 @@ class TableRelationshipDetector:
 
         top_digits = digit_counts.most_common(2)
         combined = sum(count for _, count in top_digits)
-        threshold = 0.75 if len(top_digits) == 1 else MIN_PAIR_DIGIT_FRACTION
+        threshold = (
+            MIN_CONCENTRATION_FRACTION
+            if len(top_digits) == 1
+            else MIN_PAIR_DIGIT_FRACTION
+        )
         if combined / total_digits < threshold:
             return []
 

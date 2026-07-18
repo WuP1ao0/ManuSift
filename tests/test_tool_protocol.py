@@ -160,8 +160,8 @@ def test_execute_with_real_pdf(
     tid = "t-j1"
     # Drop the original.pdf where the adapter expects it.
     paths_dir = tmp_path / tid
-    paths_dir.mkdir()
-    (paths_dir / "original.pdf").write_bytes(pdf_path.read_bytes())
+    (paths_dir / "inputs").mkdir(parents=True)
+    (paths_dir / "inputs" / "original.pdf").write_bytes(pdf_path.read_bytes())
 
     ctx = ToolContext(trace_id=tid, current_pdf=str(pdf_path))
     tool = tool_from_detector(MetadataDetector())

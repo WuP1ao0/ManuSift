@@ -21,13 +21,20 @@ import shutil
 import sys
 import time
 from pathlib import Path
-os.chdir(r"C:/Users/22509/Desktop/ManuSift1")
-os.environ["MANUSIFT_WORKSPACE_DIR"] = (
-    r"C:\Users\22509\Desktop\ManuSift1\data\pilot_jobs"
+os.chdir(str(Path(__file__).resolve().parents[1]))
+os.environ["MANUSIFT_WORKSPACE_DIR"] = str(
+    Path(__file__).resolve().parents[1] / "data" / "pilot_jobs"
 )
-os.environ["MANUSIFT_OBSIDIAN_VAULT_PATH"] = (
-    r"C:\Users\22509\Desktop\ScholarLens\pilot_cases"
-    r"\real_world_nature\s41565-025-02082-0\vault"
+os.environ["MANUSIFT_OBSIDIAN_VAULT_PATH"] = str(
+    Path(
+        os.environ.get(
+            "MANUSIFT_PILOT_VAULT",
+            Path(__file__).resolve().parents[1]
+            / "docs"
+            / "s41565-025-02082-0",
+        )
+    )
+    / "vault"
 )
 
 
@@ -124,9 +131,7 @@ def main() -> None:
 
     # 4. Save to
     # disk.
-    out_dir = Path(
-        r"C:/Users/22509/Desktop/ManuSift1/docs/screenshots"
-    )
+    out_dir = Path(__file__).resolve().parents[1] / "docs" / "screenshots"
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "trace_id": TRACE_ID,

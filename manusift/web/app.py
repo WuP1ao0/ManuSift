@@ -40,16 +40,6 @@ from .jobs_db import InMemoryJobStore as _DefaultStore  # noqa: E402
 _JOBS_STORE: InMemoryJobStore = _DefaultStore()
 
 
-class ChatApiRequest(BaseModel):
-    model_config = ConfigDict(populate_by_name=True)
-
-    message: str = Field(min_length=1)
-    session_id: str | None = Field(default=None, alias="sessionId")
-    project_id: str | None = Field(default=None, alias="projectId")
-    max_steps: int | None = Field(default=None, ge=1, le=100)
-    max_cost_usd: float | None = Field(default=None, ge=0)
-
-
 def _settings_dep() -> Iterator[None]:
     # Hook point for future per-request settings overrides.
     yield None
@@ -793,53 +783,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         return {"tools": rows, "count": len(rows)}
 
-    @app.post("/api/chat")
-    def chat(req: ChatApiRequest) -> dict[str, Any]:
-        """Run one chat-agent turn through the HTTP API."""
-        from ..agent import AgentLoop
-        from ..contracts import ChatMessage
-        from ..llm import get_llm_client
-        from ..tools import ToolContext, iter_registered_tools
-        from ..tui.chat_app import _append_history, _load_history
-
-        session_id = req.session_id or new_trace_id()
-        project_id = req.project_id or "default"
-        session_dir = settings.workspace_dir / "chat" / session_id
-        prior_messages = [
-            {"role": msg.role, "content": msg.content}
-            for msg in _load_history(session_dir)
-            if msg.role in {"user", "assistant", "system"}
-        ]
-        ctx = ToolContext(
-            trace_id=session_id,
-            metadata={"session_id": session_id, "project_id": project_id},
-        )
-        loop_kwargs: dict[str, Any] = {}
-        if req.max_steps is not None:
-            loop_kwargs["max_steps"] = req.max_steps
-        if req.max_cost_usd is not None:
-            loop_kwargs["max_cost_usd"] = req.max_cost_usd
-
-        result = AgentLoop(
-            get_llm_client(),
-            list(iter_registered_tools()),
-            ctx,
-            **loop_kwargs,
-        ).run(req.message, prior_messages=prior_messages)
-        _append_history(session_dir, ChatMessage(role="user", content=req.message))
-        _append_history(
-            session_dir,
-            ChatMessage(role="assistant", content=result.final_response.text),
-        )
-        return {
-            "ok": True,
-            "session_id": session_id,
-            "project_id": project_id,
-            "text": result.final_response.text,
-            "turns": result.turns,
-            "stopped_reason": result.stopped_reason,
-        }
-
     @app.get("/")
     def index() -> FileResponse:
         static_dir = Path(__file__).parent / "static"
@@ -1085,7 +1028,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         in that case; only the .md file is LLM-written).
         """
         paths = JobPaths.for_trace(trace_id, settings.workspace_dir)
-        md_path = paths.root / "report.md"
+        md_path = paths.output_dir / "report.md"
         if not md_path.exists():
             raise HTTPException(
                 status_code=404,
@@ -1108,7 +1051,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         counterpart lives at ``/report.md``.
         """
         paths = JobPaths.for_trace(trace_id, settings.workspace_dir)
-        md_path = paths.root / "report.zh.md"
+        md_path = paths.output_dir / "report.zh.md"
         if not md_path.exists():
             raise HTTPException(
                 status_code=404,
@@ -1129,7 +1072,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         generated yet.
         """
         paths = JobPaths.for_trace(trace_id, settings.workspace_dir)
-        zh_html = paths.root / "report.zh.html"
+        zh_html = paths.output_dir / "report.zh.html"
         if not zh_html.exists():
             raise HTTPException(
                 status_code=404,

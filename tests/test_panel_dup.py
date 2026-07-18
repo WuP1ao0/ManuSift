@@ -75,7 +75,13 @@ def test_run_on_real_case_005() -> None:
     from manusift.detectors import PanelDuplicateDetector
     from manusift.ingest.pdf import parse_pdf
 
-    pdf = Path(r"C:\Users\22509\Desktop\ManuSift1\real_eval_fraud_cases\cases\case_005_frontiers_cpxra_salmonella_hild\paper.pdf")
+    pdf = (
+        Path(__file__).resolve().parents[1]
+        / "real_eval_fraud_cases"
+        / "cases"
+        / "case_005_frontiers_cpxra_salmonella_hild"
+        / "paper.pdf"
+    )
     if not pdf.exists():
         pytest.skip("Benchmark PDF not present")
     doc = parse_pdf(pdf, trace_id="t")

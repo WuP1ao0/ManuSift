@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-os.chdir(r"C:/Users/22509/Desktop/ManuSift1")
+os.chdir(str(Path(__file__).resolve().parents[1]))
 
 
 def main() -> None:

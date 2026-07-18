@@ -87,7 +87,13 @@ def test_region_extractor_finds_figures() -> None:
     )
     import fitz
 
-    pdf_path = Path(r"C:\Users\22509\Desktop\ManuSift1\real_eval_fraud_cases\cases\case_001_plos_plasmonic_nanobubbles\paper.pdf")
+    pdf_path = (
+        Path(__file__).resolve().parents[1]
+        / "real_eval_fraud_cases"
+        / "cases"
+        / "case_001_plos_plasmonic_nanobubbles"
+        / "paper.pdf"
+    )
     if not pdf_path.exists():
         pytest.skip("Benchmark PDF not present")
     doc = fitz.open(pdf_path)
@@ -105,7 +111,13 @@ def test_run_returns_valid_detector_result_on_real_pdf() -> None:
     from manusift.detectors import PageRasterDuplicateDetector
     from manusift.ingest.pdf import parse_pdf
 
-    pdf = Path(r"C:\Users\22509\Desktop\ManuSift1\real_eval_fraud_cases\cases\case_006_frontiers_asparagus_multiple_myeloma\paper.pdf")
+    pdf = (
+        Path(__file__).resolve().parents[1]
+        / "real_eval_fraud_cases"
+        / "cases"
+        / "case_006_frontiers_asparagus_multiple_myeloma"
+        / "paper.pdf"
+    )
     if not pdf.exists():
         pytest.skip("Benchmark PDF not present")
     doc = parse_pdf(pdf, trace_id="t")

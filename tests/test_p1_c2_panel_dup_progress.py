@@ -118,7 +118,7 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, r"C:\Users\22509\Desktop\ManuSift1")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from manusift.detectors import panel_dup as pd_mod  # noqa: E402
 from manusift.detectors.panel_dup import (  # noqa: E402
@@ -244,10 +244,14 @@ class TestProgressEvents:
 # ---------------------------------------------------------------------------
 
 
-SAMPLE_PDF = (
-    r"C:\Users\22509\Desktop\ManuSift1\manusift_benchmarks"
-    r"\officially_flagged_cases_v2\cases\biomedical"
-    r"\case_bio_001\paper.pdf"
+SAMPLE_PDF = str(
+    Path(__file__).resolve().parents[1]
+    / "manusift_benchmarks"
+    / "officially_flagged_cases_v2"
+    / "cases"
+    / "biomedical"
+    / "case_bio_001"
+    / "paper.pdf"
 )
 
 

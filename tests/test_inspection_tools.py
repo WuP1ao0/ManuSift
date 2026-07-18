@@ -131,7 +131,7 @@ def test_read_finding_returns_finding_when_present(
     if hasattr(get_settings, "cache_clear"):
         get_settings.cache_clear()
     trace_id = "t-test-1"
-    jobs_dir = workspace / "jobs" / trace_id
+    jobs_dir = workspace / trace_id / "output"
     jobs_dir.mkdir(parents=True)
     finding = {
         "finding_id": "abc123def456",
@@ -167,7 +167,7 @@ def test_read_finding_returns_error_when_missing(
     if hasattr(get_settings, "cache_clear"):
         get_settings.cache_clear()
     trace_id = "t-test-2"
-    jobs_dir = workspace / "jobs" / trace_id
+    jobs_dir = workspace / trace_id / "output"
     jobs_dir.mkdir(parents=True)
     (jobs_dir / "findings.json").write_text(
         json.dumps([{
@@ -235,7 +235,7 @@ def test_list_findings_returns_all(
     if hasattr(get_settings, "cache_clear"):
         get_settings.cache_clear()
     trace_id = "t-list-1"
-    jobs_dir = workspace / "jobs" / trace_id
+    jobs_dir = workspace / trace_id / "output"
     jobs_dir.mkdir(parents=True)
     findings = [
         {
@@ -276,7 +276,7 @@ def test_list_findings_filters_by_detector(
     if hasattr(get_settings, "cache_clear"):
         get_settings.cache_clear()
     trace_id = "t-list-2"
-    jobs_dir = workspace / "jobs" / trace_id
+    jobs_dir = workspace / trace_id / "output"
     jobs_dir.mkdir(parents=True)
     findings = [
         {
@@ -314,7 +314,7 @@ def test_list_findings_filters_by_severity(
     if hasattr(get_settings, "cache_clear"):
         get_settings.cache_clear()
     trace_id = "t-list-3"
-    jobs_dir = workspace / "jobs" / trace_id
+    jobs_dir = workspace / trace_id / "output"
     jobs_dir.mkdir(parents=True)
     findings = [
         {
@@ -368,3 +368,51 @@ def test_iter_registered_tools_yields_inspection_tools() -> None:
     names = {t.name for t in iter_registered_tools()}
     assert "read_finding" in names
     assert "list_findings" in names
+
+
+# ---------- 6. Canonical per-job layout ----------
+
+def test_read_finding_canonical_output_layout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every writer (web, TUI, MCP, ``ingest_from_path``) persists
+    findings to ``<workspace>/<trace_id>/output/findings.json``
+    (``JobPaths.findings_json``); the inspection tools read the
+    same canonical path."""
+    from manusift.config import get_settings
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    monkeypatch.setenv("MANUSIFT_WORKSPACE_DIR", str(workspace))
+    if hasattr(get_settings, "cache_clear"):
+        get_settings.cache_clear()
+    trace_id = "t-flat-1"
+    out_dir = workspace / trace_id / "output"
+    out_dir.mkdir(parents=True)
+    finding = {
+        "finding_id": "flat000abcd1",
+        "detector": "image_dup",
+        "severity": "medium",
+        "description": "Near-duplicate image detected.",
+        "evidence": "phash hamming 3",
+    }
+    (out_dir / "findings.json").write_text(
+        json.dumps([finding]), encoding="utf-8"
+    )
+    from manusift.tools import ToolContext
+    from manusift.tools.inspection import ListFindingsTool, ReadFindingTool
+    ctx = ToolContext(trace_id=trace_id)
+    out = ReadFindingTool().execute({"finding_id": "flat000abcd1"}, ctx)
+    data = json.loads(out)
+    assert data["finding_id"] == "flat000abcd1"
+    listed = json.loads(ListFindingsTool().execute({}, ctx))
+    assert listed["count"] == 1
+
+
+def test_findings_path_points_at_output_dir(
+    tmp_path: Path,
+) -> None:
+    """``_findings_path`` is a single fixed path under the job's
+    ``output/`` dir -- no layout fallback."""
+    from manusift.tools.inspection import _findings_path
+    ws = tmp_path / "ws"
+    assert _findings_path(ws, "t") == ws / "t" / "output" / "findings.json"

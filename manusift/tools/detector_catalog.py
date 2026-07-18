@@ -132,6 +132,7 @@ DETECTOR_CATEGORY: dict[str, str] = {
     # ---- references
     # / citations
     "citation_network": "reference",
+    "cited_retraction": "reference",
     "ref_duplicate": "reference",
     "ref_format_anomaly": "reference",
     # ---- statistical
@@ -148,11 +149,21 @@ DETECTOR_CATEGORY: dict[str, str] = {
     "table_outlier": "table",
     "table_round_bias": "table",
     "table_relationships": "table",
+    "table_near_duplicate_row": "table",
+    "table_cross_copy": "table",
+    "table_file_metadata": "table",
+    "table_forensics": "table",
+    # 2026-07 coverage fix: these existed in the registry
+    # but had no category mapping.
+    "table_highlight_focus": "table",
+    "source_data_consistency": "table",
     # ---- charts
     # / figure
     # cross-check
     "chart_data_extract": "chart",
     "figure_table_consistency": "chart",
+    "forest_plot": "chart",
+    "figure_table_ocr": "chart",
     # ---- metadata
     # about people
     # / compliance

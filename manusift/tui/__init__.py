@@ -1,10 +1,10 @@
-"""ManuSift TUI — local browser over the job workspace.
+"""ManuSift workspace browser TUI (optional).
 
-Runs as a console application; reads ``data/jobs/<trace_id>/`` on
-disk directly. No web server required.
+Reads job directories on disk. Not a conversational chat app
+(product shape is CLI + MCP only).
 
 Usage::
 
-    ./.venv/Scripts/manusift-tui
-    ./.venv/Scripts/python.exe -m manusift.tui
+    manusift-tui
+    manusift-workspace
 """

@@ -37,6 +37,15 @@ We deliberately keep this detector small:
      the job. We do not want a flaky network
      connection to mark an entire paper as
      suspicious.
+  6. **Offline replay**
+     (``MANUSIFT_CROSSREF_OFFLINE=1``): the
+     detector never touches the network; cache
+     hits are scored as usual (TTL bypassed for
+     determinism) and cache misses become
+     ``info`` findings of kind ``not_testable``.
+     This lets CI replay a pinned
+     ``data/crossref_cache.json`` corpus
+     reproducibly.
 
 P2-D1 explicitly does **not**:
   * Resolve DOIs (Crossref can do this; we keep
@@ -410,7 +419,9 @@ def _cache_path(settings: Settings) -> Path:
     because the cache is shared across jobs.
     A second run on the same PDF gets free
     lookups."""
-    return settings.workspace_dir.parent / "crossref_cache.json"
+    from ..workspace import cache_dir
+
+    return cache_dir(settings.workspace_dir) / "crossref_cache.json"
 
 
 def _load_cache(settings: Settings) -> dict[str, dict]:
@@ -454,6 +465,26 @@ def _save_cache(
                 tmp.unlink()
             except OSError:
                 pass
+
+
+def _crossref_offline() -> bool:
+    """Return True when offline replay mode is on
+    (``MANUSIFT_CROSSREF_OFFLINE=1``).
+
+    R-2026-07-18 (P2.1): in offline mode the
+    detector **never** touches the network. A
+    cache hit (TTL check bypassed, so replays
+    stay deterministic regardless of wall
+    clock) is scored normally; a cache miss is
+    recorded as an ``info`` finding of kind
+    ``not_testable`` instead of querying
+    Crossref. This makes CI reruns of the
+    benchmark corpus reproducible against a
+    pinned ``data/crossref_cache.json``. The
+    value is read at call time so tests can
+    monkey-patch the env var.
+    """
+    return os.environ.get("MANUSIFT_CROSSREF_OFFLINE", "0") == "1"
 
 
 @remote_call("crossref", max_attempts=2, multiplier=1.0)
@@ -537,24 +568,41 @@ def _match_score(
     if issued and "date-parts" in issued:
         year = str(issued["date-parts"][0][0])
     authors = crossref_item.get("author", [])
-    first_author = ""
-    if authors:
-        first_author = (
-            authors[0].get("family", "")
-            or authors[0].get("name", "")
-        )
-    # Title: lenient — citation may not include
-    # the title at all, so we do not require a
-    # match. We just record whether the citation
-    # author surname appears in the Crossref
-    # author list.
+    # R-2026-07-18 (P2.1) FP attribution from the
+    # negative_controls_v1 Crossref measurement:
+    # the pre-P2.1 author check compared the
+    # citation surname case-*sensitively*
+    # against the *first* author only, so real
+    # citations like ``(Goodwin-gill and
+    # Mcadam, 2017)`` (Crossref family name
+    # ``Goodwin-Gill``) scored 0 and raised a
+    # false ``high``. We now compare
+    # case-insensitively against **all** listed
+    # authors (the citing surname is normally
+    # the first author, but Crossref author
+    # order for books/edited volumes is not
+    # reliable enough to depend on).
     if citation["author"]:
-        last_name = citation["author"].split()[0]
-        if last_name and last_name in first_author:
+        last_name = citation["author"].split()[0].lower()
+        family_names = [
+            (a.get("family", "") or a.get("name", "")).lower()
+            for a in authors
+        ]
+        if last_name and any(last_name in fam for fam in family_names):
             score += 1
-    # Year: exact match.
-    if citation["year"] and citation["year"] == year:
-        score += 1
+    # Year: exact match, or +/- 1 to absorb the
+    # preprint-vs-published-version year drift
+    # (P2.1 FP attribution: a citation written
+    # against a preprint can differ from the
+    # Crossref ``issued`` year of the version of
+    # record by one year; that difference alone
+    # is not a fabrication signal).
+    if citation["year"] and year:
+        try:
+            if abs(int(citation["year"]) - int(year)) <= 1:
+                score += 1
+        except ValueError:
+            pass
     # Title contains any meaningful word from
     # the raw citation: skip if no usable
     # token is available.
@@ -608,10 +656,42 @@ class CitationNetworkDetector:
         # resolving the bibliography order, which
         # is a separate problem P3 will tackle).
         verifiable = [c for c in candidates if c.get("year")]
+        offline = _crossref_offline()
         for c in verifiable:
             query = f"{c['author']} {c['year']}"
             cache_key = query.lower().strip()
-            if cache_key in cache and not _is_cache_entry_stale(
+            if offline:
+                # R-2026-07-18 (P2.1) offline replay:
+                # never hit the network. Any cache
+                # entry is used as-is (TTL bypassed
+                # so a pinned cache replays
+                # deterministically over time); a
+                # miss is "not testable" (info).
+                if cache_key in cache:
+                    item = cache[cache_key].get("item")
+                else:
+                    findings.append(Finding.make(
+                        trace_id=doc.trace_id,
+                        detector=self.name,
+                        severity="info",
+                        title="Citation not testable (offline mode)",
+                        evidence=(
+                            f"'{c['raw']}' has no entry in the local "
+                            f"Crossref cache (query='{query}') and "
+                            f"MANUSIFT_CROSSREF_OFFLINE=1 forbids "
+                            f"network lookups. Re-run online to verify."
+                        ),
+                        location="(citation_network)",
+                        raw={
+                            "citation": c,
+                            "query": query,
+                            "cache_hit": False,
+                            "offline": True,
+                            "kind": "not_testable",
+                        },
+                    ))
+                    continue
+            elif cache_key in cache and not _is_cache_entry_stale(
                 cache[cache_key]
             ):
                 item = cache[cache_key].get("item")
@@ -658,25 +738,92 @@ class CitationNetworkDetector:
                     },
                 ))
                 continue
-            score = _match_score(c, item)
-            if score < 2:
+            # R-2026-07-18 (P2.1) FP attribution:
+            # the fraud_web_v1 Crossref measurement
+            # flagged ``(FAO1998)`` as ``high``
+            # (score 1/3; Crossref's top hit was an
+            # unrelated paper that merely shared the
+            # year). Institutional grey literature —
+            # FAO/WHO/IPCC/OECD-style reports — is
+            # not indexed by Crossref, so a low match
+            # score against the top hit carries **no**
+            # fabrication signal for this class, while
+            # legitimate papers cite such reports
+            # constantly (a false-positive storm on
+            # the negative controls). Downgrade this
+            # class to ``info`` ("could not verify"),
+            # the same verdict an unreachable-Crossref
+            # run produces. Detect it by an all-caps
+            # author token (``FAO``, ``WHO``, ``IPCC``
+            # ...); personal surnames are never
+            # all-caps in the extraction regex's
+            # ``[A-Z][A-Za-z\-']+`` shape.
+            first_token = (c["author"] or "").split()[0] if c["author"] else ""
+            if first_token and re.fullmatch(r"[A-Z]{2,}", first_token):
                 findings.append(Finding.make(
                     trace_id=doc.trace_id,
                     detector=self.name,
-                    severity="high",
+                    severity="info",
+                    title="Citation could not be verified (grey literature)",
+                    evidence=(
+                        f"'{c['raw']}' looks like an institutional "
+                        f"report (author='{c['author']}'); Crossref does "
+                        f"not index this class of grey literature, so "
+                        f"the match score is uninformative."
+                    ),
+                    location="(citation_network)",
+                    raw={
+                        "citation": c,
+                        "query": query,
+                        "cache_hit": cache_key in cache,
+                        "kind": "grey_literature",
+                    },
+                ))
+                continue
+            score = _match_score(c, item)
+            if score < 2:
+                # R-2026-07-18 (P2.1) FP attribution:
+                # the benchmark measurement showed
+                # this branch firing on **legit**
+                # papers almost as often as on
+                # retracted ones (negative
+                # controls: 13 residual cases after
+                # the scoring fixes; fraud_web: 11).
+                # Root cause: the detector only sees
+                # Crossref's *top-1* hit for a bare
+                # ``"Author Year"`` query, so a real
+                # citation whose true record ranks
+                # lower is scored against an
+                # unrelated work — indistinguishable
+                # from a genuinely fabricated
+                # reference at this evidence level
+                # (Crossref relevance scores overlap
+                # between the two classes). A signal
+                # that cannot separate fabrication
+                # from retrieval noise must not be
+                # ``high``: downgrade to ``medium``
+                # until the resolver checks DOIs or
+                # scores best-of-N retrieval (P3).
+                findings.append(Finding.make(
+                    trace_id=doc.trace_id,
+                    detector=self.name,
+                    severity="medium",
                     title=(
                         f"Citation '...{c['raw'][:30]}' does not "
-                        f"match any known work"
+                        f"match the top Crossref hit"
                     ),
                     evidence=(
-                        f"Crossref match score: {score}/3. "
-                        f"Closest title: '{(item.get('title') or [''])[0][:80]}'."
+                        f"Crossref match score: {score}/3 against the "
+                        f"top-1 retrieval (top-1-only evidence; see "
+                        f"R-2026-07-18 P2.1 note). Closest title: "
+                        f"'{(item.get('title') or [''])[0][:80]}'."
                     ),
                     location="(citation_network)",
                     raw={
                         "citation": c,
                         "query": query,
                         "score": score,
+                        "cache_hit": cache_key in cache,
                         "crossref": {
                             "title": (item.get("title") or [""])[0],
                             "doi": item.get("DOI", ""),

@@ -37,17 +37,22 @@ import pytest
 # no runtime cost.
 from pathlib import Path
 
-AGENT_INIT = (
+# The override map used to live inline in
+# ``manusift/agent/__init__.py``; the agent restructure
+# moved it to ``manusift/agent/system_prompt.py`` as the
+# module-level ``CHEAT_SHEET_OVERRIDES`` (no leading
+# underscore).
+SYSTEM_PROMPT_MOD = (
     Path(__file__).parent.parent
     / "manusift"
     / "agent"
-    / "__init__.py"
+    / "system_prompt.py"
 )
 
 
 def _read_cheat_overrides() -> dict[str, str]:
     """Parse the
-    ``_CHEAT_SHEET_OVERRIDES``
+    ``CHEAT_SHEET_OVERRIDES``
     literal out of the source
     file.  We do a minimal
     ``ast.literal_eval`` on the
@@ -55,13 +60,13 @@ def _read_cheat_overrides() -> dict[str, str]:
     """
     import ast
 
-    src = AGENT_INIT.read_text(encoding="utf-8")
+    src = SYSTEM_PROMPT_MOD.read_text(encoding="utf-8")
     tree = ast.parse(src)
     for node in ast.walk(tree):
         if (
             isinstance(node, ast.AnnAssign)
             and isinstance(node.target, ast.Name)
-            and node.target.id == "_CHEAT_SHEET_OVERRIDES"
+            and node.target.id == "CHEAT_SHEET_OVERRIDES"
             and isinstance(node.value, ast.Dict)
         ):
             result: dict[str, str] = {}
@@ -72,7 +77,7 @@ def _read_cheat_overrides() -> dict[str, str]:
                     result[str(k.value)] = str(v.value)
             return result
     raise AssertionError(
-        "_CHEAT_SHEET_OVERRIDES literal not found"
+        "CHEAT_SHEET_OVERRIDES literal not found"
     )
 
 

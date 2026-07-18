@@ -71,41 +71,28 @@ AGENT_INIT = (
 
 
 def _extract_default_system_prompt() -> str:
-    """Read the default
-    ``AgentLoop`` system
-    prompt from
-    ``manusift/agent/__init__.py``.
-    The prompt is a
-    triple-quoted string
-    assigned to
-    ``self._system_prompt``
-    inside the
-    ``AgentLoop.__init__``.
+    """Read the default system
+    prompt. The prompt used to
+    be an inline triple-quoted
+    string in
+    ``manusift/agent/__init__.py``;
+    the agent restructure moved
+    it to
+    ``manusift/agent/system_prompt.py``
+    as ``DEFAULT_SYSTEM_PROMPT``
+    (exported via
+    ``manusift.agent``).
     """
-    src = AGENT_INIT.read_text(
-        encoding="utf-8"
+    from manusift.agent.system_prompt import (
+        DEFAULT_SYSTEM_PROMPT,
     )
-    # Find the triple-quoted
-    # string.  The
-    # triple-quote that
-    # starts the prompt is
-    # preceded by
-    # ``self._system_prompt = """
-    # -- we look for that
-    # pattern.
-    m = re.search(
-        r'self\._system_prompt\s*=\s*"""(.*?)"""\s*\n\s*else',
-        src,
-        re.DOTALL,
+
+    assert DEFAULT_SYSTEM_PROMPT, (
+        "DEFAULT_SYSTEM_PROMPT is empty in "
+        "manusift/agent/system_prompt.py; "
+        "the prompt structure may have changed"
     )
-    assert m is not None, (
-        "could not find default "
-        "system_prompt in "
-        "manusift/agent/__init__.py; "
-        "the prompt structure "
-        "may have changed"
-    )
-    return m.group(1)
+    return DEFAULT_SYSTEM_PROMPT
 
 
 def test_p213_system_prompt_has_prompt_injection_guard() -> None:

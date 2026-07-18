@@ -9,9 +9,8 @@ from __future__ import annotations
 
 import json
 import time
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutTimeout
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
 
 from .checkpoint import read_step_silent, write_step
 from .config import get_settings
@@ -27,6 +26,7 @@ from .llm import get_llm_client
 from .report.builder import build_report_html
 from .trace import get_logger
 from .workspace import JobPaths
+
 log = get_logger(__name__)
 
 
@@ -41,73 +41,25 @@ def _parse_pdf(pdf_path: Path, trace_id: str, workspace_dir: Path):
 
 
 def _enrich_with_llm(findings: list[Finding]) -> int:
-    """Call the LLM for high-severity findings. Returns call count.
+    """Enrich high/medium findings (templates + cluster + batch).
 
-    Concurrency: ``settings.llm_max_concurrency`` workers (0 disables).
-    Per-call timeout: ``settings.llm_call_timeout_seconds``.
-    Total budget: ``settings.llm_enrichment_budget_seconds`` — after
-    this the remaining findings are marked ``llm_skipped=True`` and
-    no more calls are issued.
+    See :mod:`manusift.llm.enrichment` for modes:
+    ``cluster_batch`` (default), ``cap``, ``off``.
+
+    Returns number of LLM API units (batches or 1:1 calls). Mock client
+    short-circuits with 0. ``llm_max_concurrency=0`` marks all skipped.
     """
+    from .llm.enrichment import enrich_findings
+
     settings = get_settings()
     client = get_llm_client()
-    # Mock client has no real LLM behind it — short-circuit before
-    # we even think about a thread pool.
-    if client.name == "mock":
-        return 0
-    max_concurrency = int(settings.llm_max_concurrency)
-    if max_concurrency <= 0:
-        # User opted out of LLM enrichment entirely.
-        for f in findings:
-            if f.severity in ("medium", "high"):
-                object.__setattr__(f, "llm_skipped", True)  # type: ignore[attr-defined]
-        return 0
-
-    targets = [f for f in findings if f.severity in ("medium", "high")]
-    if not targets:
-        return 0
-
-    deadline = time.time() + float(settings.llm_enrichment_budget_seconds)
-    per_call_timeout = float(settings.llm_call_timeout_seconds)
-
-    # Snapshot each target's position so we can mutate the right
-    # Finding from the worker threads without re-scanning the list.
-    futures: dict[Any, Finding] = {}
-    calls = 0
-    with ThreadPoolExecutor(max_workers=max_concurrency) as pool:
-        # Throttle submission by time-budget so we don't fire 100 calls
-        # only to find we ran out of budget 5 seconds in.
-        for f in targets:
-            if time.time() >= deadline:
-                object.__setattr__(f, "llm_skipped", True)  # type: ignore[attr-defined]
-                continue
-            futures[pool.submit(client.analyze_finding, f)] = f
-            calls += 1
-
-        for fut, f in list(futures.items()):
-            remaining = max(0.0, deadline - time.time())
-            try:
-                verdict = fut.result(timeout=remaining or per_call_timeout)
-            except FutTimeout:
-                log.warning("llm enrichment timed out", extra={"fid": f.finding_id})
-                object.__setattr__(f, "llm_skipped", True)  # type: ignore[attr-defined]
-                continue
-            except Exception as exc:  # noqa: BLE001
-                log.warning(
-                    "llm enrichment crashed",
-                    extra={"fid": f.finding_id, "err": str(exc)},
-                )
-                object.__setattr__(f, "llm_skipped", True)  # type: ignore[attr-defined]
-                continue
-            if verdict is None:
-                object.__setattr__(f, "llm_skipped", True)  # type: ignore[attr-defined]
-            else:
-                # Store the structured summary as a free-text verdict
-                # for backwards compatibility with the report HTML —
-                # the schema fields live in the LLM's memory but
-                # we don't expose them in the v0.1 report yet.
-                object.__setattr__(f, "llm_verdict", verdict.summary)  # type: ignore[attr-defined]
-    return calls
+    return enrich_findings(
+        findings,
+        client,
+        max_concurrency=int(settings.llm_max_concurrency),
+        budget_seconds=float(settings.llm_enrichment_budget_seconds),
+        per_call_timeout=float(settings.llm_call_timeout_seconds),
+    )
 
 
 def _persist_findings(paths: JobPaths, result: AnalysisResult) -> None:
@@ -229,6 +181,17 @@ _BUILTIN_DETECTOR_CLASS_NAMES: list[str] = [
     # the ``stat_percent`` gap.
     "PercentDivisibilityDetector",
     "TableRelationshipDetector",
+    # B+C product: tabular forgery suite in offline pipeline
+    # (was agent-only; batch CLI must run these without chat).
+    "BenfordDetector",
+    "DuplicateRowDetector",
+    "NearDuplicateRowDetector",
+    "CrossTableCopyDetector",
+    "OutlierDetector",
+    "RoundBiasDetector",
+    "TableFileMetadataDetector",
+    # P0 deep-screen: author highlighter fills → focused table checks
+    "TableHighlightFocusDetector",
     # R-2026-06-15 (Phase 3, real-case benchmark):
     # the noise-inconsistency detector (catches
     # images where the noise floor is different
@@ -260,6 +223,14 @@ _BUILTIN_DETECTOR_CLASS_NAMES: list[str] = [
         "ImageDuplicateDetector",
     "ImageForensicsDetector",
     "TextPatternDetector",
+    # 2026-07 (fraud_web_v1): run the two cheap text
+    # detectors that caught real paper-mill signals the
+    # pipeline was missing -- tortured phrases
+    # (web_sci_01) and non-standard template headings
+    # (web_plos_02 / web_sci_01). Both are pure text
+    # scans and run right after TextPatternDetector.
+    "TorturedPhrasesDetector",
+    "PaperMillTemplateDetector",
     # R-2026-06-12: data-availability-concern detector reads
         # the paper's data-availability section for red-flag
         # phrasing (e.g. "raw data are not available",
@@ -300,6 +271,29 @@ _BUILTIN_DETECTOR_CLASS_NAMES: list[str] = [
     # sizes (N in [3, 100]). Closes the case_004 "sample
     # size" and "data interpretation" not_testable targets.
     "FigureGRIMDetector",
+    # P4 (2026-07-18, figure_text_v1 synthetic
+    # benchmark): chart bar extractor and the
+    # figure-text vs table cross-check join the
+    # offline pipeline. Both are local-only
+    # (OpenCV bar geometry / pure text+table
+    # comparison, no OCR model, no network), so
+    # they run right after the figure stat
+    # detectors. chart_data_extract is a
+    # low-severity extraction signal;
+    # figure_table_consistency gained an
+    # explicit-pair strong-evidence path
+    # (PCT_TOLERANCE / HIGH_MIN_GAP in
+    # figure_table_consistency.py). The chart
+    # extractor can be turned off via
+    # ``MANUSIFT_CHART_EXTRACT_ENABLED=0``.
+    "ChartDataExtractorDetector",
+    "FigureTextCrossCheckDetector",
+    # 2026-07-18: forest-plot rule pipeline
+    # (CI order/asymmetry checks + null-line
+    # geometry cross-validation). Can be
+    # turned off via
+    # ``MANUSIFT_FOREST_PLOT_ENABLED=0``.
+    "ForestPlotDetector",
     # P2-D1 — the Crossref citation-network
     # detector runs last because it is the
     # only network-dependent step. Putting it
@@ -308,7 +302,63 @@ _BUILTIN_DETECTOR_CLASS_NAMES: list[str] = [
     # checks. The operator can opt out via
     # ``MANUSIFT_CROSSREF_ENABLED=0``.
     "CitationNetworkDetector",
+    # P2.2 — the OpenAlex cited-retraction
+    # detector is the second network-dependent
+    # step. It is opt-IN
+    # (``MANUSIFT_OPENALEX_ENABLED=1``, default
+    # off) so eval runs stay fully offline; when
+    # enabled it runs next to the Crossref step
+    # for the same outage-isolation reason.
+    "CitedRetractionDetector",
 ]
+
+
+# 2026-07 (fraud_web_v1 follow-up): the detector *registry*
+# (_DETECTOR_SPECS, 46 classes) and this pipeline list used to
+# drift silently -- detectors were added to the registry but
+# never ran in the offline pipeline (e.g. text_tortured_phrases
+# and paper_mill_template, which then missed real benchmark
+# signals). PIPELINE_EXCLUDED makes every intentional exclusion
+# explicit and auditable; tests/test_pipeline_detector_coverage.py
+# hard-fails if a registry class is neither in the pipeline list
+# nor documented here.
+#
+#   key: registry class name; value: why it does not run in the
+#   offline pipeline (and what to do if that changes).
+PIPELINE_EXCLUDED: dict[str, str] = {
+    "AHashDetector": (
+        "Agent-callable hash probe. image_dup already runs the "
+        "multi-hash pHash/aHash/dHash combination internally with "
+        "benchmark-tuned thresholds (HANDOFF §5.1)."
+    ),
+    "DHashDetector": "Same as AHashDetector.",
+    "PHashDetector": "Same as AHashDetector.",
+    "WHashDetector": "Same as AHashDetector.",
+    "SsimDuplicateDetector": (
+        "Whole-image SSIM probe; overlaps image_forensics and "
+        "panel_duplicate SSIM coverage. No benchmark evidence of "
+        "added value yet -- available as an agent tool on demand."
+    ),
+    "ImageStatisticsDetector": (
+        "Global image-statistics probe; no benchmark evidence yet. "
+        "Agent-callable on demand."
+    ),
+    "FigureTableOCRDetector": (
+        "Heavy OCR path, disabled in eval "
+        "(MANUSIFT_FIGURE_TABLE_OCR=0). Enable explicitly for "
+        "scanned-table papers (HANDOFF P4 long-term path)."
+    ),
+    "SourceDataConsistencyDetector": (
+        "Requires companion source-data files (XLSX/CSV), which "
+        "PDF-only benchmark cases do not have."
+    ),
+    "TableForensicsDetector": (
+        "Orchestrator that re-runs the table detectors the pipeline "
+        "already runs (benford, duplicate/near-duplicate rows, "
+        "cross-table copy, outlier, round-bias, relationships, file "
+        "metadata, highlight). Running it here would double-report."
+    ),
+}
 
 
 def _pipeline_detector_classes() -> list[type]:
@@ -370,9 +420,10 @@ def run_pipeline(
     job_state: JobState,
     on_step_complete: Callable[[DetectorResult, JobState], None] | None = None,
 ) -> AnalysisResult:
-    """Execute the full analysis. Side-effects: writes 4 files under
-    ``paths`` (job.json, findings.json, report.html, steps/NN_*.json)
-    and mutates ``job_state`` in place.
+    """Execute the full analysis. Side-effects: writes the job
+    artifacts under ``paths`` (output/job.json, output/findings.json,
+    output/report.html, steps/NN_*.json) and mutates ``job_state``
+    in place.
 
     ``on_step_complete`` is an optional hook called immediately
     after each detector step finishes and its checkpoint has been
@@ -685,6 +736,103 @@ def run_pipeline(
                 extra={"failed": failed, "results": len(results)},
             )
 
+        # P0: severity recalibration + pair-cluster demotion (no drops).
+        try:
+            from .report.finding_calibration import (
+                calibrate_findings,
+                calibration_stats,
+            )
+
+            # P1.3: first-page text gives the whitelist layer a shot at
+            # resolving the document publisher from the DOI (PDF metadata
+            # rarely carries one).
+            _front_text = "\n".join(
+                b.text for b in doc.text_blocks if b.page < 2
+            )
+            findings = calibrate_findings(
+                findings,
+                metadata=doc.metadata,
+                text=_front_text,
+            )
+            log.info(
+                "finding calibration",
+                extra=calibration_stats(findings),
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "finding calibration failed",
+                extra={"err": str(exc)},
+            )
+
+        # P1.1: aggregate findings into issues (view only — the flat
+        # findings list is untouched and every finding is kept). Failure
+        # here must never break the pipeline.
+        issues: list = []
+        try:
+            from .report.finding_aggregation import aggregate_findings
+
+            issues = aggregate_findings(findings)
+            paths.issues_json.write_text(
+                json.dumps(
+                    {
+                        "trace_id": job_state.trace_id,
+                        "schema": "manusift.issues.v1",
+                        "issue_count": len(issues),
+                        "finding_count": len(findings),
+                        "issues": [i.to_dict() for i in issues],
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+            log.info(
+                "finding aggregation",
+                extra={"issues": len(issues), "findings": len(findings)},
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "finding aggregation failed",
+                extra={"err": str(exc)},
+            )
+
+        # P1.2: LLM adjudication — second-pass verdicts on high issues,
+        # between aggregation and enrichment. ``explainable`` issues are
+        # demoted high→medium (never dropped) and issues.json is rewritten
+        # so downstream enrichment/report/findings.json all see the
+        # adjudicated severities. Off by default; failures must never
+        # break the pipeline.
+        try:
+            from .llm.adjudication import adjudicate_issues
+
+            adj_findings, adj_issues = adjudicate_issues(findings, issues)
+            if adj_findings is not findings:
+                findings = adj_findings
+                issues = adj_issues
+                paths.issues_json.write_text(
+                    json.dumps(
+                        {
+                            "trace_id": job_state.trace_id,
+                            "schema": "manusift.issues.v1",
+                            "issue_count": len(issues),
+                            "finding_count": len(findings),
+                            "issues": [i.to_dict() for i in issues],
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+                log.info(
+                    "llm adjudication applied",
+                    extra={"issues": len(issues), "findings": len(findings)},
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "llm adjudication failed",
+                extra={"err": str(exc)},
+            )
+
         llm_calls = _enrich_with_llm(findings)
 
         # R-2026-06-13: build the detector summary from the
@@ -709,6 +857,24 @@ def run_pipeline(
             detector_summary=detector_summary_dict,
         )
         paths.report_html.write_text(html, encoding="utf-8")
+
+        # Standalone LLM interpretation report (separate from detector report).
+        try:
+            from .report.llm_report import write_llm_reports
+
+            lang = getattr(settings, "report_language", None) or "zh"
+            write_llm_reports(
+                root_dir=paths.output_dir,
+                trace_id=job_state.trace_id,
+                findings=findings,
+                llm_calls=llm_calls,
+                language=str(lang),
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "llm_report write failed",
+                extra={"err": str(exc)},
+            )
 
         duration_ms = int((time.time() - t0) * 1000)
         result = AnalysisResult(
@@ -759,7 +925,7 @@ def run_pipeline(
         # errors`` block.
         try:
             write_summary(
-                paths.root / "detector_summary.json", _det_trace
+                paths.output_dir / "detector_summary.json", _det_trace
             )
         except Exception as exc:  # noqa: BLE001
             log.warning(
@@ -804,7 +970,7 @@ def run_pipeline(
         # before the crash.
         try:
             write_summary(
-                paths.root / "detector_summary.json", _det_trace
+                paths.output_dir / "detector_summary.json", _det_trace
             )
         except Exception:  # noqa: BLE001
             pass

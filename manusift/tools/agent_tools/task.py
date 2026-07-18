@@ -162,7 +162,7 @@ class TaskTool:
         input: dict[str, Any],
         ctx: ToolContext,
     ) -> str:
-        from ...agent import AgentLoop
+        from ...agent.factory import create_agent_loop
         from ...llm import get_llm_client
         from ...tools import iter_registered_tools
         from ...tools.tool import ToolContext as TC
@@ -459,7 +459,11 @@ class TaskTool:
             if ctx.metadata
             else None
         )
-        loop = AgentLoop(
+        # Same runtime as the parent TUI (PydanticAI by
+        # default; MANUSIFT_AGENT_RUNTIME=legacy to force
+        # the hand-rolled loop). Domain Kernel tools are
+        # unchanged; only the ReAct driver is selected.
+        loop = create_agent_loop(
             client=client,
             tools=tools,
             ctx=sub_ctx,

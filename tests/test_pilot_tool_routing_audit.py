@@ -39,15 +39,23 @@ import os
 import sys
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
-os.chdir(r"C:/Users/22509/Desktop/ManuSift1")
-os.environ["MANUSIFT_WORKSPACE_DIR"] = (
-    r"C:\Users\22509\Desktop\ManuSift1\data\pilot_jobs"
+os.chdir(str(Path(__file__).resolve().parents[1]))
+os.environ["MANUSIFT_WORKSPACE_DIR"] = str(
+    Path(__file__).resolve().parents[1] / "data" / "pilot_jobs"
 )
-os.environ["MANUSIFT_OBSIDIAN_VAULT_PATH"] = (
-    r"C:\Users\22509\Desktop\ScholarLens\pilot_cases"
-    r"\real_world_nature\s41565-025-02082-0\vault"
+os.environ["MANUSIFT_OBSIDIAN_VAULT_PATH"] = str(
+    Path(
+        os.environ.get(
+            "MANUSIFT_PILOT_VAULT",
+            Path(__file__).resolve().parents[1]
+            / "docs"
+            / "s41565-025-02082-0",
+        )
+    )
+    / "vault"
 )
 
 
@@ -260,9 +268,11 @@ def main() -> None:
         f"(out of {len(results)}) ==="
     )
 
-    out_path = (
-        r"C:\Users\22509\Desktop\ManuSift1\docs\screenshots"
-        r"\pilot_tool_routing_audit.json"
+    out_path = str(
+        Path(__file__).resolve().parents[1]
+        / "docs"
+        / "screenshots"
+        / "pilot_tool_routing_audit.json"
     )
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:

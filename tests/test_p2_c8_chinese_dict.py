@@ -124,10 +124,11 @@ Tests:
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, r"C:\Users\22509\Desktop\ManuSift1")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from manusift.contracts import (  # noqa: E402
     ExtractedImage,
@@ -136,8 +137,8 @@ from manusift.contracts import (  # noqa: E402
 )
 from manusift.detectors.tortured_phrases import (  # noqa: E402
     TorturedPhrasesDetector,
+    _CJK_PATTERNS,
     _NORMALISED,
-    _PATTERNS,
     _TORTURED_CN,
 )
 
@@ -189,7 +190,7 @@ class TestChineseDict:
         # for a CJK
         # phrase.
         cjk_count = 0
-        for pat, phrase, _intended in _PATTERNS:
+        for pat, phrase, _intended in _CJK_PATTERNS:
             if any(
                 "\u4e00" <= ch <= "\u9fff" for ch in phrase
             ):

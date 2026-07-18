@@ -106,6 +106,37 @@ class ChatResponse:
                         merged_blocks.append(dict(block))
                 else:
                     merged_blocks.append(dict(block))
+            elif block.get("type") in ("thinking", "redacted_thinking"):
+                # Thinking: accumulate text (stream deltas are
+                # cumulative *or* progressive); always keep the
+                # latest non-empty signature (DeepSeek requires it).
+                replaced = False
+                for i, existing in enumerate(merged_blocks):
+                    if existing.get("type") == block.get("type"):
+                        old_t = str(existing.get("thinking") or "")
+                        new_t = str(block.get("thinking") or "")
+                        if not old_t or old_t in new_t or len(new_t) >= len(old_t):
+                            think = new_t or old_t
+                        elif new_t and new_t not in old_t:
+                            think = old_t + new_t
+                        else:
+                            think = old_t or new_t
+                        sig = (
+                            str(block.get("signature") or "")
+                            or str(existing.get("signature") or "")
+                        )
+                        data = block.get("data") or existing.get("data") or ""
+                        merged_blocks[i] = {
+                            **existing,
+                            **dict(block),
+                            "thinking": think,
+                            "signature": sig,
+                            "data": data,
+                        }
+                        replaced = True
+                        break
+                if not replaced:
+                    merged_blocks.append(dict(block))
             else:
                 merged_blocks.append(dict(block))
         return ChatResponse(
@@ -137,3 +168,217 @@ class ChatResponse:
             for block in self.content_blocks
             if block.get("type") == "tool_use"
         ]
+
+
+def normalize_assistant_content_blocks(
+    blocks: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Reorder assistant blocks for Anthropic/DeepSeek thinking mode.
+
+    Required order: thinking / redacted_thinking → text → tool_use → other.
+    Streaming folds can emit tool_use before thinking; echoing that history
+    yields 400 ``tool_use`` without ``tool_result`` / invalid thinking.
+    """
+    if not blocks:
+        return []
+    thinking: list[dict[str, Any]] = []
+    text: list[dict[str, Any]] = []
+    tools: list[dict[str, Any]] = []
+    other: list[dict[str, Any]] = []
+    for b in blocks:
+        if not isinstance(b, dict):
+            continue
+        btype = b.get("type")
+        if btype in ("thinking", "redacted_thinking"):
+            thinking.append(dict(b))
+        elif btype == "text":
+            text.append(dict(b))
+        elif btype == "tool_use":
+            tools.append(dict(b))
+        else:
+            other.append(dict(b))
+    return thinking + text + tools + other
+
+
+def fold_stream_chunk(
+    accumulated: "ChatResponse | None",
+    partial: "ChatResponse",
+    *,
+    longest_text: str = "",
+) -> tuple["ChatResponse", str]:
+    """Fold one ``chat_stream`` yield into a running total.
+
+    Providers (Anthropic / OpenAI / many OpenAI-compatible
+    gateways) yield **running snapshots** — each chunk's
+    ``.text`` is the full string so far, not a pure delta.
+    Blind ``accumulated.merged(partial)`` therefore
+    *re-concatenates* snapshots and produces garbled
+    repetition (``论文`` + ``论文 clean`` + …).
+
+    Rules (same as legacy ``AgentLoop.run_stream``):
+      * if ``partial.text`` extends / contains
+        ``longest_text`` → replace text with snapshot;
+      * if ``partial.text`` is a shorter substring → keep
+        longest, still take new stop_reason / tool_use;
+      * else treat as a genuine delta and append via
+        ``merged()``.
+
+    Returns ``(new_accumulated, new_longest_text)``.
+    """
+    if accumulated is None:
+        return (
+            ChatResponse(
+                content_blocks=normalize_assistant_content_blocks(
+                    list(partial.content_blocks)
+                ),
+                stop_reason=partial.stop_reason,
+                usage=dict(partial.usage or {}),
+                model=partial.model,
+            ),
+            partial.text or "",
+        )
+
+    ptext = partial.text or ""
+    if ptext and len(ptext) >= len(longest_text):
+        if not longest_text or longest_text in ptext:
+            # Snapshot replace for text; id-merge tool_use;
+            # keep thinking from either side (do not drop).
+            longest_text = ptext
+            new_blocks: list[dict[str, Any]] = []
+            seen_tool_ids: set[str] = set()
+            # Preserve thinking/redacted from accumulated first.
+            for b in accumulated.content_blocks:
+                if b.get("type") in ("thinking", "redacted_thinking"):
+                    new_blocks.append(dict(b))
+                elif b.get("type") == "tool_use":
+                    bid = b.get("id", "")
+                    if bid:
+                        seen_tool_ids.add(str(bid))
+                        new_blocks.append(dict(b))
+            for b in partial.content_blocks:
+                if b.get("type") == "tool_use":
+                    bid = str(b.get("id", "") or "")
+                    if bid and bid in seen_tool_ids:
+                        for i, existing in enumerate(new_blocks):
+                            if (
+                                existing.get("type") == "tool_use"
+                                and existing.get("id") == bid
+                            ):
+                                new_blocks[i] = dict(b)
+                                break
+                    else:
+                        new_blocks.append(dict(b))
+                        if bid:
+                            seen_tool_ids.add(bid)
+                elif b.get("type") == "text":
+                    # Single text block = full snapshot.
+                    replaced = False
+                    for i, existing in enumerate(new_blocks):
+                        if existing.get("type") == "text":
+                            new_blocks[i] = dict(b)
+                            replaced = True
+                            break
+                    if not replaced:
+                        new_blocks.append(dict(b))
+                elif b.get("type") in ("thinking", "redacted_thinking"):
+                    replaced = False
+                    for i, existing in enumerate(new_blocks):
+                        if existing.get("type") == b.get("type"):
+                            old_t = str(existing.get("thinking") or "")
+                            new_t = str(b.get("thinking") or "")
+                            if (
+                                not old_t
+                                or old_t in new_t
+                                or len(new_t) >= len(old_t)
+                            ):
+                                think = new_t or old_t
+                            elif new_t and new_t not in old_t:
+                                think = old_t + new_t
+                            else:
+                                think = old_t or new_t
+                            sig = (
+                                str(b.get("signature") or "")
+                                or str(existing.get("signature") or "")
+                            )
+                            new_blocks[i] = {
+                                **existing,
+                                **dict(b),
+                                "thinking": think,
+                                "signature": sig,
+                            }
+                            replaced = True
+                            break
+                    if not replaced:
+                        new_blocks.append(dict(b))
+                else:
+                    new_blocks.append(dict(b))
+            if ptext and not any(
+                b.get("type") == "text" for b in new_blocks
+            ):
+                new_blocks.append({"type": "text", "text": ptext})
+            acc = ChatResponse(
+                content_blocks=normalize_assistant_content_blocks(new_blocks),
+                stop_reason=partial.stop_reason or accumulated.stop_reason,
+                usage=partial.usage or accumulated.usage,
+                model=partial.model or accumulated.model,
+            )
+            return acc, longest_text
+        if ptext in longest_text:
+            if partial.stop_reason or partial.tool_calls:
+                merged = accumulated.merged(partial)
+                return (
+                    ChatResponse(
+                        content_blocks=normalize_assistant_content_blocks(
+                            list(merged.content_blocks)
+                        ),
+                        stop_reason=merged.stop_reason,
+                        usage=dict(merged.usage or {}),
+                        model=merged.model,
+                    ),
+                    longest_text,
+                )
+            return accumulated, longest_text
+        # Genuine non-substring growth that is longer — rare; append.
+        longest_text = longest_text + ptext
+        merged = accumulated.merged(partial)
+        return (
+            ChatResponse(
+                content_blocks=normalize_assistant_content_blocks(
+                    list(merged.content_blocks)
+                ),
+                stop_reason=merged.stop_reason,
+                usage=dict(merged.usage or {}),
+                model=merged.model,
+            ),
+            longest_text,
+        )
+
+    if ptext and ptext not in longest_text:
+        longest_text = longest_text + ptext
+        merged = accumulated.merged(partial)
+        return (
+            ChatResponse(
+                content_blocks=normalize_assistant_content_blocks(
+                    list(merged.content_blocks)
+                ),
+                stop_reason=merged.stop_reason,
+                usage=dict(merged.usage or {}),
+                model=merged.model,
+            ),
+            longest_text,
+        )
+
+    if partial.stop_reason or partial.tool_calls:
+        merged = accumulated.merged(partial)
+        return (
+            ChatResponse(
+                content_blocks=normalize_assistant_content_blocks(
+                    list(merged.content_blocks)
+                ),
+                stop_reason=merged.stop_reason,
+                usage=dict(merged.usage or {}),
+                model=merged.model,
+            ),
+            longest_text,
+        )
+    return accumulated, longest_text

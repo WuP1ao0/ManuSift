@@ -674,18 +674,23 @@ def test_regression_case_005_evidence_report(tmp_path: Path) -> None:
     right shape of report.
     """
 
-    findings_path = Path(
-        r"C:\Users\22509\Desktop\ManuSift1"
-        r"\real_eval_fraud_cases\cases\case_005_frontiers_cpxra_salmonella_hild"
-        r"\manusift_run\findings.json"
+    findings_path = (
+        Path(__file__).resolve().parents[1]
+        / "real_eval_fraud_cases"
+        / "cases"
+        / "case_005_frontiers_cpxra_salmonella_hild"
+        / "manusift_run"
+        / "findings.json"
     )
     if not findings_path.exists():
         pytest.skip("case_005 findings.json not present -- benchmark not run yet")
     out_dir = tmp_path / "report"
-    pdf_path = Path(
-        r"C:\Users\22509\Desktop\ManuSift1"
-        r"\real_eval_fraud_cases\cases\case_005_frontiers_cpxra_salmonella_hild"
-        r"\paper.pdf"
+    pdf_path = (
+        Path(__file__).resolve().parents[1]
+        / "real_eval_fraud_cases"
+        / "cases"
+        / "case_005_frontiers_cpxra_salmonella_hild"
+        / "paper.pdf"
     )
     index = evidence_builder.build_evidence_index(
         findings_path=findings_path,
@@ -749,10 +754,13 @@ def test_regression_case_001_evidence_report(tmp_path: Path) -> None:
     visual finding with a
     side-by-side image."""
 
-    findings_path = Path(
-        r"C:\Users\22509\Desktop\ManuSift1"
-        r"\real_eval_fraud_cases\cases\case_001_plos_plasmonic_nanobubbles"
-        r"\manusift_run\findings.json"
+    findings_path = (
+        Path(__file__).resolve().parents[1]
+        / "real_eval_fraud_cases"
+        / "cases"
+        / "case_001_plos_plasmonic_nanobubbles"
+        / "manusift_run"
+        / "findings.json"
     )
     if not findings_path.exists():
         pytest.skip("case_001 findings.json not present")

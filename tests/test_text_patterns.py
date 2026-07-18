@@ -73,6 +73,28 @@ def test_placeholders_no_match_on_clean_text() -> None:
     assert findings == []
 
 
+def test_placeholders_case_sensitive_spanish_todo() -> None:
+    """R-2026-07-18 (P5.1): Spanish "todo"/"Todo" must not fire
+    the TODO placeholder check -- it is a high-frequency word
+    ("all/every"), not an editor leftover."""
+    blocks = [
+        _block(
+            "Todos los participantes firmaron el consentimiento. "
+            "En todo caso, los resultados fueron consistentes."
+        ),
+    ]
+    findings = _check_placeholders(blocks, _settings_stub(), "t")
+    kinds = {f.raw["kind"] for f in findings}
+    assert "TODO" not in kinds
+    # uppercase leftovers still fire
+    blocks2 = [_block("Queda pendiente. TODO revisar esta sección.")]
+    kinds2 = {
+        f.raw["kind"]
+        for f in _check_placeholders(blocks2, _settings_stub(), "t")
+    }
+    assert "TODO" in kinds2
+
+
 # ---------- 2. chatbot disclaimer ----------
 
 def test_chatbot_disclaimer_matches() -> None:

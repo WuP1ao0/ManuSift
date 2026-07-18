@@ -11,6 +11,9 @@ from pathlib import Path
 import pytest
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
 def _env_enabled(name: str) -> bool:
     return os.environ.get(name, "").strip().lower() in {
         "1",

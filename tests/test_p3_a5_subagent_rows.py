@@ -162,7 +162,9 @@ import pytest
 # TUI to
 # be running.
 import sys
-sys.path.insert(0, r"C:\Users\22509\Desktop\ManuSift1")
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from manusift.tools.subagent_forwarder import (  # noqa: E402
     format_subagent_event_row,

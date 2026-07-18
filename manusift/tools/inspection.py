@@ -134,6 +134,19 @@ def _detector_names() -> list[str]:
         ]
 
 
+def _findings_path(workspace_dir: Any, trace_id: str) -> Any:
+    """Locate a trace's findings.json.
+
+    Every writer (web dashboard, TUI, MCP, ``ingest_from_path``)
+    persists the pipeline result to the canonical per-job layout
+    (``<workspace>/<trace_id>/output/findings.json``, see
+    ``workspace.JobPaths``), so this is a single fixed path with no
+    layout fallback.
+    """
+    ws = Path(workspace_dir)
+    return ws / trace_id / "output" / "findings.json"
+
+
 class ReadFindingTool:
     """Read a single finding by id.
 
@@ -149,8 +162,9 @@ class ReadFindingTool:
     the chat session.
 
     The findings live on disk at
-    ``<workspace>/jobs/<trace_id>/findings.json``.
-    This is the same file the
+    ``<workspace>/<trace_id>/output/findings.json``
+    -- see ``_findings_path``. This is the
+    same file the
     ``/api/jobs/<tid>/findings``
     endpoint reads, so the chat
     TUI and the web dashboard
@@ -205,12 +219,7 @@ class ReadFindingTool:
         # off the workspace.
         from ..config import get_settings
         s = get_settings()
-        path = (
-            s.workspace_dir
-            / "jobs"
-            / ctx.trace_id
-            / "findings.json"
-        )
+        path = _findings_path(s.workspace_dir, ctx.trace_id)
         if not path.is_file():
             return json.dumps(
                 {
@@ -290,6 +299,8 @@ class ListFindingsTool:
             "severity, one-line description) of each finding. "
             "Optionally filter by detector name (any of: "
             f"{sample}) and / or severity (low / medium / high). "
+            "Pass group_by='issue' for the aggregated issue view "
+            "(findings on the same evidence object grouped together). "
             "Use this to give the user an overview before "
             "drilling into a specific finding with read_finding. "
             "Read-only."
@@ -339,6 +350,17 @@ class ListFindingsTool:
                         "this severity."
                     ),
                 },
+                "group_by": {
+                    "type": "string",
+                    "enum": ["issue"],
+                    "description": (
+                        "Optional. Pass 'issue' to return the "
+                        "aggregated issue view (P1.1): findings "
+                        "pointing at the same evidence object are "
+                        "grouped into one issue. Default returns the "
+                        "flat finding list unchanged."
+                    ),
+                },
             },
             "additionalProperties": False,
         }
@@ -350,14 +372,10 @@ class ListFindingsTool:
     ) -> str:
         detector_filter = input.get("detector")
         severity_filter = input.get("severity")
+        group_by = input.get("group_by")
         from ..config import get_settings
         s = get_settings()
-        path = (
-            s.workspace_dir
-            / "jobs"
-            / ctx.trace_id
-            / "findings.json"
-        )
+        path = _findings_path(s.workspace_dir, ctx.trace_id)
         if not path.is_file():
             return json.dumps(
                 {
@@ -379,6 +397,33 @@ class ListFindingsTool:
             if isinstance(data, list)
             else data.get("findings", [])
         )
+        # Aggregated issue view (P1.1). Issues are computed on the fly
+        # from findings.json so no extra artifact is required.
+        if group_by == "issue":
+            from ..report.finding_aggregation import aggregate_findings
+            from ..report.investigation_pairs import findings_from_json
+
+            _tid, finding_objs, _n = findings_from_json(path)
+            issues = aggregate_findings(finding_objs)
+            out_issues: list[dict[str, Any]] = []
+            for i in issues:
+                if (
+                    detector_filter
+                    and detector_filter not in i.detectors
+                ):
+                    continue
+                if severity_filter and i.severity != severity_filter:
+                    continue
+                out_issues.append(i.to_dict())
+            return json.dumps(
+                {
+                    "count": len(out_issues),
+                    "group_by": "issue",
+                    "issues": out_issues,
+                },
+                indent=2,
+                default=str,
+            )
         # Apply filters.
         out: list[dict[str, Any]] = []
         for f in findings:

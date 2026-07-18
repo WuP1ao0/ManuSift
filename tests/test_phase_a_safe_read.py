@@ -44,7 +44,7 @@ from pathlib import Path
 
 import pytest
 
-sys.path.insert(0, r"C:\Users\22509\Desktop\ManuSift1")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from manusift.tools.safe_read import (
     DEFAULT_READ_CHAR_LIMIT,

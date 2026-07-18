@@ -17,10 +17,10 @@ log = get_logger(__name__)
 def _images_dir(trace_id: str, workspace_dir: Path) -> Path:
     """Where the ingest layer writes extracted rasters for later detectors.
 
-    We keep images alongside (not inside) the per-job dir so the
+    Images live inside the per-job dir (``steps/images/``) so the
     per-job layout in ``workspace.py`` stays the source of truth.
     """
-    d = workspace_dir / "_images" / trace_id
+    d = workspace_dir / trace_id / "steps" / "images"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
@@ -207,7 +207,7 @@ def parse_pdf(pdf_path: Path, trace_id: str, workspace_dir: Path | None = None) 
     """Open the PDF and pull out text, images, and metadata.
 
     If ``workspace_dir`` is given, every extracted raster is also
-    written to ``<workspace_dir>/_images/<trace_id>/p{page}_{index}.{ext}``
+    written to ``<workspace_dir>/<trace_id>/steps/images/p{page}_{index}.{ext}``
     and its path stored on the resulting :class:`ExtractedImage`. This
     lets pixel-level detectors (ELA, copy-move) read the raw bytes
     without re-decoding the PDF.
@@ -289,12 +289,21 @@ def parse_pdf(pdf_path: Path, trace_id: str, workspace_dir: Path | None = None) 
                 )
 
         metadata = dict(doc.metadata or {})
+        # Table extraction MUST run while ``doc`` is still open.
+        # Previously this ran after the ``with fitz.open`` block,
+        # so every table detector saw an empty ``doc.tables`` list
+        # (closed-document accesses fail silently inside
+        # ``_extract_tables`` best-effort handlers).
+        tables = _extract_tables(
+            doc, pdf_path, trace_id, workspace_dir
+        )
 
     log.info(
         "pdf parsed",
         extra={
             "pages": len({b.page for b in text_blocks}) if text_blocks else 0,
             "images": len(images),
+            "tables": len(tables),
         },
     )
 
@@ -304,9 +313,7 @@ def parse_pdf(pdf_path: Path, trace_id: str, workspace_dir: Path | None = None) 
         text_blocks=text_blocks,
         images=images,
         metadata=metadata,
-        tables=_extract_tables(
-            doc, pdf_path, trace_id, workspace_dir
-        ),
+        tables=tables,
     )
 
 
@@ -322,28 +329,20 @@ def _extract_tables(
     into a single list
     of ``ExtractedTable``:
 
-      1. **PDF-native tables**
-         -- PyMuPDF's
+      1. **PDF-native + plumber tables** (P2)
+         -- PyMuPDF
          ``page.find_tables()``
-         surfaces
-         tables drawn
-         with vector
-         rules in the
-         PDF body. The
-         ``TOO_BIG``
-         guard skips
-         very wide
-         pages (often
-         the whole
-         text body
-         mis-detected
-         as a single
-         table).
+         plus optional
+         pdfplumber
+         gap-fill; captions
+         like ``Fig. 3b``
+         near the table set
+         ``fig_name``.
       2. **Companion files**
          -- XLSX /
          CSV / TSV /
          JSON in
-         ``<workspace>/jobs/<tid>/materials/``
+         ``<workspace>/<tid>/inputs/materials/``
          or in the
          same directory
          as the PDF.
@@ -406,99 +405,17 @@ def _extract_tables(
     pipeline.
     """
     out: list[ExtractedTable] = []
-    # 1. PDF-
-    # native
-    # tables.
+    # 1. PDF-native + pdfplumber tables with Fig/Table caption
+    # alignment (P2). See manusift.ingest.pdf_tables.
     try:
-        for p_index in range(len(pdf_doc)):
-            page = pdf_doc[p_index]
-            tabs = page.find_tables()
-            for t_index, tab in enumerate(tabs):
-                try:
-                    data = tab.extract()
-                except Exception as exc:  # noqa: BLE001
-                    log.info(
-                        "pdf-native table extract failed",
-                        extra={
-                            "err": str(exc),
-                            "page": p_index,
-                            "index": t_index,
-                        },
-                    )
-                    continue
-                if not data or len(data) < 2:
-                    continue
-                # First
-                # row
-                # is
-                # the
-                # header
-                # when
-                # present;
-                # otherwise
-                # synthesise
-                # ``col_N``
-                # headers
-                # so the
-                # table-
-                # stat
-                # detectors
-                # still
-                # have
-                # something
-                # to
-                # address.
-                header_row = data[0]
-                ncols = max(
-                    len(r) for r in data
-                )
-                if all(
-                    h is None or str(h).strip() == ""
-                    for h in header_row
-                ):
-                    headers = [
-                        f"col_{c}" for c in range(ncols)
-                    ]
-                    body = data
-                else:
-                    headers = [
-                        "" if h is None else str(h)
-                        for h in header_row
-                    ] + [
-                        "" for _ in range(
-                            ncols - len(headers)
-                        )
-                    ]
-                    body = data[1:]
-                rows: list[list[str]] = []
-                for r in body:
-                    cells = [
-                        "" if v is None else str(v)
-                        for v in r
-                    ]
-                    cells += [""] * (ncols - len(cells))
-                    if not any(c.strip() for c in cells):
-                        continue
-                    rows.append(cells[:ncols])
-                if not rows:
-                    continue
-                from ..contracts import ExtractedTable
-                out.append(
-                    ExtractedTable(
-                        table_id=(
-                            f"pdf{p_index}-t{t_index}"
-                        ),
-                        source_kind="pdf_native",
-                        source_path=str(pdf_path),
-                        sheet_name="",
-                        source_index=p_index,
-                        headers=headers,
-                        rows=rows,
-                    )
-                )
+        from .pdf_tables import extract_pdf_tables
+
+        out.extend(
+            extract_pdf_tables(pdf_doc, pdf_path)
+        )
     except Exception as exc:  # noqa: BLE001
         log.info(
-            "pdf-native table scan failed",
+            "pdf table scan (native+plumber) failed",
             extra={"err": str(exc)},
         )
     # 2. Companion
@@ -571,22 +488,9 @@ def _extract_tables(
     candidate_dirs: list[Path] = []
     has_materials = False
     if workspace_dir is not None:
-        m = (
-            workspace_dir
-            / trace_id
-            / "materials"
-        )
+        m = workspace_dir / trace_id / "inputs" / "materials"
         if m.is_dir():
             candidate_dirs.append(m)
-            has_materials = True
-        m2 = (
-            workspace_dir
-            / "jobs"
-            / trace_id
-            / "materials"
-        )
-        if m2.is_dir():
-            candidate_dirs.append(m2)
             has_materials = True
     if not has_materials:
         candidate_dirs.append(pdf_path.parent)

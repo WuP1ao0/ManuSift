@@ -272,8 +272,12 @@ def test_endpoint_returns_aggregate(
 ) -> None:
     """``GET /api/cost`` returns the same shape as
     ``cost_to_json(aggregate_cost())``."""
+    # Use a recent timestamp: the endpoint aggregates the
+    # last 30 days, and a hardcoded ts ages out of the
+    # window (time-bomb failure seen 2026-07).
+    import time as _time
     _seed_cost_log(tmp_path, monkeypatch, [
-        {"ts": 1780995000.0, "model": "gpt-4o-mini",
+        {"ts": _time.time() - 86400.0, "model": "gpt-4o-mini",
          "in_tok": 100, "out_tok": 50, "cost_usd": 0.0001}
     ])
     from manusift.web.jobs_db import InMemoryJobStore

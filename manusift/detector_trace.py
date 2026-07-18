@@ -177,6 +177,14 @@ _SKIP_RULES: dict[str, tuple[str, str]] = {
         "no figure OCR",
         "no figure region recognised for OCR pass",
     ),
+    "figure_table_ocr": (
+        "no OCR table grid",
+        "no table-like numeric grid recovered from figure OCR",
+    ),
+    "source_data_consistency": (
+        "no cross-source numbers",
+        "insufficient PDF and/or companion numeric cells to compare",
+    ),
     "table_benford": (
         "no numeric column",
         "no numeric column long enough for Benford test",
@@ -192,6 +200,26 @@ _SKIP_RULES: dict[str, tuple[str, str]] = {
     "table_round_bias": (
         "no numeric column",
         "no numeric column long enough for round-bias test",
+    ),
+    "table_near_duplicate_row": (
+        "no near-duplicate rows",
+        "no near-duplicate row pairs (1–2 cell diffs) found",
+    ),
+    "table_cross_copy": (
+        "no cross-table copies",
+        "no identical rows shared across multiple tables",
+    ),
+    "table_file_metadata": (
+        "no companion spreadsheet",
+        "no XLSX/CSV companion files with readable metadata",
+    ),
+    "table_forensics": (
+        "no tabular data",
+        "no tables available for table-forensics suite",
+    ),
+    "table_highlight_focus": (
+        "no highlighted cells",
+        "no spreadsheet cells with visible fills/highlighters",
     ),
     "chart_data_extract": (
         "no chart-like image",
@@ -218,6 +246,10 @@ _SKIP_RULES: dict[str, tuple[str, str]] = {
         "no reference list extracted from PDF",
     ),
     "citation_network": (
+        "no reference list",
+        "no reference list extracted from PDF",
+    ),
+    "cited_retraction": (
         "no reference list",
         "no reference list extracted from PDF",
     ),

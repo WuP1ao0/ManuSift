@@ -296,21 +296,25 @@ class DuplicateReferenceDetector:
             # short.
             base = group[0]
             for other in group[1:]:
-                if _references_conflict(base, other):
+                conflict = _references_conflict(base, other)
+                if conflict:
                     findings.append(
                         Finding.make(
                             trace_id=doc.trace_id,
                             detector=self.name,
-                            severity="high",
+                            severity=(
+                                "low" if conflict == "title" else "high"
+                            ),
                             title=(
                                 f"Duplicate reference: "
                                 f"{key} appears with "
-                                f"conflicting metadata"
+                                f"conflicting metadata ({conflict})"
                             ),
                             location="references",
                             evidence=json.dumps(
                                 {
                                     "id": key,
+                                    "conflict": conflict,
                                     "ref_a": base[:200],
                                     "ref_b": other[:200],
                                 }
@@ -325,27 +329,23 @@ class DuplicateReferenceDetector:
         )
 
 
-def _references_conflict(a: str, b: str) -> bool:
-    """Return True if two
-    references with the same
-    DOI/PMID/arXiv ID
-    disagree on the year,
-    first-author surname, or
-    the first 30 characters
-    of the title.
+def _references_conflict(a: str, b: str) -> str | None:
+    """Return the conflict kind when two references with the
+    same DOI/PMID/arXiv ID disagree: ``"year"``,
+    ``"surname"``, or ``"title"`` -- None when they are
+    consistent.
 
-    We use a deliberately
-    fuzzy title match
-    because paper mills
-    often tweak a few
-    characters of the title
-    to slip past naive
-    string comparisons.
+    2026-07 (negative_controls_v1): the fuzzy title check
+    fires on perfectly legitimate formatting variance (one
+    entry full title, one truncated), which made the
+    detector cry "high" on every control paper. Callers now
+    map the kind to severity: year/surname conflicts are
+    strong (high), title-only variance is low.
     """
     years_a = _YEAR_RE.findall(a)
     years_b = _YEAR_RE.findall(b)
     if years_a and years_b and years_a != years_b:
-        return True
+        return "year"
     # First author surname:
     # the first token that
     # contains a capital
@@ -358,7 +358,7 @@ def _references_conflict(a: str, b: str) -> bool:
         and surname_b
         and surname_a.lower() != surname_b.lower()
     ):
-        return True
+        return "surname"
     # Title (first 30 chars
     # after the author
     # list). We do not
@@ -369,13 +369,8 @@ def _references_conflict(a: str, b: str) -> bool:
     title_a = _first_30_after_year(a)
     title_b = _first_30_after_year(b)
     if title_a and title_b and title_a != title_b:
-        # The titles differ;
-        # in a sane paper
-        # this would not
-        # happen for the
-        # same DOI.
-        return True
-    return False
+        return "title"
+    return None
 
 
 def _first_surname(ref: str) -> str:

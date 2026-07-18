@@ -37,16 +37,27 @@ h1 { font-size: 22px; margin-bottom: 4px; }
        border-radius: 4px; margin-top: 8px; font-size: 13px; }
 .empty { padding: 24px; border: 1px dashed #d1d5db; border-radius: 8px;
          color: #6b7280; text-align: center; }
+.issues-block { margin: 16px 0 24px; }
+table.issues { border-collapse: collapse; width: 100%; font-size: 13px; }
+table.issues th, table.issues td { border: 1px solid #d1d5db;
+         padding: 6px 10px; text-align: left; vertical-align: top; }
+table.issues th { background: #f3f4f6; }
 """
 
 
 def _render_finding(f: Finding) -> str:
     sev = f.severity
+    # Full LLM narratives live in standalone llm_report.html; main report
+    # only shows a short pointer when a verdict exists.
     verdict_html = ""
     if f.llm_verdict:
-        verdict_html = f'<div class="llm"><b>LLM review:</b> {html.escape(f.llm_verdict)}</div>'
-    elif f.llm_skipped:
-        verdict_html = '<div class="llm"><i>LLM review skipped (no key or call failed).</i></div>'
+        short = f.llm_verdict if len(f.llm_verdict) <= 160 else (
+            f.llm_verdict[:157] + "..."
+        )
+        verdict_html = (
+            f'<div class="llm"><b>LLM:</b> {html.escape(short)} '
+            f'<i>(full text → llm_report.html)</i></div>'
+        )
 
     raw_repr = json.dumps(f.raw, ensure_ascii=False, indent=2)
     return f"""
@@ -64,6 +75,46 @@ def _render_finding(f: Finding) -> str:
     """
 
 
+def _render_issues(issues: list) -> str:
+    """Render the aggregated issues block (P1.1).
+
+    One row per issue: severity, kind, title, contributing detectors and
+    member count. The member finding ids link to the finding cards below,
+    which remain the authoritative detail view.
+    """
+    if not issues:
+        return ""
+    rows: list[str] = []
+    for i in issues:
+        first = i.finding_ids[0] if i.finding_ids else ""
+        link = (
+            f'<a href="#{html.escape(first)}">first finding</a>'
+            if first
+            else ""
+        )
+        rows.append(
+            f'<tr><td><span class="badge">{html.escape(str(i.severity))}</span></td>'
+            f"<td>{html.escape(str(i.kind))}</td>"
+            f"<td>{html.escape(i.title)}</td>"
+            f"<td>{html.escape(', '.join(i.detectors))}</td>"
+            f"<td>{i.member_count}</td>"
+            f"<td>{link}</td></tr>"
+        )
+    return (
+        '<div class="issues-block">'
+        f"<h2>Issues ({len(issues)})</h2>"
+        '<p class="meta">Aggregated view: findings pointing at the same '
+        "evidence object are grouped into one issue. The flat findings "
+        "list below is unchanged.</p>"
+        '<table class="issues"><thead><tr>'
+        "<th>severity</th><th>kind</th><th>title</th>"
+        "<th>detectors</th><th>members</th><th></th>"
+        "</tr></thead><tbody>"
+        + "".join(rows)
+        + "</tbody></table></div>"
+    )
+
+
 def build_report_html(
     trace_id: str,
     findings: Iterable[Finding],
@@ -71,6 +122,7 @@ def build_report_html(
     llm_calls: int,
     settings: Settings,
     detector_summary: dict | None = None,
+    issues: list | None = None,
 ) -> str:
     """Build the HTML report for one pipeline run.
 
@@ -82,10 +134,19 @@ def build_report_html(
     absent (older runs / non-pipeline callers), the report
     still renders -- the meta line lists the detector
     names, which is the v0 behaviour.
+
+    P1.1: ``issues`` is the aggregated issue view from
+    ``finding_aggregation.aggregate_findings``. When ``None``
+    it is computed from ``findings``; an empty list omits the
+    block.
     """
     findings_list = sorted(
         findings, key=lambda f: SEVERITY_ORDER.get(f.severity, 99)
     )
+    if issues is None:
+        from .finding_aggregation import aggregate_findings
+
+        issues = aggregate_findings(findings_list)
     body = (
         "\n".join(_render_finding(f) for f in findings_list)
         if findings_list
@@ -94,6 +155,7 @@ def build_report_html(
     summary_block = _render_detector_summary(
         detector_summary, detectors_run
     ) if detector_summary else ""
+    issues_block = _render_issues(list(issues))
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -110,6 +172,7 @@ def build_report_html(
     settings.hash_threshold: {settings.image_duplicate_hamming_threshold}
   </div>
   {summary_block}
+  {issues_block}
   {body}
 </body>
 </html>

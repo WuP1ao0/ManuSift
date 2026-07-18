@@ -115,6 +115,13 @@ def _ssim_one_pair(
     of itself.
     """
     from skimage.metrics import structural_similarity
+    # skimage's default win_size is 7; comparing images
+    # smaller than that raises ValueError (seen on a
+    # sliver panel in fraud_web_v1 web_frontiers_01,
+    # which crashed the whole panel_duplicate detector).
+    # Degenerate slivers carry no similarity evidence.
+    if min(a.shape[0], a.shape[1], b.shape[0], b.shape[1]) < 7:
+        return 0.0
     if a.shape != b.shape:
         # Resize the larger
         # to the smaller.

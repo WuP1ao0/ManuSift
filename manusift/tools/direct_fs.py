@@ -1237,7 +1237,7 @@ class IngestFromPathTool:
         # original
         # PDF
         # to
-        # ``<workspace_dir>/<trace_id>/original.pdf``
+        # ``<workspace_dir>/<trace_id>/inputs/original.pdf``
         # so
         # the
         # detector
@@ -1274,9 +1274,9 @@ class IngestFromPathTool:
             from ..workspace import JobPaths
             from shutil import copy2 as _copy2
             _paths = JobPaths.for_trace(new_tid, workspace_dir)
-            _paths.root.mkdir(parents=True, exist_ok=True)
+            _paths.ensure()
             _copy2(path, _paths.original)
-            materials_dir = _paths.root / "materials"
+            materials_dir = _paths.materials_dir
             materials_dir.mkdir(parents=True, exist_ok=True)
         except Exception as exc:  # noqa: BLE001
             return json.dumps(
@@ -2161,7 +2161,7 @@ class IngestFromPathTool:
             # ``parse_pdf``
             # already
             # scans
-            # ``<trace>/materials/``
+            # ``<trace>/inputs/materials/``
             # and
             # parses
             # the

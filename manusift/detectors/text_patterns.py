@@ -40,9 +40,14 @@ log = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 # 1. Placeholders
+# R-2026-07-18 (P5.1 expansion_nonenglish_v1): TODO/FIXME are matched
+# case-sensitively -- with IGNORECASE the Spanish high-frequency word
+# "todo" ("all/every") fired a medium placeholder finding on every
+# Spanish-language control paper. Real editor leftovers are uppercase
+# in practice.
 _PLACEHOLDER_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"\bTODO\b", re.IGNORECASE), "TODO"),
-    (re.compile(r"\bFIXME\b", re.IGNORECASE), "FIXME"),
+    (re.compile(r"\bTODO\b"), "TODO"),
+    (re.compile(r"\bFIXME\b"), "FIXME"),
     (re.compile(r"\bXXX\b"), "XXX"),
     (re.compile(r"\[\?\]"), "[?]"),
     (re.compile(r"\[XX\]|\[XXX\]"), "[XX]"),
@@ -66,8 +71,8 @@ _CHATBOT_PATTERNS: tuple[re.Pattern[str], ...] = (
 # 3. Citation anomalies
 _CITATION_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\[n\?\?\]|\[\?\]|\[XX\]|\[XXX\]", re.IGNORECASE), "broken marker"),
-    (re.compile(r"\bTODO\s*:\s*cite\b", re.IGNORECASE), "TODO:cite"),
-    (re.compile(r"\bFIXME\s*:\s*ref\b", re.IGNORECASE), "FIXME:ref"),
+    (re.compile(r"\bTODO\s*:\s*cite\b"), "TODO:cite"),
+    (re.compile(r"\bFIXME\s*:\s*ref\b"), "FIXME:ref"),
     (re.compile(r"\bet al\.\s*\?"), "et al.?"),
     (re.compile(r"\(\s*\?\s*\)"), "(?)"),
 )

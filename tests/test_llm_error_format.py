@@ -36,8 +36,9 @@ friendly one-liner.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
-os.chdir(r"C:/Users/22509/Desktop/ManuSift1")
+os.chdir(str(Path(__file__).resolve().parents[1]))
 
 
 # ---------- 1. Anthropic SDK 5xx ----------

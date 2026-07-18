@@ -87,9 +87,9 @@ def test_multiple_distinct_phrases() -> None:
     doc = FakeDoc(
         text=(
             "This unpresidented study uses deeply "
-            "learning to analyse real time pcr data. "
-            "We performed meta analyses of the cell "
-            "viability results."
+            "learning to analyse the neural community "
+            "architecture. The u-internet backbone "
+            "was trained from scratch."
         )
     )
     result = TorturedPhrasesDetector().run(doc)
@@ -100,8 +100,8 @@ def test_multiple_distinct_phrases() -> None:
     # tortured phrases.
     assert "unpresidented" in phrases
     assert "deeply learning" in phrases
-    assert "real time pcr" in phrases
-    assert "meta analyses" in phrases
+    assert "neural community" in phrases
+    assert "u-internet" in phrases
 
 
 # ---------- 5. high severity for many matches ----------
@@ -114,10 +114,9 @@ def test_high_severity_for_many_matches() -> None:
     from manusift.detectors import TorturedPhrasesDetector
     doc = FakeDoc(
         text=(
-            "The unpresidented result was very highly "
-            "significant. The deeply learning model "
-            "outperformed. We performed a meta "
-            "analyses of the cell viability data."
+            "The unpresidented result used deeply "
+            "learning. The neural community model "
+            "outperformed the u-internet baseline."
         )
     )
     result = TorturedPhrasesDetector().run(doc)
@@ -189,10 +188,39 @@ def test_normalise_phrase_helper() -> None:
     assert _normalise_phrase("  P < 0.05  ") == "p < 0.05"
 
 
-def test_curated_dictionary_has_50_entries() -> None:
-    """The curated dictionary
-    must contain at least
-    50 entries to be
+def test_curated_dictionary_has_verified_entries() -> None:
+    """The merged dictionary
+    (hand-curated core + the
+    verified Cabanac-derived
+    external data file) must
+    be large enough to be
     useful."""
     from manusift.detectors.tortured_phrases import _TORTURED
-    assert len(_TORTURED) >= 50
+    assert len(_TORTURED) >= 1000
+
+
+# ---------- 10. precision: ordinary scientific English is silent ----------
+
+def test_normal_boilerplate_produces_no_findings() -> None:
+    """2026-07 precision overhaul: ordinary
+    scientific boilerplate (data availability,
+    author contributions, p-values, cell
+    viability, ...) must NOT be flagged --
+    the old hand-written dictionary fired on
+    every legitimate paper."""
+    from manusift.detectors import TorturedPhrasesDetector
+    doc = FakeDoc(
+        text=(
+            "Data availability: the datasets are "
+            "available on request. Author "
+            "contributions: all authors approved "
+            "the manuscript. Cell viability was "
+            "measured with an MTT assay; p < 0.05 "
+            "was considered significant. The "
+            "randomized controlled trial used "
+            "standard deviation and confidence "
+            "interval reporting."
+        )
+    )
+    result = TorturedPhrasesDetector().run(doc)
+    assert result.findings == []

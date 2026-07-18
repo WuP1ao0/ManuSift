@@ -413,9 +413,12 @@ def test_p34_depth_propagates_in_ctx_metadata() -> None:
     # depth-propagation
     # logic lives in
     # ``agent_tools/task.py``.
-    src = Path(
-        r"C:\Users\22509\Desktop\ManuSift1"
-        r"\manusift\tools\agent_tools\task.py"
+    src = (
+        Path(__file__).resolve().parents[1]
+        / "manusift"
+        / "tools"
+        / "agent_tools"
+        / "task.py"
     ).read_text(encoding="utf-8")
     assert (
         'sub_meta["_subagent_depth"] = ('

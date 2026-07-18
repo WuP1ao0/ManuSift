@@ -345,7 +345,7 @@ def test_auto_discover_in_parent_dir(
     sub-dirs."""
     import sys
     sys.path.insert(0,
-        r"C:\Users\22509\Desktop\ManuSift1"
+        str(Path(__file__).resolve().parents[1])
     )
     from manusift.config import get_settings
     from manusift.tools.direct_fs import (
@@ -434,7 +434,7 @@ def test_auto_discovered_files_copied_to_materials(
     materials dir."""
     import sys
     sys.path.insert(0,
-        r"C:\Users\22509\Desktop\ManuSift1"
+        str(Path(__file__).resolve().parents[1])
     )
     from manusift.config import get_settings
     from manusift.tools.direct_fs import (
@@ -455,7 +455,7 @@ def test_auto_discovered_files_copied_to_materials(
     result = json.loads(result_str)
     new_tid = result["trace_id"]
     materials_dir = (
-        Path(workspace) / new_tid / "materials"
+        Path(workspace) / new_tid / "inputs" / "materials"
     )
     assert materials_dir.is_dir(), (
         f"materials dir missing: "
@@ -496,7 +496,7 @@ def test_list_data_sources_returns_auto_discovered(
     tables."""
     import sys
     sys.path.insert(0,
-        r"C:\Users\22509\Desktop\ManuSift1"
+        str(Path(__file__).resolve().parents[1])
     )
     from manusift.config import get_settings
     from manusift.tools.direct_fs import (
@@ -576,7 +576,7 @@ def test_trace_id_not_leaked_from_old_traces(
     tables."""
     import sys
     sys.path.insert(0,
-        r"C:\Users\22509\Desktop\ManuSift1"
+        str(Path(__file__).resolve().parents[1])
     )
     from manusift.config import get_settings
     from manusift.tools.direct_fs import (
@@ -668,7 +668,7 @@ def test_ignored_data_paths_surfaced_in_response(
     (not silent)."""
     import sys
     sys.path.insert(0,
-        r"C:\Users\22509\Desktop\ManuSift1"
+        str(Path(__file__).resolve().parents[1])
     )
     from manusift.config import get_settings
     from manusift.tools.direct_fs import (
@@ -782,7 +782,7 @@ def test_assistant_can_safely_report_count(
     N tables"."""
     import sys
     sys.path.insert(0,
-        r"C:\Users\22509\Desktop\ManuSift1"
+        str(Path(__file__).resolve().parents[1])
     )
     from manusift.config import get_settings
     from manusift.tools.direct_fs import (

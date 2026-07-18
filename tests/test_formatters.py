@@ -1,4 +1,4 @@
-﻿"""Tests for the output formatter registry (Step E1).
+"""Tests for the output formatter registry (Step E1).
 
 Pre-E1, the report had exactly one
 format (HTML). E1 introduces an
@@ -73,16 +73,10 @@ def _seed_findings(tmp_path: Path, trace_id: str) -> Path:
     """Write a findings.json so the
     /fmt/<fmt> endpoint has data to
     render."""
-    # ``JobPaths.for_trace`` uses
-    # ``workspace_dir/<tid>`` (NOT
-    # ``workspace_dir/jobs/<tid>``)
-    # -- that was the pre-E1
-    # convention and we keep it for
-    # backward compatibility.
-    paths = type(
-        "P", (), {"root": tmp_path / "ws" / trace_id}
-    )()
-    paths.root.mkdir(parents=True, exist_ok=True)
+    from manusift.workspace import JobPaths
+
+    paths = JobPaths.for_trace(trace_id, tmp_path / "ws")
+    paths.output_dir.mkdir(parents=True, exist_ok=True)
     data = {
         "trace_id": trace_id,
         "findings": [
@@ -101,7 +95,7 @@ def _seed_findings(tmp_path: Path, trace_id: str) -> Path:
         "llm_calls": 0,
         "duration_ms": 12,
     }
-    (paths.root / "findings.json").write_text(
+    (paths.output_dir / "findings.json").write_text(
         json.dumps(data, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
@@ -330,7 +324,7 @@ def test_legacy_html_endpoint_unchanged(
     the on-disk report.html file."""
     _env(tmp_path, monkeypatch)
     trace_id = "t-legacy"
-    job_dir = tmp_path / "ws" / trace_id
+    job_dir = tmp_path / "ws" / trace_id / "output"
     job_dir.mkdir(parents=True, exist_ok=True)
     (job_dir / "report.html").write_text(
         "<!DOCTYPE html><html><body>legacy</body></html>",

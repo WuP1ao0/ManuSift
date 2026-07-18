@@ -91,7 +91,13 @@ def test_run_on_real_case_004() -> None:
     from manusift.detectors import FigureStatTextDetector
     from manusift.ingest.pdf import parse_pdf
 
-    pdf = Path(r"C:\Users\22509\Desktop\ManuSift1\real_eval_fraud_cases\cases\case_004_plos_trophoblastic_stem_cells_parkinsonian_rats\paper.pdf")
+    pdf = (
+        Path(__file__).resolve().parents[1]
+        / "real_eval_fraud_cases"
+        / "cases"
+        / "case_004_plos_trophoblastic_stem_cells_parkinsonian_rats"
+        / "paper.pdf"
+    )
     if not pdf.exists():
         pytest.skip("Benchmark PDF not present")
     doc = parse_pdf(pdf, trace_id="t")

@@ -297,38 +297,132 @@ _client_singleton: LLMClient | None = None
 
 
 
-def _safe_parse(raw: str | None) -> LLMVerdict | None:
-    if raw is None:
-        return None
-    text = _strip_code_fence(raw)
-    try:
-        return LLMVerdict.model_validate_json(text)
-    except ValidationError as exc:
-        log.debug("llm verdict parse failed", extra={"err": str(exc)})
-        return None
-
-
+_VERDICT_ALIASES: dict[str, str] = {
+    "looks_legit": "looks_legit",
+    "looks-legit": "looks_legit",
+    "looks legit": "looks_legit",
+    "legit": "looks_legit",
+    "legitimate": "looks_legit",
+    "clean": "looks_legit",
+    "ok": "looks_legit",
+    "benign": "looks_legit",
+    "suspicious": "suspicious",
+    "suspect": "suspicious",
+    "likely_fraud": "suspicious",
+    "fraudulent": "suspicious",
+    "fabricated": "suspicious",
+    "needs_review": "needs_review",
+    "needs-review": "needs_review",
+    "needs review": "needs_review",
+    "review": "needs_review",
+    "uncertain": "needs_review",
+    "unclear": "needs_review",
+    "maybe": "needs_review",
+}
 
 
 def _strip_code_fence(text: str) -> str:
-    """Best-effort strip of ```json ... ``` fences that some LLMs add.
-
-    LLMVerdict's ``extra="forbid"`` rejects a fenced string because
-    it's not pure JSON. We don't try to be clever — if the model
-    puts even a single extra character outside the braces, we just
-    let the validator catch it and retry.
-    """
+    """Best-effort strip of ```json ... ``` fences that some LLMs add."""
     s = text.strip()
     if s.startswith("```"):
-        # Drop the opening fence line and any closing fence.
         lines = s.splitlines()
-        # Remove first line (```json or ```)
         lines = lines[1:]
-        # Remove closing ``` if present.
         if lines and lines[-1].strip().startswith("```"):
             lines = lines[:-1]
         return "\n".join(lines).strip()
     return s
+
+
+def _extract_json_object(text: str) -> dict[str, Any] | None:
+    """Pull the first JSON object from free text (DeepSeek often adds prose)."""
+    s = _strip_code_fence(text or "")
+    if not s:
+        return None
+    try:
+        obj = json.loads(s)
+        if isinstance(obj, dict):
+            return obj
+    except (ValueError, TypeError):
+        pass
+    start = s.find("{")
+    end = s.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        obj = json.loads(s[start : end + 1])
+        return obj if isinstance(obj, dict) else None
+    except (ValueError, TypeError):
+        return None
+
+
+def _coerce_verdict_payload(data: dict[str, Any]) -> dict[str, Any]:
+    """Normalise common DeepSeek / loose-schema variants into LLMVerdict fields."""
+    summary = (
+        data.get("summary")
+        or data.get("assessment")
+        or data.get("explanation")
+        or data.get("reason")
+        or ""
+    )
+    summary = str(summary).strip()
+    if len(summary) > 500:
+        summary = summary[:497] + "..."
+    if not summary:
+        summary = "Model returned no summary; manual review required."
+
+    raw_v = data.get("verdict") or data.get("judgment") or data.get("label") or "needs_review"
+    v_key = str(raw_v).strip().lower().replace("-", " ")
+    v_key_us = v_key.replace(" ", "_")
+    if v_key in _VERDICT_ALIASES:
+        verdict = _VERDICT_ALIASES[v_key]
+    elif v_key_us in _VERDICT_ALIASES:
+        verdict = _VERDICT_ALIASES[v_key_us]
+    elif str(raw_v) in {"looks_legit", "suspicious", "needs_review"}:
+        verdict = str(raw_v)
+    else:
+        verdict = "needs_review"
+
+    conf = data.get("confidence", data.get("score", 0.5))
+    try:
+        conf_f = float(conf)
+    except (TypeError, ValueError):
+        conf_f = 0.5
+    conf_f = max(0.0, min(1.0, conf_f))
+
+    next_step = (
+        data.get("next_step")
+        or data.get("action")
+        or data.get("recommendation")
+        or "Inspect the cited location and source data manually."
+    )
+    next_step = str(next_step).strip()
+    if len(next_step) > 200:
+        next_step = next_step[:197] + "..."
+    if len(next_step) < 5:
+        next_step = "Inspect the cited location and source data manually."
+
+    return {
+        "summary": summary,
+        "verdict": verdict,
+        "confidence": conf_f,
+        "next_step": next_step,
+    }
+
+
+def _safe_parse(raw: str | None) -> LLMVerdict | None:
+    """Parse LLM text into LLMVerdict; tolerate fences, prose, alias labels."""
+    if raw is None:
+        return None
+    data = _extract_json_object(raw)
+    if data is None:
+        log.debug("llm verdict: no JSON object in response")
+        return None
+    try:
+        cleaned = _coerce_verdict_payload(data)
+        return LLMVerdict.model_validate(cleaned)
+    except ValidationError as exc:
+        log.debug("llm verdict parse failed", extra={"err": str(exc)})
+        return None
 
 
 # ---------- shared ----------
@@ -993,8 +1087,37 @@ class OpenAILLM:
             return None
         return verdict
 
-    def _call(self, finding: Finding, strict_json: bool = False) -> str | None:
-        prompt = _build_prompt(finding, strict_json=strict_json)
+    def analyze_findings_batch(
+        self,
+        findings: list[Finding],
+        *,
+        ids: list[str] | None = None,
+    ) -> dict[str, LLMVerdict]:
+        from ..enrichment import _batch_prompt, _parse_batch_response
+
+        if not self.is_available() or not findings:
+            return {}
+        id_list = ids or [f.finding_id for f in findings]
+        items = list(zip(id_list, findings))
+        prompt = _batch_prompt(items)
+        try:
+            raw = self._call_raw_prompt(prompt, max_tokens=2500)
+            out = _parse_batch_response(raw, id_list)
+            missing = [it for it in items if it[0] not in out]
+            if missing:
+                raw2 = self._call_raw_prompt(
+                    prompt + "\nOutput ONLY a JSON array.",
+                    max_tokens=2500,
+                )
+                out.update(_parse_batch_response(raw2, [m[0] for m in missing]))
+            return out
+        except Exception as exc:  # noqa: BLE001
+            log.warning("openai batch llm failed", extra={"err": str(exc)})
+            return {}
+
+    def _call_raw_prompt(
+        self, prompt: str, *, max_tokens: int = 800
+    ) -> str | None:
         timeout = float(get_settings().llm_call_timeout_seconds)
         with httpx.Client(timeout=timeout) as client:
             resp = client.post(
@@ -1007,12 +1130,18 @@ class OpenAILLM:
                         {"role": "user", "content": prompt},
                     ],
                     "temperature": 0.0,
-                    "max_tokens": 400,
+                    "max_tokens": max_tokens,
                 },
             )
             resp.raise_for_status()
             data = resp.json()
         return data["choices"][0]["message"]["content"]
+
+    def _call(self, finding: Finding, strict_json: bool = False) -> str | None:
+        prompt = _build_prompt(finding, strict_json=strict_json)
+        return self._call_raw_prompt(
+            prompt, max_tokens=400 if not strict_json else 600
+        )
 
 
 # ---------- Anthropic ----------
@@ -1256,6 +1385,24 @@ class AnthropicLLM:
             btype = getattr(block, "type", "")
             if btype == "text":
                 blocks.append({"type": "text", "text": getattr(block, "text", "")})
+            elif btype == "thinking":
+                # DeepSeek / extended-thinking models: must echo
+                # thinking (+ signature) on the next request or the
+                # API returns 400 invalid_request_error.
+                blocks.append(
+                    {
+                        "type": "thinking",
+                        "thinking": getattr(block, "thinking", "") or "",
+                        "signature": getattr(block, "signature", "") or "",
+                    }
+                )
+            elif btype == "redacted_thinking":
+                blocks.append(
+                    {
+                        "type": "redacted_thinking",
+                        "data": getattr(block, "data", "") or "",
+                    }
+                )
             elif btype == "tool_use":
                 blocks.append(
                     {
@@ -1306,7 +1453,9 @@ class AnthropicLLM:
             )
             yield resp
             return
-        anthropic_messages = _to_anthropic_messages(messages)
+        anthropic_messages, system_text = _to_anthropic_messages(
+            messages
+        )
         anthropic_tools = None
         if tools:
             anthropic_tools = [
@@ -1325,29 +1474,50 @@ class AnthropicLLM:
             # stream object; the
             # iteration that follows is
             # the same as before.
+            # System prompt is a top-level
+            # Anthropic field (same as
+            # non-stream ``chat()``) — never
+            # re-role as user (that created
+            # consecutive user messages and
+            # DeepSeek 400s under tools).
+            stream_kwargs: dict[str, Any] = {
+                "model": self._model,
+                "max_tokens": max_tokens,
+                "messages": anthropic_messages,
+                "tools": anthropic_tools,
+                "stream": True,
+                "timeout": float(
+                    get_settings().llm_stream_timeout_seconds
+                ),
+            }
+            if system_text:
+                from ..prompt_cache import (
+                    build_anthropic_cache_metadata,
+                )
+
+                ttl = get_settings().prompt_cache_ttl
+                stream_kwargs["system"] = [
+                    {
+                        "type": "text",
+                        "text": system_text,
+                        "cache_control": (
+                            build_anthropic_cache_metadata(ttl)
+                        ),
+                    }
+                ]
             stream = _anthropic_create_with_retry(
                 self._sdk(),
-                model=self._model,
-                max_tokens=max_tokens,
-                messages=anthropic_messages,
-                tools=anthropic_tools,
-                stream=True,
-                timeout=float(
-                    get_settings()
-                    .llm_stream_timeout_seconds
-                ),
+                **stream_kwargs,
             )
         except Exception as exc:  # noqa: BLE001
             log.warning(
-                "anthropic chat_stream failed",
+                "anthropic chat_stream failed; falling back to non-stream chat",
                 extra={"err": str(exc)},
             )
-            yield ChatResponse(
-                content_blocks=[
-                    {"type": "text", "text": _format_llm_error(exc)}
-                ],
-                stop_reason="end_turn",
-                model=self._model,
+            # Prefer a real completion over an error bubble —
+            # thinking models + multi-turn need full blocks.
+            yield self.chat(
+                messages, tools, max_tokens=max_tokens, session_id=session_id
             )
             return
         # Track the currently-open tool_use
@@ -1357,101 +1527,167 @@ class AnthropicLLM:
         # accumulate the fragments and feed
         # the best-effort parsed object into
         # the merged() fold on every chunk.
+        #
+        # Thinking (DeepSeek / extended thinking):
+        # ``thinking_delta`` fragments must be
+        # *concatenated*, and ``signature_delta``
+        # must be attached — the next request
+        # requires both or the API returns 400.
         pending_tool_name: str = ""
         pending_tool_input_parts: list[str] = []
         pending_tool_id: str = ""
-        for event in stream:
-            new_blocks: list[dict[str, Any]] = []
-            stop_reason = ""
-            usage: dict[str, Any] = {}
-            event_type = getattr(event, "type", None)
-            if event_type == "content_block_start":
-                block = getattr(event, "content_block", None)
-                if block is None:
-                    continue
-                btype = getattr(block, "type", None)
-                if btype == "text":
-                    new_blocks.append({"type": "text", "text": ""})
-                elif btype == "tool_use":
-                    pending_tool_name = (
-                        getattr(block, "name", "") or ""
-                    )
-                    pending_tool_id = (
-                        getattr(block, "id", "") or ""
-                    )
-                    pending_tool_input_parts = []
-                    new_blocks.append({
-                        "type": "tool_use",
-                        "id": pending_tool_id,
-                        "name": pending_tool_name,
-                        "input": {},
-                    })
-            elif event_type == "content_block_delta":
-                delta = getattr(event, "delta", None)
-                if delta is None:
-                    continue
-                dtype = getattr(delta, "type", None)
-                if dtype == "text_delta":
-                    text_fragment = getattr(delta, "text", "") or ""
-                    if text_fragment:
-                        new_blocks.append({
-                            "type": "text",
-                            "text": text_fragment,
-                        })
-                elif dtype == "input_json_delta":
-                    fragment = getattr(
-                        delta, "partial_json", ""
-                    ) or ""
-                    if fragment:
-                        pending_tool_input_parts.append(fragment)
-                        tentative = _safe_json_loads(
-                            "".join(pending_tool_input_parts)
+        pending_thinking: str = ""
+        pending_thinking_sig: str = ""
+        thinking_open: bool = False
+        try:
+            for event in stream:
+                new_blocks: list[dict[str, Any]] = []
+                stop_reason = ""
+                usage: dict[str, Any] = {}
+                event_type = getattr(event, "type", None)
+                if event_type == "content_block_start":
+                    block = getattr(event, "content_block", None)
+                    if block is None:
+                        continue
+                    btype = getattr(block, "type", None)
+                    if btype == "text":
+                        new_blocks.append({"type": "text", "text": ""})
+                    elif btype == "thinking":
+                        thinking_open = True
+                        pending_thinking = getattr(block, "thinking", "") or ""
+                        pending_thinking_sig = (
+                            getattr(block, "signature", "") or ""
                         )
-                        if tentative is None:
-                            tentative = {}
+                        new_blocks.append(
+                            {
+                                "type": "thinking",
+                                "thinking": pending_thinking,
+                                "signature": pending_thinking_sig,
+                            }
+                        )
+                    elif btype == "redacted_thinking":
+                        new_blocks.append(
+                            {
+                                "type": "redacted_thinking",
+                                "data": getattr(block, "data", "") or "",
+                            }
+                        )
+                    elif btype == "tool_use":
+                        pending_tool_name = (
+                            getattr(block, "name", "") or ""
+                        )
+                        pending_tool_id = (
+                            getattr(block, "id", "") or ""
+                        )
+                        pending_tool_input_parts = []
                         new_blocks.append({
                             "type": "tool_use",
                             "id": pending_tool_id,
                             "name": pending_tool_name,
-                            "input": tentative,
+                            "input": {},
                         })
-            elif event_type == "message_delta":
-                # Anthropic's MessageDeltaEvent
-                # carries both the final
-                # ``stop_reason`` AND the final
-                # ``usage`` on the inner
-                # ``delta`` object. The
-                # stop_reason sits at
-                # ``event.delta.stop_reason``;
-                # the usage sits at
-                # ``event.delta.usage``. (It
-                # also shows up on
-                # ``event.usage`` in some SDK
-                # versions; we check both for
-                # safety.)
-                delta = getattr(event, "delta", None)
-                if delta is not None:
-                    sr = getattr(delta, "stop_reason", None)
-                    if sr:
-                        stop_reason = sr
-                usage_obj = (
-                    getattr(delta, "usage", None)
-                    if delta is not None else None
-                ) or getattr(event, "usage", None)
-                if usage_obj is not None:
-                    usage = (
-                        usage_obj.model_dump()
-                        if hasattr(usage_obj, "model_dump")
-                        else dict(usage_obj)
-                    )
-            delta_resp = ChatResponse(
-                content_blocks=new_blocks,
-                stop_reason=stop_reason,
-                usage=usage,
-                model=self._model,
+                elif event_type == "content_block_delta":
+                    delta = getattr(event, "delta", None)
+                    if delta is None:
+                        continue
+                    dtype = getattr(delta, "type", None)
+                    if dtype == "text_delta":
+                        text_fragment = getattr(delta, "text", "") or ""
+                        if text_fragment:
+                            new_blocks.append({
+                                "type": "text",
+                                "text": text_fragment,
+                            })
+                    elif dtype == "thinking_delta":
+                        frag = getattr(delta, "thinking", None)
+                        if frag is None:
+                            frag = getattr(delta, "text", "") or ""
+                        pending_thinking += str(frag or "")
+                        thinking_open = True
+                        new_blocks.append(
+                            {
+                                "type": "thinking",
+                                "thinking": pending_thinking,
+                                "signature": pending_thinking_sig,
+                            }
+                        )
+                    elif dtype == "signature_delta":
+                        sig = getattr(delta, "signature", "") or ""
+                        if sig:
+                            pending_thinking_sig = sig
+                        thinking_open = True
+                        new_blocks.append(
+                            {
+                                "type": "thinking",
+                                "thinking": pending_thinking,
+                                "signature": pending_thinking_sig,
+                            }
+                        )
+                    elif dtype == "input_json_delta":
+                        fragment = getattr(
+                            delta, "partial_json", ""
+                        ) or ""
+                        if fragment:
+                            pending_tool_input_parts.append(fragment)
+                            tentative = _safe_json_loads(
+                                "".join(pending_tool_input_parts)
+                            )
+                            if tentative is None:
+                                tentative = {}
+                            new_blocks.append({
+                                "type": "tool_use",
+                                "id": pending_tool_id,
+                                "name": pending_tool_name,
+                                "input": tentative,
+                            })
+                elif event_type == "content_block_stop":
+                    if thinking_open and (
+                        pending_thinking or pending_thinking_sig
+                    ):
+                        new_blocks.append(
+                            {
+                                "type": "thinking",
+                                "thinking": pending_thinking,
+                                "signature": pending_thinking_sig,
+                            }
+                        )
+                        thinking_open = False
+                elif event_type == "message_delta":
+                    delta = getattr(event, "delta", None)
+                    if delta is not None:
+                        sr = getattr(delta, "stop_reason", None)
+                        if sr:
+                            stop_reason = sr
+                    usage_obj = (
+                        getattr(delta, "usage", None)
+                        if delta is not None else None
+                    ) or getattr(event, "usage", None)
+                    if usage_obj is not None:
+                        usage = (
+                            usage_obj.model_dump()
+                            if hasattr(usage_obj, "model_dump")
+                            else dict(usage_obj)
+                        )
+                if not new_blocks and not stop_reason and not usage:
+                    continue
+                delta_resp = ChatResponse(
+                    content_blocks=new_blocks,
+                    stop_reason=stop_reason,
+                    usage=usage,
+                    model=self._model,
+                )
+                accumulated = accumulated.merged(delta_resp)
+                yield accumulated
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "anthropic chat_stream iteration failed; "
+                "falling back to non-stream chat",
+                extra={"err": str(exc)},
             )
-            accumulated = accumulated.merged(delta_resp)
-            yield accumulated
+            yield self.chat(
+                messages, tools, max_tokens=max_tokens, session_id=session_id
+            )
+            return
 
     def analyze_finding(self, finding: Finding) -> LLMVerdict | None:
         if not self.is_available():
@@ -1464,26 +1700,110 @@ class AnthropicLLM:
             return None
         return verdict
 
-    def _call(self, finding: Finding, strict_json: bool = False) -> str | None:
-        prompt = _build_prompt(finding, strict_json=strict_json)
+    def analyze_findings_batch(
+        self,
+        findings: list[Finding],
+        *,
+        ids: list[str] | None = None,
+    ) -> dict[str, LLMVerdict]:
+        """Batch enrichment: one Messages call → map id → LLMVerdict."""
+        from ..enrichment import _batch_prompt, _parse_batch_response
+
+        if not self.is_available() or not findings:
+            return {}
+        id_list = ids or [f.finding_id for f in findings]
+        items = list(zip(id_list, findings))
+        prompt = _batch_prompt(items)
+        try:
+            raw = self._call_raw_prompt(prompt, max_tokens=2500)
+            out = _parse_batch_response(raw, id_list)
+            missing = [it for it in items if it[0] not in out]
+            if missing:
+                raw2 = self._call_raw_prompt(
+                    prompt + "\nOutput ONLY a JSON array.",
+                    max_tokens=2500,
+                )
+                out.update(_parse_batch_response(raw2, [m[0] for m in missing]))
+            return out
+        except Exception as exc:  # noqa: BLE001
+            log.warning("anthropic batch llm failed", extra={"err": str(exc)})
+            return {}
+
+    def _call_raw_prompt(
+        self, prompt: str, *, max_tokens: int = 1200
+    ) -> str | None:
         timeout = float(get_settings().llm_call_timeout_seconds)
+        base = (self._base_url or "https://api.anthropic.com").rstrip("/")
+        url = f"{base}/messages" if base.endswith("/v1") else f"{base}/v1/messages"
         with httpx.Client(timeout=timeout) as client:
             resp = client.post(
-                "https://api.anthropic.com/v1/messages",
+                url,
                 headers={
                     "x-api-key": self._api_key or "",
                     "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
                 },
                 json={
                     "model": self._model,
-                    "max_tokens": 400,
+                    "max_tokens": max_tokens,
                     "system": _SYSTEM_PROMPT,
                     "messages": [{"role": "user", "content": prompt}],
                 },
             )
             resp.raise_for_status()
             data = resp.json()
-        return data["content"][0]["text"]
+        return _anthropic_content_text(data.get("content"))
+
+    def _call(self, finding: Finding, strict_json: bool = False) -> str | None:
+        """Enrichment HTTP call via Anthropic-compatible Messages API.
+
+        Uses ``settings.anthropic_base_url`` so DeepSeek
+        (``https://api.deepseek.com/anthropic``) and other Anthropic-
+        compatible proxies work. Official Anthropic remains the default
+        when base_url is unset / points at api.anthropic.com.
+
+        Response content may include ``thinking`` blocks before ``text``
+        (DeepSeek reasoner / v4); we return the first text block.
+        """
+        prompt = _build_prompt(finding, strict_json=strict_json)
+        max_tokens = 800 if strict_json else 1200
+        return self._call_raw_prompt(prompt, max_tokens=max_tokens)
+
+
+def _anthropic_content_text(content: Any) -> str | None:
+    """Extract assistant text from Anthropic-style content blocks.
+
+    Prefers ``type=text`` blocks; skips thinking/tool_use. Falls back to
+    first string-like block for older/nonstandard proxies.
+    """
+    if content is None:
+        return None
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return None
+    texts: list[str] = []
+    for block in content:
+        if isinstance(block, str):
+            texts.append(block)
+            continue
+        if not isinstance(block, dict):
+            # SDK object
+            btype = getattr(block, "type", None)
+            if btype == "text":
+                t = getattr(block, "text", None)
+                if t:
+                    texts.append(str(t))
+            continue
+        if block.get("type") == "text" and block.get("text"):
+            texts.append(str(block["text"]))
+    if texts:
+        return "\n".join(texts).strip() or None
+    # Last resort: first block with a text field
+    for block in content:
+        if isinstance(block, dict) and block.get("text"):
+            return str(block["text"])
+    return None
 
 
 # ---------- schema validation + retry ----------
@@ -1518,34 +1838,30 @@ def _to_openai_messages(
 
 def _to_anthropic_messages(
     messages: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Translate our provider-agnostic message
-    list into the Anthropic wire format. The
-    system prompt is a separate top-level
-    field, not a messages entry, so we
-    extract it from ``messages[0]`` when its
-    role is ``"system"`` and drop it from
-    the messages list."""
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Translate provider-agnostic messages to Anthropic wire format.
+
+    Returns ``(messages_without_system, system_text)``.
+
+    Anthropic requires ``system`` as a *top-level* field, not a
+    ``role=system`` entry in ``messages``. Historically this helper
+    re-labeled system → user, which produced **two consecutive user
+    messages** (system body + real user) and caused DeepSeek/Anthropic
+    gateways to return ``400 invalid_request_error`` when tools were
+    attached. Non-stream ``chat()`` already extracted system correctly;
+    stream now matches that contract.
+    """
     out: list[dict[str, Any]] = []
+    system_parts: list[str] = []
     for m in messages:
         role = m.get("role", "user")
         if role == "system":
-            # Anthropic takes the system
-            # prompt as a top-level
-            # ``system`` field, not a
-            # message. We drop it here and
-            # let the caller add it back —
-            # in practice the agent loop
-            # already passes it as a
-            # regular message and the
-            # SDK is lenient. We do not
-            # pull it out here; the SDK
-            # accepts a system-prompt role
-            # in messages[0] and treats it
-            # as the system prompt.
-            out.append({"role": "user", "content": m.get("content", "")})
-        else:
-            out.append({"role": role, "content": m.get("content", "")})
-    return out
+            content = m.get("content", "")
+            if content:
+                system_parts.append(str(content))
+            continue
+        out.append({"role": role, "content": m.get("content", "")})
+    system_text = "\n".join(system_parts) if system_parts else None
+    return out, system_text
 
 

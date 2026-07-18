@@ -94,6 +94,39 @@ def test_fires_vague_availability_red_flag() -> None:
     )
 
 
+def test_fires_frontiers_further_inquiries_hedge() -> None:
+    """Frontiers OA template: 'Further inquiries can be directed to'."""
+    det = DataAvailabilityConcernDetector()
+    doc = _doc(
+        "Data Availability Statement The original contributions "
+        "presented in the study are included in the article. "
+        "Further inquiries can be directed to the corresponding "
+        "author(s).",
+        trace_id="t-frontiers",
+    )
+    result = det.run(doc)
+    flagged = [f for f in result.findings if f.severity == "medium"]
+    assert any(
+        "vague_availability" in (f.evidence or "") for f in flagged
+    ), [f.evidence for f in result.findings]
+
+
+def test_fires_frontiers_without_undue_reservation() -> None:
+    """Frontiers psych/clinical template without repository DOI."""
+    det = DataAvailabilityConcernDetector()
+    doc = _doc(
+        "Data availability statement The raw data supporting the "
+        "conclusions of this article will be made available by the "
+        "authors, without undue reservation. Author contributions.",
+        trace_id="t-frontiers-res",
+    )
+    result = det.run(doc)
+    flagged = [f for f in result.findings if f.severity == "medium"]
+    assert any(
+        "vague_availability" in (f.evidence or "") for f in flagged
+    ), [f.evidence for f in result.findings]
+
+
 def test_fires_raw_data_unavailable_red_flag() -> None:
     """The most-severe red-flag phrase: 'raw data are no
     longer available'."""
@@ -268,3 +301,75 @@ def test_section_extractor_handles_newline_heading() -> None:
     section = _extract_data_availability_section(text)
     assert section is not None
     assert "raw data are available" in section.lower()
+
+
+# ---------------------------------------------------------------------------
+# 2026-07 additions (fraud_web_v1 gap analysis)
+# ---------------------------------------------------------------------------
+
+
+def test_fires_low_for_within_manuscript_only() -> None:
+    """PLOS boilerplate 'All relevant data are within the
+    manuscript' means no underlying dataset was deposited --
+    a LOW concern signal (retracted COPD RCT web_plos_01)."""
+    det = DataAvailabilityConcernDetector()
+    doc = _doc(
+        "Data Availability: All relevant data are within the "
+        "manuscript and its Supporting Information files. "
+        "Funding: none.",
+        trace_id="t-within",
+    )
+    result = det.run(doc)
+    low = [f for f in result.findings if f.severity == "low"]
+    assert any(
+        "within_manuscript_only" in (f.evidence or "") for f in low
+    )
+    # never a high/medium for this class
+    assert [f for f in result.findings if f.severity in ("high", "medium")] == []
+
+
+def test_fires_low_for_available_only_within_paper() -> None:
+    """Awkward 'available only within the paper' phrasing from
+    the retracted nanofluid paper (web_sci_02)."""
+    det = DataAvailabilityConcernDetector()
+    doc = _doc(
+        "Data availability The results of this study are "
+        "available only within the paper to support the data.",
+        trace_id="t-only",
+    )
+    result = det.run(doc)
+    low = [f for f in result.findings if f.severity == "low"]
+    assert any(
+        "within_manuscript_only" in (f.evidence or "") for f in low
+    )
+
+
+def test_fires_low_for_not_applicable_availability() -> None:
+    """An empirical western-blot study whose availability
+    statement is 'Not applicable' (retracted web_spandidos_02)
+    gets a LOW not_applicable finding."""
+    det = DataAvailabilityConcernDetector()
+    doc = _doc(
+        "Availability of data and materials Not applicable. "
+        "Authors' contributions MC and PH conceived the study.",
+        trace_id="t-na",
+    )
+    result = det.run(doc)
+    low = [f for f in result.findings if f.severity == "low"]
+    assert any(
+        "not_applicable" in (f.evidence or "") for f in low
+    )
+
+
+def test_external_deposition_is_fully_silent() -> None:
+    """A statement with a real repository DOI produces no
+    findings at all (no red flag, no low signal)."""
+    det = DataAvailabilityConcernDetector()
+    doc = _doc(
+        "Data Availability: The datasets generated during the "
+        "current study are available in the Zenodo repository, "
+        "https://doi.org/10.5281/zenodo.1234567",
+        trace_id="t-zenodo",
+    )
+    result = det.run(doc)
+    assert result.findings == []

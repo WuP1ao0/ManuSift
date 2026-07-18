@@ -19,6 +19,7 @@ from manusift.detectors.image_forensics import (
     ImageForensicsDetector,
     _copy_move_pairs,
     _ela_std,
+    _is_decorative_or_too_small,
 )
 
 
@@ -600,3 +601,79 @@ def test_ela_severity_3x_threshold_is_high(
     ela = [f for f in result.findings if f.raw.get("kind") == "ela"]
     assert len(ela) == 1
     assert ela[0].severity == "high"
+
+def test_decorative_tiny_icon_skipped() -> None:
+    """1KB-class icons must not enter texture / copy-move / ELA."""
+    img = ExtractedImage(
+        page=0,
+        index=0,
+        xref=0,
+        phash="0" * 16,
+        width=20,
+        height=20,
+        bytes_size=1094,
+        exif={},
+        image_path=None,
+    )
+    assert _is_decorative_or_too_small(img) is True
+
+
+def test_full_image_duplicate_flags_identical_files(tmp_path: Path) -> None:
+    rng = np.random.default_rng(99)
+    arr = rng.integers(0, 255, (128, 128, 3), dtype=np.uint8)
+    im = Image.fromarray(arr)
+    p1 = tmp_path / "a.png"
+    p2 = tmp_path / "b.png"
+    im.save(p1)
+    im.save(p2)
+    det = ImageForensicsDetector()
+    doc = _make_doc(
+        "t-full-dup",
+        _make_extracted_image(p1, page=0, index=0),
+        _make_extracted_image(p2, page=0, index=1),
+    )
+    result = det.run(doc)
+    dups = [f for f in result.findings if f.raw.get("kind") == "full_image_duplicate"]
+    assert len(dups) == 1
+    assert dups[0].severity == "high"
+    assert dups[0].raw["count"] == 2
+
+
+def test_summary_finding_always_present(tmp_path: Path) -> None:
+    img = Image.new("RGB", (128, 128), (40, 40, 40))
+    p = tmp_path / "plain.png"
+    img.save(p)
+    det = ImageForensicsDetector()
+    result = det.run(_make_doc("t-sum", _make_extracted_image(p)))
+    summaries = [
+        f for f in result.findings if f.raw.get("kind") == "image_forensics_summary"
+    ]
+    assert len(summaries) == 1
+    assert "risk=" in summaries[0].title
+    assert summaries[0].raw["n_images"] == 1
+
+
+def test_tiny_identical_icons_not_texture_or_full_dup(tmp_path: Path) -> None:
+    """Nature-style repeated 1KB chrome must not raise high texture_overlap."""
+    icon = Image.new("RGB", (24, 24), (200, 10, 10))
+    p1 = tmp_path / "i1.png"
+    p2 = tmp_path / "i2.png"
+    icon.save(p1)
+    icon.save(p2)
+    e1 = _make_extracted_image(p1, page=2, index=3)
+    e2 = _make_extracted_image(p2, page=2, index=5)
+    # Force tiny geometry metadata if PIL size differs
+    e1 = ExtractedImage(
+        page=2, index=3, xref=0, phash="a" * 16,
+        width=24, height=24, bytes_size=p1.stat().st_size,
+        image_path=str(p1),
+    )
+    e2 = ExtractedImage(
+        page=2, index=5, xref=0, phash="a" * 16,
+        width=24, height=24, bytes_size=p2.stat().st_size,
+        image_path=str(p2),
+    )
+    result = ImageForensicsDetector().run(_make_doc("t-icons", e1, e2))
+    kinds = {f.raw.get("kind") for f in result.findings}
+    assert "texture_overlap" not in kinds
+    assert "full_image_duplicate" not in kinds

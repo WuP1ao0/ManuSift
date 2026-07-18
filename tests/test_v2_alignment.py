@@ -30,16 +30,27 @@ import sys
 import pytest
 
 
-REPO = Path(r"C:\Users\22509\Desktop\ManuSift1").resolve()
+REPO = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO / "real_eval_fraud_cases_v2" / "scripts"
 BASE = REPO / "real_eval_fraud_cases_v2" / "cases"
 
 
 @pytest.fixture(scope="module")
 def alignment_module():
-    sys.path.insert(0, str(SCRIPTS))
-    import build_alignment  # type: ignore[import-not-found]
-    return build_alignment
+    # Another test file (test_alignment_fig_page.py) imports a
+    # *different* ``build_alignment`` (same module name, from
+    # manusift_benchmarks/officially_flagged_cases_v2) at
+    # collection time. A plain ``import build_alignment`` here
+    # would return that cached module and crash with TypeError.
+    # Load the v2 script under a unique module name instead.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "v2_build_alignment", SCRIPTS / "build_alignment.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
 
 
 def _make_target(

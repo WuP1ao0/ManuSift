@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "manusift"
-version = "0.1.0"
+version = "0.1.0b1"
 description = "ManuSift — paper-integrity screener (PDF + figures -> forgery-suspect report)"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -87,6 +87,23 @@ dependencies = [
     "python-docx>=1.1",
     "python-pptx>=0.6.21",
     "nbformat>=5.9",
+    # Agent runtime (PydanticAI) + MCP tool surface.
+    # Domain Kernel stays in manusift.*; these only
+    # drive the ReAct loop and external tool I/O.
+    "pydantic-ai>=0.0.24",
+    "mcp>=1.0",
+    # Image-forensics core stack. Declared as base deps
+    # (2026-07-18) because the default pipeline's image
+    # detectors (image_dup / image_forensics / ssim /
+    # page_raster / chart_data_extract / forest_plot)
+    # silently no-op without them. All are imported
+    # lazily at detector run time; opencv is the
+    # headless build (no GUI libs needed).
+    "numpy>=1.26",
+    "opencv-python-headless>=4.8",
+    "imagehash>=4.3",
+    "scipy>=1.11",
+    "scikit-image>=0.22",
 ]
 
 [project.optional-dependencies]
@@ -111,22 +128,33 @@ dev = [
     # legacy code).
     "ruff>=0.6",
 ]
+# Optional image-forensics stacks (not required for default SIFT path).
+image-extra = [
+    # Install from GitHub until PyPI release:
+    #   pip install "manusift[image-extra]"
+    #   pip install -e git+https://github.com/photoholmes/photoholmes.git#egg=photoholmes
+]
+# Heavy OCR path (EasyOCR + torch, ~2 GB). Enables the
+# figure_grim / figure_stat_text / figure_table_ocr
+# detectors. The default pipeline runs without it --
+# those detectors degrade gracefully to empty results.
+ocr = [
+    "easyocr>=1.7",
+]
 
 [project.scripts]
-# R-2026-06-12: ``manusift`` now launches the chat TUI
-# (the ``manusift/tui/chat_app.py`` interface) so the
-# user gets the conversational review experience by
-# default. ``manusift-workspace`` is the
-# workspace-browser TUI (``manusift/tui/app.py``), and
-# the old ``manusift-analyze`` still runs the PDF
-# analyzer for debugging.
-manusift = "manusift.tui.chat_app:main"
-manusift-workspace = "manusift.tui.app:main"
+# Product shape B+C (2026-07): batch screen CLI + MCP tools.
+# Conversational chat is NOT the default (surface A removed).
+#   manusift screen <pdf>   — offline pipeline
+#   manusift mcp            — Domain Kernel over stdio
+manusift = "manusift.cli:main"
 manusift-analyze = "manusift.cli:main"
+manusift-mcp = "manusift.mcp.server:main"
+# Optional: job-workspace browser (not chat)
+manusift-workspace = "manusift.tui.app:main"
+manusift-tui = "manusift.tui.app:main"
 manusift-evals = "evals.runner:main"
 manusift-evals-e2e = "evals.e2e:main"
-manusift-tui = "manusift.tui.app:main"
-manusift-chat = "manusift.tui.chat_app:main"
 manusift-compact-chats = "manusift.compaction:main"
 manusift-evidence-report = "manusift.report.evidence_cli:main"
 

@@ -77,13 +77,14 @@ covered:
 """
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 import pytest
 from openpyxl import Workbook
 
-sys.path.insert(0, r"C:\Users\22509\Desktop\ManuSift1")
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from manusift.tools.safe_read_b import (
     detect_xlsx_figs,
@@ -476,10 +477,27 @@ class TestExtractXlsxTextSingleTable:
 # ============================================================================
 
 
-REAL_FILE = (
-    r"C:\Users\22509\ZCodeProject\s41565-025-02082-0"
-    r"\Source_Data_MOESM3.xlsx"
+# Real Nature SI file (not tracked in git). Override the case
+# directory with ``MANUSIFT_PILOT_VAULT``; the SI xlsx is looked
+# up under the usual layouts. Missing file -> tests skip.
+_S41565_CASE = Path(
+    os.environ.get(
+        "MANUSIFT_PILOT_VAULT",
+        Path(__file__).resolve().parents[1]
+        / "docs"
+        / "s41565-025-02082-0",
+    )
 )
+REAL_FILE = str(
+    _S41565_CASE
+    / "materials"
+    / "supplementary"
+    / "MOESM3_supplementary_data.xlsx"
+)
+if not Path(REAL_FILE).exists():
+    _alt = _S41565_CASE / "Source_Data_MOESM3.xlsx"
+    if _alt.exists():
+        REAL_FILE = str(_alt)
 
 
 @pytest.mark.skipif(

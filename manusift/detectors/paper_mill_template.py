@@ -96,6 +96,9 @@ _NON_STANDARD: dict[str, str] = {
     "literature review": "Introduction",
     "theoretical framework": "Introduction",
     "theoretical background": "Introduction",
+    # CS paper-mill headings (fraud_web_v1 web_sci_01,
+    # retracted over non-standard terminology).
+    "associated works": "Related work",
 }
 
 
@@ -178,7 +181,14 @@ class PaperMillTemplateDetector:
     HIGH_SEVERITY_THRESHOLD = 3
 
     def run(self, doc: ParsedDoc) -> DetectorResult:
-        text = " ".join(
+        # Join with newlines, NOT spaces: heading extraction
+        # is line-based (``_extract_headings`` uses
+        # ``splitlines``), and a space join collapses every
+        # block onto one giant line, silently hiding headings
+        # that live in their own text block (e.g. PLOS
+        # "Material and methods"). Regression from
+        # fraud_web_v1 (web_plos_02 / web_sci_01).
+        text = "\n".join(
             getattr(b, "text", "") for b in doc.text_blocks
         )
         if not text:

@@ -64,95 +64,51 @@ manusift-mcp --list-tools          # same server entry point
 # { "command": "manusift-mcp", "args": [], "env": { "MANUSIFT_WORKSPACE_DIR": "..." } }
 ```
 
-See `docs/mcp/README.md` for MCP client config. Agent-loop migration notes
-remain in `docs/AGENT_RUNTIME_MIGRATION.md` for optional chat use.
+See `docs/mcp/README.md` for MCP client config; the agent-runtime
+(PydanticAI + MCP) architecture is documented in
+`docs/AGENT_RUNTIME_MIGRATION.md`.
 
-## Status (2026-06)
+## Status (2026-07, beta)
 
-**482 pytest + 4 skip, 6 eval cases passing (5+1), 6 console scripts,
-13 slash commands.**
+**~2300 pytest (0 failed), 6 eval cases + 6 e2e eval passing,
+9 console scripts, 48 registered detectors (39 in pipeline),
+40 curated MCP tools.**
 
-ManuSift has completed:
+Current capabilities:
 
-- **Step 1–8** — blueprint, image forensics, text patterns, eval
-  suite, e2e eval, real LLM enrichment, 4-column TUI, TUI filter
-- **H1–H5** — LLM schema validation, typed `DetectorResult`,
-  per-step checkpoint, real-time progress endpoint, detector
-  entry-points plugin
-- **J1–J5** — `Tool` Protocol, LLM `chat()` with tool use,
-  ReAct `AgentLoop`, tool entry-points plugin, chat TUI
-- **L1–L6** — SecretStr API keys, PDF size + magic check, CORS
-  + rate limiting, pip-audit, liveness/readiness probes,
-  tool-call audit log
-- **P0–P4.3** — structurel log, markdown reports, real streaming,
-  Skill system, Plan mode
-- **G1–G5 + G5.5** — HTTP retry + circuit-breaker, thread lock,
-  graceful shutdown, idempotency key, Prometheus metrics, SDK-level
-  retry (OpenAI + Anthropic + Crossref)
-- **E1–E5** — formatter registry, rate-limit strategy registry,
-  EventBus + webhooks, plugin self-config, hook registry
-- **T1–T1.4** — splash banner (cyber/vaporwave), in-TUI banner,
-  S-curve fix, TUI colors, token+cost status bar, spinner,
-  tool-call visual, 5 Claude-Code slash cmds
-- **A.5 + A.1 + A.4 + A.2 + A.3** — token-speed indicator, Shift+Tab
-  plan toggle, auto-accept mode, 2-pane chat, session tree
-- **Phase A-D (R-2026-06-17 → 2026-06-19)** — borrowed 16
-  hardening modules from Claude Code + Hermes:
-  - **Phase A** — 8 `read_file` guards: device block,
-    binary block, tilde expansion, `/proc` block,
-    char-limit guard, BOM strip, protected dir,
-    document extraction fallback.
-  - **Phase B** — 4 medium-cost: similar files
-    fuzzy match, mtime dedup + BLOCKED-after-2-hits,
-    `redact_sensitive_text` (30+ API-key prefix
-    regex), real `.docx` / `.xlsx` / `.ipynb`
-    extractors via `python-docx` / `openpyxl` /
-    `nbformat`.
-  - **Phase C** — `detect_xlsx_figs`: two-pass
-    header scan (top band + 50-row chunks) for
-    `Fig.<name>` / `Table <name>` / `Tab.<n>` /
-    `Figure <n>`. The fig-aware
-    `extract_xlsx_text` emits one `## Fig:` block
-    per panel with full (rows, cols) bbox +
-    200-row cap. Verified on the real Nature
-    `Source_Data_MOESM3.xlsx` (874 KB, 15 figs
-    across `Sfig.2` / `Sfig.3` / `Sfig.4`).
-  - **Phase D** — per-fig xlsx + per-fig detector
-    run. `ExtractedTable` got `fig_name` + `bbox`
-    fields. `parse_xlsx` splits multi-fig sheets
-    into per-fig records. `_format_table_label`
-    makes detector titles fig-aware
-    (`"Fig.S1a in Sfig.2 column 'X' violates Benford's law"`).
-    `DetectorToolAdapter` accepts a `table_ids`
-    list to scope a detector to a single fig
-    (`table_benford({table_ids: ["<x:...:Sfig.2:Fig.S1a>"]})`).
-    `ListDataSourcesTool` output includes
-    `fig_name` + 1-indexed `bbox`. The LLM can now
-    answer "check Fig.S1a only" instead of running
-    the detector on all 6 figs at once.
-
-## Quick start
-
-```bash
-# venv is reused; install in editable mode
-./.venv/Scripts/python.exe -m pip install -e ".[dev]"
-
-# Web server
-./.venv/Scripts/python.exe -m uvicorn manusift.web.app:app --port 8765
-
-# Or: chat TUI (LLM agent drives detector tools)
-manusift screen paper.pdf
-
-# Or: jobs dashboard TUI
-./.venv/Scripts/manusift-tui
-
-# Tests + evals
-./.venv/Scripts/python.exe -m pytest
-./.venv/Scripts/manusift-evals
-./.venv/Scripts/manusift-evals-e2e
-```
+- **Image forensics** — pHash/aHash/dHash multi-hash duplicate
+  detection, SIFT copy-move & cross-image matching, panel
+  segmentation + SSIM, page-raster tile duplicates, noise/ELA
+  inconsistency, AI-generated figure probes.
+- **Table & statistics** — Benford (domain-gated), duplicate /
+  near-duplicate rows, cross-sheet copy, round bias, outliers,
+  GRIM / GRIMMER bound, DEBIT, and a statcheck-style recomputation
+  of reported t / F / χ² / z / r statistics against their p-values
+  (rounding-interval judgement, one-tailed exemption,
+  decision-error flagging).
+- **Figure ↔ text cross-checks** — bar-chart geometry extraction,
+  figure-vs-table/prose percentage pairing, forest-plot rule
+  pipeline (CI order / asymmetry / null-line checks).
+- **Text & metadata** — tortured phrases (5,802-entry verified
+  dictionary), paper-mill template/authorship signals, PDF
+  metadata anomalies, reference duplication & format checks.
+- **External verification** (opt-in, cached) — Crossref citation
+  verification with offline replay, OpenAlex cited-retraction
+  checks, data-availability link resolution.
+- **Triage layer** — findings calibrated + aggregated into
+  *issues* (5–10× fewer review items), publisher-baseline
+  whitelist, optional LLM enrichment/adjudication (off by
+  default). Negative-control benchmark: **0.00 high-severity
+  findings per legit paper**; fraud benchmarks: **core recall
+  1.000** (see `benchmarks/`).
 
 ## Web API
+
+Start the server:
+
+```bash
+./.venv/Scripts/python.exe -m uvicorn manusift.web.app:app --port 8765
+```
 
 | Method | Path                                  | Purpose                           |
 |--------|---------------------------------------|-----------------------------------|
@@ -255,7 +211,7 @@ See `HANDOFF.md` §6 for the architecture overview. TL;DR:
 
 ```
 PDF → ingest (PyMuPDF) → pipeline detectors
-       (38 in pipeline; 3rd-party plugins via entry_points)
+       (39 in pipeline; 3rd-party plugins via entry_points)
      → calibration + issue aggregation
      → LLM enrichment/adjudication (off by default)
      → HTML reports + output/findings.json + steps/<idx>.json checkpoint
@@ -271,13 +227,13 @@ adapter.
 
 ```bash
 ./.venv/Scripts/python.exe -m pytest
-# 171 passed, 1 skipped in 5.82s
+# ~2300 passed, a few environment-gated skips
 
 ./.venv/Scripts/manusift-evals
 # 5 passed, 1 LLM-gated skip (set MANUSIFT_LLM_EVALS=1 to enable)
 
 ./.venv/Scripts/manusift-evals-e2e
-# 6 passed, 0 skipped
+# 6 passed
 ```
 
 ## Benchmark regression gate (P5.2)
@@ -308,12 +264,13 @@ CI wiring lives in `.github/workflows/benchmark_gate.yml`: the gate
 gitignored) from the `benchmark-data` GitHub Release asset — see the
 workflow header for the one-time upload command.
 
-## Production-grade checklist
+## Roadmap
 
-See `ROADMAP.md` for the current evolution plan. The
-P0 quick wins are all done (L1–L6). Next:
-
-- **P1**: SQLite job state, Celery + Redis queue, JWT auth,
-  Dockerfile + compose, GitHub Actions CI
-- **P2**: streaming chat output, plan mode, Skill system
-  (SKILL.md), subagents, tool audit log
+The 2026-07-18 roadmap (P1–P5: precision triage, external
+verification, MCP product surface, figure-text cross-checks, eval
+expansion + CI gate) is **complete** — see `ROADMAP.md` for
+acceptance records and `HANDOFF.md` for session-level technical
+notes. Registered follow-ups for future versions: cross-paper
+evidence comparison (retraction-database + image-fingerprint
+corpus), DePlot cross-validation for charts, adversarial
+("whitewashed") benchmark cases.

@@ -162,6 +162,18 @@ manusift-evidence-report = "manusift.report.evidence_cli:main"
 include = ["manusift*", "evals*"]
 exclude = ["tests*", "data*"]
 
+# Non-Python runtime data shipped inside the package: detector
+# dictionaries, calibration baselines, and the web dashboard's
+# static assets. Without this, a wheel/PyPI install silently
+# loses them (2026-07-18 wheel inspection).
+[tool.setuptools.package-data]
+manusift = [
+    "detectors/*.json",
+    "detectors/*.md",
+    "report/*.json",
+    "web/static/*",
+]
+
 [tool.pytest.ini_options]
 markers = [
     "slow: opt-in tests that need extra time (network, model download, etc.)",

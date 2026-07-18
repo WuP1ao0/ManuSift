@@ -1,4 +1,0 @@
-# Publisher landing pages / retraction notices downloaded as
-# benchmark gold evidence — not source code. Exclude them from
-# GitHub language statistics (and collapse in diffs by default).
-benchmarks/**/cases/** linguist-vendored

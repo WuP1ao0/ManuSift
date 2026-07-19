@@ -137,21 +137,26 @@ Open `investigation_pairs.html` or `report.html` in a browser. Optional LLM pack
 
 ## Capabilities
 
-**Status (beta):** 52 registered detectors · **44** offline pipeline · **8** agent-only
-(EXCLUDED from default pipeline) · **~80+** MCP tools by default (`--curated` for a
-smaller set) · 6 + 6 eval cases · CI runs a reproducible subset (not the full pytest tree).
+**Status (beta).** Detectors and MCP tools are **different counts**:
+
+| Layer | Count | Meaning |
+|-------|------:|---------|
+| **MCP tools (default)** | **~83** | Full Domain Kernel for other agents (`manusift mcp --list-tools`). Includes detector tools **plus** helpers (`ingest_from_path`, `screen_verdict`, `render_report`, vault/FS tools, …) |
+| MCP tools (`--curated`) | ~45 | Optional smaller allow-list (`MCP_DEFAULT_TOOLS`) |
+| Registered detectors | 52 | All detector classes in the package registry |
+| Offline pipeline (`manusift screen`) | **44** | Detectors that run in the default batch screen |
+| Pipeline-excluded (agent-only) | 8 | Still registered / callable via MCP; skipped offline to avoid double-count or heavy OCR cost |
+
+Also: 6 + 6 eval cases · 9 console scripts · CI runs a reproducible subset (not the full pytest tree).
 
 | Area | What ManuSift looks for |
 |------|-------------------------|
 | **Image forensics** | Multi-hash reuse (pHash/aHash/dHash), SIFT copy-move, panel + SSIM, page-raster tiles, noise/ELA, AI-figure probes |
 | **Tables & statistics** | Benford (gated), row/near-dup, cross-sheet copy, round bias, outliers, GRIM/GRIMMER, DEBIT, statcheck-style *t/F/χ²/z/r* vs *p* |
 | **Figure ↔ text** | Bar-chart geometry, figure–table/prose pairing, forest-plot CI/asymmetry rules |
-| **Text & metadata** | Tortured phrases (~5.8k dict), paper-mill signals, PDF metadata, reference dup/format |
+| **Text & metadata** | Tortured phrases (5,802-entry dict), paper-mill signals, PDF metadata, reference dup/format |
 | **External checks** | Opt-in Crossref / OpenAlex / data-availability (cached; offline replay for CI) |
 | **Triage** | Calibration + *issue* aggregation (far fewer items than raw findings); optional LLM off by default |
-
-Benchmark snapshots (see `benchmarks/`): negative controls aim for **0.00** high-severity
-findings per legit paper; fraud suites target **core recall 1.000** under the published gates.
 
 ---
 
@@ -172,8 +177,8 @@ python -m manusift screen paper.pdf --no-llm --workspace ./my_jobs
 ### MCP for other agents (C)
 
 ```bash
-manusift mcp --list-tools          # full registry (~80+); default
-manusift mcp --curated             # smaller kernel allow-list
+manusift mcp --list-tools          # full registry (~83 tools); default
+manusift mcp --curated             # smaller kernel allow-list (~45)
 manusift-mcp --list-tools
 python -m manusift mcp --list-tools
 ```
@@ -264,7 +269,7 @@ PDF (+ optional Source Data)
    ingest (PyMuPDF / tables / xlsx)
         │
         ▼
-   pipeline detectors (44 offline; plugins via entry_points)
+   pipeline detectors (44 offline of 52 registered; plugins via entry_points)
    ThreadPool after shared parse (MANUSIFT_DETECTOR_WORKERS)
         │
         ▼
@@ -272,10 +277,14 @@ PDF (+ optional Source Data)
         │
         ├── LLM enrich / adjudicate   (optional, off by default)
         └── reports + findings.json + steps/<idx>.json
+
+MCP Domain Kernel (separate surface): ~83 tools by default
+  = registered detectors-as-tools + screen/job helpers + FS/vault tools
 ```
 
-Detectors implement a pipeline `Detector` protocol; many are also MCP `Tool`s
-(`name` / `description` / `input_schema` / `execute`) via a thin adapter.
+Detectors implement a pipeline `Detector` protocol and are also exposed as MCP
+`Tool`s (`name` / `description` / `input_schema` / `execute`) via a thin adapter,
+alongside non-detector helpers in the full MCP registry.
 
 ### Adding a detector
 

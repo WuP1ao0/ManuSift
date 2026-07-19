@@ -12,7 +12,7 @@ manusift-mcp --list-tools
 python -m manusift.mcp --list-tools
 ```
 
-By default, expect the **full** registered tool list (~80+: detectors,
+By default, expect the **full** registered tool list (~83: detectors,
 screen jobs, agent utilities). Optional ``--curated`` restricts to the
 smaller kernel allow-list in ``manusift.mcp.surface.MCP_DEFAULT_TOOLS``.
 
@@ -134,7 +134,7 @@ claude mcp add manusift -- manusift-mcp
 Or project scope: copy [`claude_code.mcp.json`](./claude_code.mcp.json)
 to the project root as `.mcp.json` and restart `claude`.
 
-Verify inside a session: `/mcp` should list `manusift` with ~80+ tools
+Verify inside a session: `/mcp` should list `manusift` with ~83 tools
 (`screen_verdict`, `submit_screen`, `ingest_from_path`, `image_forensics`,
 `table_forensics`, …).
 

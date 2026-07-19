@@ -445,23 +445,35 @@ class ChartDataExtractorDetector:
             if not path:
                 continue
             data = _extract_chart(path)
-            if not data["bars"]:
+            # Normalize bars to a plain list of floats. OpenCV /
+            # numpy may return a 0-d or scalar int32 for empty /
+            # single detections; iterating a numpy scalar raises
+            # TypeError ("int32 object is not iterable").
+            raw_bars = data.get("bars") or []
+            try:
+                bars = [float(b) for b in list(raw_bars)]
+            except TypeError:
+                try:
+                    bars = [float(raw_bars)]
+                except (TypeError, ValueError):
+                    bars = []
+            if not bars:
                 continue
             # P2-C4:
             # cross-validation
             # stats.
             img_h = max(1, int(data["image_height"]))
             bars_pct = [
-                round(b / img_h, 4) for b in data["bars"]
+                round(b / img_h, 4) for b in bars
             ]
-            max_bar = max(data["bars"]) if data["bars"] else 1
-            max_bar = max(1, max_bar)
+            max_bar = max(bars) if bars else 1.0
+            max_bar = max(1.0, float(max_bar))
             bars_pct_normalized = [
-                round(b / max_bar, 4) for b in data["bars"]
+                round(b / max_bar, 4) for b in bars
             ]
             bars_max_pct = (
-                round(max(data["bars"]) / img_h, 4)
-                if data["bars"]
+                round(max(bars) / img_h, 4)
+                if bars
                 else 0.0
             )
             severity = "low"
@@ -473,7 +485,7 @@ class ChartDataExtractorDetector:
                     title=(
                         f"Image {i + 1} on page "
                         f"{img.page} contains "
-                        f"{len(data['bars'])} bar(s) "
+                        f"{len(bars)} bar(s) "
                         f"with extracted heights"
                     ),
                     location=(
@@ -488,7 +500,7 @@ class ChartDataExtractorDetector:
                             "image_height": data[
                                 "image_height"
                             ],
-                            "bars": data["bars"],
+                            "bars": bars,
                             "bars_pct": bars_pct,
                             "bars_pct_normalized":
                                 bars_pct_normalized,

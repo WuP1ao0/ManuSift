@@ -347,15 +347,23 @@ def test_p17_not_found_envelope():
     exist returns
     ``error_kind: not_found``.
     """
+    import tempfile
+    from pathlib import Path
+
     from manusift.tools.direct_fs import (
         ReadFileTool,
     )
     from manusift.tools.tool import ToolContext
 
     tool = ReadFileTool()
+    # Platform-native missing path. Hard-coded ``C:/...`` is
+    # rejected as argument_invalid on Linux before existence checks.
+    missing = str(
+        Path(tempfile.gettempdir()) / "manusift_no_such_file_xyz_123.txt"
+    )
     out = tool.execute(
         {
-            "path": "C:/no/such/file_xyz_123.txt"
+            "path": missing
         },
         ToolContext(trace_id="t-p17"),
     )

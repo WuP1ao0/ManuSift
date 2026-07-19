@@ -322,51 +322,13 @@ def is_blocked_device(path: str) -> bool:
         ("/fd/0", "/fd/1", "/fd/2")
     ):
         return True
-    # Windows
-    # reserved
-    # names
-    # (case
-    # insensitive,
-    # no
-    # extension).
-    # Match
-    # ``CON``,
-    # ``CON.txt``,
-    # ``C:\CON``,
-    # etc.
-    # The
-    # set
-    # stores
-    # UPPERCASE
-    # keys
-    # so we
-    # can do
-    # an
-    # O(1)
-    # case-insensitive
-    # ``in``
-    # check
-    # against
-    # ``stem.upper()``.
-    base = Path(normalized).name
-    stem = Path(base).stem.upper()
-    # ``CON.txt``
-    # →
-    # ``CON``;
-    # strip
-    # trailing
-    # ``.``
-    stem_clean = stem.rstrip(".")
-    if stem_clean in _WINDOWS_RESERVED:
+    # Windows reserved device names (case-insensitive).
+    # Must work on Linux CI too: pathlib.Path on POSIX does not
+    # treat ``\`` as a separator, so ``C:\CON`` would otherwise
+    # look like a single component. Also parse with PureWindowsPath.
+    if _windows_reserved_stem_hit(normalized):
         return True
-    # Resolved
-    # path
-    # check
-    # (catches
-    # symlinks
-    # to
-    # blocked
-    # devices).
+    # Resolved path check (catches symlinks to blocked devices).
     try:
         resolved = str(Path(normalized).resolve())
     except OSError:
@@ -377,10 +339,42 @@ def is_blocked_device(path: str) -> bool:
         ("/fd/0", "/fd/1", "/fd/2")
     ):
         return True
-    base_r = Path(resolved).name
-    stem_r = Path(base_r).stem.upper().rstrip(".")
-    if stem_r in _WINDOWS_RESERVED:
+    if _windows_reserved_stem_hit(resolved):
         return True
+    return False
+
+
+def _windows_reserved_stem_hit(path: str) -> bool:
+    """True if any path component's stem is a Windows reserved device."""
+    from pathlib import PureWindowsPath
+
+    candidates: list[str] = []
+    try:
+        candidates.append(Path(path).name)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        candidates.append(PureWindowsPath(path).name)
+    except Exception:  # noqa: BLE001
+        pass
+    # Last segment after either slash style (covers mixed paths).
+    for sep in ("/", "\\"):
+        if sep in path:
+            candidates.append(path.rstrip(sep).rsplit(sep, 1)[-1])
+    for base in candidates:
+        if not base:
+            continue
+        stem = Path(base).stem.upper().rstrip(".")
+        # PureWindowsPath stem for ``CON.txt`` / ``nul``
+        try:
+            stem_w = PureWindowsPath(base).stem.upper().rstrip(".")
+        except Exception:  # noqa: BLE001
+            stem_w = stem
+        if stem in _WINDOWS_RESERVED or stem_w in _WINDOWS_RESERVED:
+            return True
+        # Bare device with no extension (``CON``, ``nul``)
+        if base.upper().rstrip(".") in _WINDOWS_RESERVED:
+            return True
     return False
 
 
@@ -1108,11 +1102,27 @@ def is_protected_dir(path: str) -> str | None:
     """
     if not path:
         return None
+    from pathlib import PureWindowsPath
+
     normalized = os.path.expanduser(path)
-    parts = Path(normalized).parts
-    for part in parts:
-        if part in _PROTECTED_DIRS:
-            return part
+    part_sets: list[tuple[str, ...]] = []
+    try:
+        part_sets.append(Path(normalized).parts)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        part_sets.append(PureWindowsPath(normalized).parts)
+    except Exception:  # noqa: BLE001
+        pass
+    # Mixed separators: split on both
+    rough = tuple(
+        p for p in normalized.replace("\\", "/").split("/") if p
+    )
+    part_sets.append(rough)
+    for parts in part_sets:
+        for part in parts:
+            if part in _PROTECTED_DIRS:
+                return part
     return None
 
 

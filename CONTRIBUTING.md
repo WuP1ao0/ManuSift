@@ -45,7 +45,13 @@ Optional OCR stack (large): `pip install -e ".[ocr]"`.
 
 ## Reporting bugs
 
-Open a GitHub Issue with: OS, Python version, install command, full traceback,
-and a **minimal** PDF if possible (synthetic preferred).
+Prefer the **Bug report** issue template (`.github/ISSUE_TEMPLATE/`). Include:
+OS, Python version, install command, full traceback, and a **minimal** PDF if
+possible (synthetic preferred).
 
 Security-sensitive reports: see [SECURITY.md](SECURITY.md).
+
+## Version history
+
+User-facing changes: [CHANGELOG.md](CHANGELOG.md). Tagged GitHub Releases may
+mirror the same notes for a release cut.

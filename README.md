@@ -26,17 +26,21 @@ pip install -e .
 # Verify install (package-data + CLI + offline screen, no API keys)
 python scripts/install_smoke.py
 
-# Screen a paper (offline pipeline; no LLM keys / no network)
-manusift screen evals/fixtures/clean_academic.pdf --no-llm --suites fast
-# Or any PDF:
-manusift screen path/to/paper.pdf --no-llm
-# Optional: pin the job workspace
+# Screen a paper (offline pipeline; no LLM keys / no network).
+# Pin --workspace so results stay in a fixed directory you control.
+manusift screen evals/fixtures/clean_academic.pdf --no-llm --suites fast --workspace ./my_jobs
+# Or any PDF with the same pinned workspace root:
 manusift screen path/to/paper.pdf --no-llm --workspace ./my_jobs
 ```
 
-Default workspace is `data/jobs/<trace_id>/` (created automatically).
-Outputs include `findings.json`, `report.html`, `issues.json`, and
-`investigation_pairs.html` under `…/output/`.
+**Where results land:** each job writes under
+`<workspace>/<trace_id>/output/` (with `--workspace DIR` that is
+`DIR/<trace_id>/…`). If you omit `--workspace`, the default root is
+`data/jobs/` → `data/jobs/<trace_id>/`. Outputs include
+`findings.json`, `report.html`, `issues.json`, and
+`investigation_pairs.html` under that `output/` folder. Prefer a fixed
+`--workspace` when you need to open reports after the run (temp or
+cwd-relative defaults are easy to lose).
 
 Shipped sample PDFs live in `evals/fixtures/` (tracked in git so a bare
 clone can smoke-test offline). If they are missing, `scripts/install_smoke.py`
@@ -66,7 +70,19 @@ cases) and may include environment- or corpus-gated skips/fails; CI does
 - **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md)
 - **Code of Conduct:** [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - **Security:** [SECURITY.md](SECURITY.md)
+- **Changelog:** [CHANGELOG.md](CHANGELOG.md) (beta history; GitHub Releases may mirror tagged notes)
 - **Cite:** [CITATION.cff](CITATION.cff)
+
+### Integrity pattern notes (PubPeer-derived)
+
+Screening-signal maps only—not misconduct determinations:
+
+- [Integrity patterns → detectors](docs/pubpeer_integrity_patterns.md)
+- [Fraud methods catalogue](docs/pubpeer_100_fraud_methods.md)
+- [Coverage matrix](docs/pubpeer_100_coverage_matrix.md)
+
+Also: [detector layering](docs/DETECTOR_LAYERS.md), [report paths](docs/REPORT_PATH.md),
+[MCP client config](docs/mcp/README.md).
 
 **Disclaimer:** ManuSift is a *screening* aid for integrity signals. It is not a
 legal determination of misconduct and does not replace human review (editors,

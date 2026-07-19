@@ -1,4 +1,22 @@
-"""R-2026-06-17 (Phase A:
+"""Unified safe-read surface (Phase A + B).
+
+**Public API for production:** import from ``manusift.tools.safe_read``.
+
+Phase A lives in this module (path guards, BOM, char limits, …).
+Phase B helpers (tracker, redact, document extract, xlsx fig detect)
+are implemented in ``safe_read_b`` and **re-exported here** so callers
+need one import path (Python/Django-style facade + dual-support).
+
+Prefer::
+
+    from manusift.tools.safe_read import detect_xlsx_figs, redact_sensitive_text
+
+``manusift.tools.safe_read_b`` remains importable for older tests but
+emits ``DeprecationWarning`` on direct import.
+
+---
+
+R-2026-06-17 (Phase A:
 borrow from
 Claude Code +
 Hermes):
@@ -1293,3 +1311,51 @@ def try_extract_document(
             return None
         raise
     return None
+
+
+# ---------------------------------------------------------------------------
+# Phase B API (canonical re-export — implementation in safe_read_b.py)
+# Pattern: single public facade; see docs/DETECTOR_LAYERS.md §P2
+# ---------------------------------------------------------------------------
+from .safe_read_b import (  # noqa: E402
+    ExtractionError,
+    ReadTracker,
+    detect_xlsx_figs,
+    extract_docx_text,
+    extract_ipynb_text,
+    extract_pptx_text,
+    extract_xlsx_text,
+    get_tracker,
+    redact_sensitive_text,
+    reset_all_trackers,
+    reset_tracker,
+    suggest_similar_files,
+    try_extract_document_real,
+)
+
+__all__ = [
+    # Phase A
+    "is_blocked_device",
+    "has_binary_extension",
+    "expand_user_path",
+    "is_proc_secret_path",
+    "enforce_char_limit",
+    "strip_utf8_bom",
+    "is_protected_dir",
+    "is_extractable_document",
+    "try_extract_document",
+    # Phase B (re-exported)
+    "suggest_similar_files",
+    "ReadTracker",
+    "get_tracker",
+    "reset_tracker",
+    "reset_all_trackers",
+    "redact_sensitive_text",
+    "ExtractionError",
+    "extract_docx_text",
+    "extract_xlsx_text",
+    "detect_xlsx_figs",
+    "extract_pptx_text",
+    "extract_ipynb_text",
+    "try_extract_document_real",
+]

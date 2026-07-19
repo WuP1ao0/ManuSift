@@ -1,55 +1,9 @@
-"""Top-level evidence report orchestrator (R-2026-06-12).
+"""Evidence report orchestrator — secondary deep-forensic bundle.
 
-This is the small
-function the TUI /
-benchmark / CLI call
-to generate the full
-report bundle::
+Primary batch/MCP screen path: investigation_pairs (docs/REPORT_PATH.md).
+Use build_evidence_report for visual/numerical evidence packs only.
 
-    report_dir = build_evidence_report(
-        findings_path=...,
-        out_dir=...,
-        paper_id=...,
-        pdf_path=...,
-    )
-
-It returns the path to
-the report directory.
-Inside, the caller will
-find::
-
-    report_dir/
-        report.md
-        report.html
-        report.pdf    (if weasyprint is available)
-        evidence/
-            evidence_index.json
-            visual/
-                visual_findings.json
-                finding_img_001/
-                    crop_a.png
-                    crop_b.png
-                    side_by_side.png
-                    side_by_side_annotated.png
-                    overlay.png
-                    diff_heatmap.png
-                    context_a.png
-                    context_b.png
-                finding_img_002/...
-            data/
-                finding_data_001.json
-                finding_data_001.md
-                ...
-            provenance/
-                source_map.json
-        assets/
-            styles.css (placeholder for future
-                custom branding)
-
-R-2026-06-12: the spec
-is very explicit about
-the on-disk layout; we
-match it."""
+"""
 from __future__ import annotations
 
 import shutil

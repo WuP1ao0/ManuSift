@@ -615,12 +615,17 @@ def _read_xlsx_props(path: Path) -> dict[str, Any]:
 
 
 class TableForensicsDetector:
-    """Orchestrate all table-forgery detectors into one suite.
+    """Agent-only orchestrator for the table-forgery suite.
 
-    Runs Benford (with domain gating applied inside BenfordDetector),
-    exact/near duplicate rows, cross-table copy, outlier, round-bias,
-    relationships (optional light), and spreadsheet file metadata.
-    Emits component findings plus one summary finding with risk score.
+    **Not** run in the offline pipeline (``PIPELINE_EXCLUDED``): batch
+    screen already runs each component detector once. Invoking this
+    class again would double-report. Prefer calling individual table_*
+    tools, or this suite as a single agent convenience. See
+    ``docs/DETECTOR_LAYERS.md``.
+
+    Runs Benford (domain-gated), exact/near duplicate rows, cross-table
+    copy, outlier, round-bias, relationships, file metadata, highlight.
+    Emits component findings plus one summary risk score.
     """
 
     name = "table_forensics"

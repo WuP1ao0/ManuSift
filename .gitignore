@@ -5,6 +5,10 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+build/
+dist/
+*.egg-info/
+.eggs/
 *.log
 *_pid.json
 regression_pid.json
@@ -37,7 +41,12 @@ superpowers/
 *.gz
 *.mp4
 *.webp
-*.egg-info/
+
+# Ship tiny offline-screen fixtures with the public tree so a bare clone
+# can `manusift screen evals/fixtures/clean_academic.pdf --no-llm` without
+# regenerating media. Override the global *.pdf rule above.
+!evals/fixtures/
+!evals/fixtures/*.pdf
 docs/s41565-025-02082-0/
 docs/superpowers/
 docs/audits/

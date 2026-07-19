@@ -1,7 +1,15 @@
-"""Agent-loop factory: PydanticAI runtime with legacy fallback.
+"""Agent-loop factory: **PydanticAI is the only fully maintained runtime**.
 
 Domain Kernel tools and ``ToolContext`` are passed through unchanged.
-Only the ReAct driver implementation is selected here.
+
+Open-source pattern (PydanticAI multi-agent + dual-support deprecation):
+keep one production loop; leave a frozen legacy fallback behind an
+explicit flag. Prefer::
+
+    from manusift.agent import create_agent_loop
+
+Legacy ``AgentLoop`` remains importable for tests /
+``MANUSIFT_AGENT_RUNTIME=legacy`` only (DeprecationWarning on construct).
 """
 from __future__ import annotations
 

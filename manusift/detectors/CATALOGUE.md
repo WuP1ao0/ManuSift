@@ -4,6 +4,11 @@ R-2026-06-20 (CDE-D1): generated from the live `manusift.detectors` entry-point 
 
 Each detector exposes a `Finding` with a deterministic `detector_id` (the entry-point name). Findings roll up to a per-detector report section.
 
+**Layering (pipeline vs agent-only vs EXCLUDED):** see
+[`docs/DETECTOR_LAYERS.md`](../../docs/DETECTOR_LAYERS.md) — capability
+owners, `image_dup` vs `imagehash_*`, `panel_dup` vs `panel_duplicate`,
+and why `table_forensics` is not in the offline pipeline.
+
 ## Index
 
 - [`ai_generated_figure`](#ai-generated-figure)

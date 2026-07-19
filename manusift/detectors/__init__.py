@@ -52,7 +52,17 @@ _DETECTOR_SPECS: tuple[DetectorSpec, ...] = (
         "source_data_consistency",
     ),
     DetectorSpec("GrimTestDetector", "stat_consistency", "stat_grim"),
+    DetectorSpec(
+        "PValuePileupDetector", "stat_extra", "stat_pvalue_pileup"
+    ),
+    DetectorSpec("SpriteLiteDetector", "stat_extra", "stat_sprite"),
+    DetectorSpec(
+        "CorrelationMatrixPSDDetector", "stat_extra", "stat_corr_psd"
+    ),
     DetectorSpec("ImageDuplicateDetector", "image_dup", "image_dup"),
+    DetectorSpec(
+        "CrossPaperImageDetector", "cross_paper_image", "cross_paper_image"
+    ),
     DetectorSpec("ImageForensicsDetector", "image_forensics", "image_forensics"),
     DetectorSpec("ImageStatisticsDetector", "image_statistics", "image_statistics"),
     DetectorSpec("MetadataDetector", "metadata", "metadata"),

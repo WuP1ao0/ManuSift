@@ -1,11 +1,21 @@
-"""R-2026-06-12: Panel-level duplicate-image detector.
+"""Panel-level hash reuse across figure regions / pages (``panel_dup``).
 
-The v4 page_raster_dup detector hashed whole figure
-regions. The case_005 official retraction cites *panels*
-within multi-panel figures (Figure 1C, 2, 3A/3B, 5B),
-which the whole-figure hash can't see because the hash
-is dominated by the non-duplicated panels and the figure
-caption.
+**Not the same as** ``panel_duplicate`` (``PanelSegmentationDetector``):
+
+| | this module (``panel_dup``) | ``panel_duplicate`` |
+|--|----------------------------|---------------------|
+| Scope | Cross-region / cross-page panel hashes | Within **one** multi-panel figure |
+| Split | Whitespace-gap on page-raster figure regions | Otsu/layout panel segmentation |
+| Compare | Panel pHash | Panel SSIM + pHash |
+
+See ``docs/DETECTOR_LAYERS.md``. Keep both; do not merge without a
+benchmark plan.
+
+---
+
+R-2026-06-12: The v4 page_raster_dup detector hashed whole figure
+regions. Official retractions often cite *panels* within multi-panel
+figures (Figure 1C, 2, 3A/3B, 5B), which whole-figure hash misses.
 
 This detector sits **on top of** page_raster_dup and
 splits each figure region into its constituent panels

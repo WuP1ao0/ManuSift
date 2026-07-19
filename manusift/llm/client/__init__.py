@@ -58,7 +58,11 @@ from .providers import (
 )
 from .mock import MockLLM
 
+log = logging.getLogger(__name__)
+
 _client_singleton: LLMClient | None = None
+
+
 def get_llm_client() -> LLMClient:
     """Return a process-wide LLM client.
 

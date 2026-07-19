@@ -222,8 +222,8 @@ def test_total_tool_count() -> None:
     # get_job_status, get_job_result;
     # +1 detector 2026-07-18 P2.2:
     # cited_retraction).
-    assert len(tools) == 79, (
-        f"expected 79 tools (48 detectors + 31 helpers), "
+    assert len(tools) == 83, (
+        f"expected 83 tools (52 detectors + 31 helpers), "
         f"got {len(tools)}"
     )
 
@@ -276,7 +276,7 @@ def test_category_counts_are_stable() -> None:
     expected = {
         "metadata": 4,  # metadata, pdf_metadata, supplementary,
         # paper_mill_authorship (R-2026-06-13, P0-PEER)
-        "image": 10,  # image_dup, image_forensics, image_ssim,
+        "image": 11,  # +cross_paper_image P6.3; was 10: image_dup, image_forensics, image_ssim,
         # image_sift_copymove, image_statistics,
         # image_noise_inconsistency, panel_duplicate,
         # page_raster_dup (R-2026-06-12),
@@ -288,8 +288,8 @@ def test_category_counts_are_stable() -> None:
         # figure_stat_text (R-2026-06-12)
         "reference": 4,  # citation_network, ref_duplicate,
         # ref_format_anomaly, cited_retraction (2026-07-18, P2.2)
-        "statistical": 4,  # stat_grim, stat_pvalue,
-        # stat_percent, figure_grim (R-2026-06-12)
+        "statistical": 7,  # +pileup/sprite/corr_psd (P6.2);
+        # was grim, pvalue, percent, figure_grim
         "table": 11,  # table_benford, table_duplicate_row,
         # table_outlier, table_round_bias, table_relationships,
         # table_near_duplicate_row, table_cross_copy,

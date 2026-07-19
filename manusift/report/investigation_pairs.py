@@ -1,14 +1,9 @@
-"""Pairs-localization investigation report — primary human entry.
+"""PRIMARY batch/MCP investigation report (paired findings + location).
 
-Design (confirmed):
-  1. C mixed layout — top index table + per-case detail cards
-  2. Strict localization — Fig / Sheet / columns / groups / page-image;
-     findings without enough location go to a dedicated section
-  3. All severities (high / medium / low / info)
-  4. Outputs ``investigation_pairs.html`` (+ .md / .json)
-  5. New primary human reading entry
+Writes investigation_pairs.html / .md / .json. This is the default
+offline report surface for manusift screen / MCP jobs.
+See docs/REPORT_PATH.md.
 
-Tone: observation of computer signals, not accusation of misconduct.
 """
 from __future__ import annotations
 
@@ -649,7 +644,48 @@ def build_investigation_pairs_payload(
         "issues": [
             i.to_dict() for i in aggregate_findings(findings)
         ],
+        # P6.3: taxonomy groups from finding.raw.pubpeer_pattern
+        "pubpeer_pattern_groups": _pubpeer_pattern_groups(findings),
     }
+
+
+def _pubpeer_pattern_groups(findings: list[Finding]) -> list[dict[str, Any]]:
+    """Cluster findings by raw.pubpeer_pattern for report navigation."""
+    buckets: dict[str, list[Finding]] = {}
+    for f in findings:
+        raw = f.raw if isinstance(f.raw, dict) else {}
+        pat = str(raw.get("pubpeer_pattern") or "").strip()
+        if not pat:
+            continue
+        buckets.setdefault(pat, []).append(f)
+    out: list[dict[str, Any]] = []
+    for pat, members in buckets.items():
+        sevs = [str(m.severity) for m in members]
+        max_sev = "info"
+        for s in ("high", "medium", "low", "info"):
+            if s in sevs:
+                max_sev = s
+                break
+        sample = sorted(
+            members,
+            key=lambda m: SEVERITY_ORDER.get(str(m.severity), 9),
+        )[0]
+        out.append(
+            {
+                "pattern": pat,
+                "count": len(members),
+                "max_severity": max_sev,
+                "sample_title": sample.title or "",
+            }
+        )
+    out.sort(
+        key=lambda g: (
+            SEVERITY_ORDER.get(str(g.get("max_severity")), 9),
+            -int(g.get("count") or 0),
+            str(g.get("pattern") or ""),
+        )
+    )
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1018,6 +1054,33 @@ def build_investigation_pairs_html(payload: dict) -> str:
     </div>
 """
 
+    # P6.3: group findings by pubpeer_pattern taxonomy tags
+    pattern_rows = payload.get("pubpeer_pattern_groups") or []
+    pattern_html = ""
+    if pattern_rows:
+        prow = "".join(
+            "<tr>"
+            f"<td>{_esc(str(g.get('pattern') or ''))}</td>"
+            f"<td>{int(g.get('count') or 0)}</td>"
+            f'<td><span class="pill {_esc(_light(str(g.get("max_severity") or "")))}">'
+            f'{_esc(_sev_zh(str(g.get("max_severity") or "")))}</span></td>'
+            f"<td>{_esc(str(g.get('sample_title') or '')[:120])}</td>"
+            "</tr>"
+            for g in pattern_rows
+        )
+        pattern_html = f"""
+    <h2 class="sec">PubPeer 模式分组（{len(pattern_rows)}）</h2>
+    <p class="hint">按 finding.raw.pubpeer_pattern 聚类（如 Source Data 块粘贴、跨论文图复用）；便于对照 100 条手法清单。</p>
+    <div class="table-wrap">
+      <table class="index">
+        <thead>
+          <tr><th>模式</th><th>条数</th><th>最高严重度</th><th>样例</th></tr>
+        </thead>
+        <tbody>{prow}</tbody>
+      </table>
+    </div>
+"""
+
     return f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -1103,6 +1166,7 @@ def build_investigation_pairs_html(payload: dict) -> str:
     </div>
     {bad_cards}
     {issues_html}
+    {pattern_html}
 
     <h2 class="sec">6. 其它报告</h2>
     <div class="links">
@@ -1135,7 +1199,28 @@ def build_investigation_pairs_markdown(payload: dict) -> str:
         f"- 双侧配对: {c.get('pairs')} · 定位不足: {c.get('location_insufficient')}",
         "",
         f"**总览：** {payload.get('overall_label')}",
-        f"",
+    ]
+    # continue building after optional pattern section
+    _pattern_md_lines: list[str] = []
+    groups = payload.get("pubpeer_pattern_groups") or []
+    if groups:
+        _pattern_md_lines.extend(
+            [
+                "",
+                "## PubPeer 模式分组",
+                "",
+                "| 模式 | 条数 | 最高严重度 | 样例 |",
+                "|------|------|------------|------|",
+            ]
+        )
+        for g in groups:
+            _pattern_md_lines.append(
+                f"| {g.get('pattern')} | {g.get('count')} | "
+                f"{g.get('max_severity')} | "
+                f"{str(g.get('sample_title') or '')[:80]} |"
+            )
+    lines = lines + _pattern_md_lines + [
+        "",
         f"{payload.get('overall_tip')}",
         "",
         "> 本报告为计算机观察提示，不是学术不端认定。",

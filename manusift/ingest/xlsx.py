@@ -67,9 +67,10 @@ import csv
 import hashlib
 import io
 import logging
+import re
+import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
-import zipfile
 
 from ..contracts import ExtractedTable
 
@@ -304,7 +305,39 @@ def parse_xlsx(
             out.extend(sheet_tables)
     finally:
         wb.close()
+    # Stamp figure key from filename when sheet-level fig headers
+    # were not detected (Nature Source_Data_Fig3.xlsx style).
+    file_fig = _fig_name_from_path(sp)
+    if file_fig:
+        for t in out:
+            if not (getattr(t, "fig_name", None) or "").strip():
+                try:
+                    object.__setattr__(t, "fig_name", file_fig)
+                except Exception:
+                    try:
+                        t.fig_name = file_fig  # type: ignore[misc]
+                    except Exception:
+                        pass
     return out
+
+
+def _fig_name_from_path(path: str) -> str:
+    """``Source_Data_Fig3_MOESM6.xlsx`` → ``Fig.3``; ED_Fig2 → ``ED_Fig.2``."""
+    stem = Path(path).stem
+    m_ed = re.search(
+        r"(?:ed|extended[_\s-]?data)[_\s-]?fig(?:ure)?[_\s.-]*(\d+[a-zA-Z]?)",
+        stem,
+        re.I,
+    )
+    if m_ed:
+        return f"ED_Fig.{m_ed.group(1)}"
+    m = re.search(r"fig(?:ure)?[_\s.-]*([sS]?\d+[a-zA-Z]?)", stem, re.I)
+    if m:
+        tag = m.group(1)
+        if tag.lower().startswith("s"):
+            return f"Fig.S{tag[1:]}"
+        return f"Fig.{tag}"
+    return ""
 
 
 def _parse_xlsx_sheet(
@@ -342,7 +375,7 @@ def _parse_xlsx_sheet(
     arithmetic).
     """
     out: list[ExtractedTable] = []
-    from ..tools.safe_read_b import detect_xlsx_figs
+    from ..tools.safe_read import detect_xlsx_figs
 
     bboxes = detect_xlsx_figs(ws)
     if not bboxes:

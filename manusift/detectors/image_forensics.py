@@ -1,10 +1,17 @@
-"""Image forensics detector (P0/P1 primary path).
+"""Image forensics detector (within-image + cross-image local matches).
+
+**Owns:** SIFT copy-move, grid aHash secondary, ELA/JPEG ghost, cross-image
+SIFT, gel seam, texture overlap, optional backends.
+
+**Does not own** whole-image near-duplicates (`image_dup`) or
+within-figure panel SSIM grids (`panel_duplicate`).
+See `docs/DETECTOR_LAYERS.md`.
 
 Default analysis order (scientific paper integrity):
 
 1. **SIFT-CMFD + RANSAC** (primary copy-move) — keypoint self-match,
    translation clustering, affine/homography RANSAC confirmation.
-   See :mod:`manusift.detectors.sift_copymove`.
+   See :mod:manusift.detectors.sift_copymove.
 
 2. **Cross-image SIFT/ORB local match** — region reuse across different
    extracted figures (scale/rotation tolerant).
@@ -25,10 +32,13 @@ Default analysis order (scientific paper integrity):
 7. **Texture overlap + full-file SHA-1** — exact/near local texture
    reuse and whole-image identity.
 
-8. **Optional backends** — PhotoHolmes-style hooks via
-   ``MANUSIFT_IMAGE_BACKEND`` (:mod:`manusift.detectors.image_backends`).
+8. **Vertical gel seam** (P6.1 heuristic) — column-wise edge energy
+   peak with gutter / multi-panel FP guards; severity ≤ medium.
 
-All checks need pixel access via ``ExtractedImage.image_path``.
+9. **Optional backends** — PhotoHolmes-style hooks via
+   `MANUSIFT_IMAGE_BACKEND` (:mod:manusift.detectors.image_backends).
+
+All checks need pixel access via `ExtractedImage.image_path`.
 Images without a path are skipped.
 """
 from __future__ import annotations
@@ -73,6 +83,26 @@ _JPEG_GHOST_STRENGTH_THR = float(
 _GRID_COPYMOVE_SECONDARY = os.environ.get(
     "MANUSIFT_GRID_COPYMOVE_SECONDARY", "1"
 ).strip().lower() not in {"0", "false", "no", "off"}
+
+# P6.1 vertical gel/blot splice seam heuristic.
+_SEAM_MAX_SIDE = int(os.environ.get("MANUSIFT_GEL_SEAM_MAX_SIDE", "640"))
+_SEAM_MIN_WIDTH = 80
+_SEAM_MIN_HEIGHT = 40
+# Raised after negative_controls_v1 (2026-07): multi-panel gutters
+# routinely exceed the old 2.8/3.2 gates. Require both metrics.
+# Prominence ~4.5 on hard mid-width noise-field joins; 5.5 was too
+# strict once AND with ratio is required.
+_SEAM_PROMINENCE_THR = float(
+    os.environ.get("MANUSIFT_GEL_SEAM_PROMINENCE", "4.2")
+)
+_SEAM_RATIO_THR = float(os.environ.get("MANUSIFT_GEL_SEAM_RATIO", "4.0"))
+# Peak or adjacent columns near pure white/black → multi-panel gutter.
+_SEAM_GUTTER_HI = 220.0
+_SEAM_GUTTER_LO = 18.0
+_SEAM_GUTTER_NEIGHBOR = 4  # columns either side of peak
+# Left/right field must differ (noise or mean) for a splice-like seam.
+_SEAM_MEAN_JUMP_MIN = 22.0
+_SEAM_NOISE_RATIO_MIN = 1.35
 
 
 # R-2026-06-19 (P1-C1):
@@ -733,6 +763,167 @@ def _jpeg_ghost_check(
         "source_format": fmt,
         "image_path": str(path),
         **detail,
+    }
+    return severity, title, evidence, location, raw
+
+
+# ---------------------------------------------------------------------------
+# P6.1: Vertical gel/blot splice seam heuristic
+# ---------------------------------------------------------------------------
+
+def _vertical_gel_seam_check(
+    img: ExtractedImage,
+) -> tuple[str, str, str, str, dict] | None:
+    """Flag a strong vertical discontinuity (common gel-lane splice cue).
+
+    Computes column-wise mean absolute horizontal gradient, finds a
+    thin peak away from left/right margins, and scores prominence
+    vs local baseline.
+
+    Negative-controls hardening (2026-07):
+    * reject pure white/black multi-panel gutters
+    * require left/right intensity or texture asymmetry
+    * require prominence **and** median-ratio gates
+    * severity capped at **medium** (single-image heuristic ≠ high)
+    """
+    if not img.image_path:
+        return None
+    path = Path(img.image_path)
+    if not path.exists():
+        return None
+    try:
+        with Image.open(path) as pil:
+            gray = pil.convert("L")
+            w, h = gray.size
+            if w < _SEAM_MIN_WIDTH or h < _SEAM_MIN_HEIGHT:
+                return None
+            long_side = max(w, h)
+            if long_side > _SEAM_MAX_SIDE:
+                scale = _SEAM_MAX_SIDE / float(long_side)
+                nw = max(32, int(w * scale))
+                nh = max(32, int(h * scale))
+                gray = gray.resize((nw, nh))
+                w, h = gray.size
+            arr = np.asarray(gray, dtype=np.float32)
+    except Exception:  # noqa: BLE001
+        return None
+
+    # Column gradient energy: mean |dI/dx| over rows.
+    dx = np.abs(np.diff(arr, axis=1))
+    col_energy = dx.mean(axis=0)
+    if col_energy.size < 16:
+        return None
+    # Light smooth
+    kernel = np.array([0.25, 0.5, 0.25], dtype=np.float32)
+    padded = np.pad(col_energy, (1, 1), mode="edge")
+    smooth = np.convolve(padded, kernel, mode="valid")
+    med = float(np.median(smooth)) + 1e-6
+    # Exclude outer 12% margins (figure borders / page crop edges).
+    margin = max(4, int(0.12 * smooth.size))
+    interior = smooth[margin : smooth.size - margin]
+    if interior.size < 8:
+        return None
+    peak_idx_rel = int(np.argmax(interior))
+    peak_idx = peak_idx_rel + margin
+    peak = float(smooth[peak_idx])
+    # Local baseline: median of neighborhoods excluding ±2 around peak.
+    left = smooth[max(margin, peak_idx - 12) : max(margin, peak_idx - 2)]
+    right = smooth[
+        min(smooth.size - margin, peak_idx + 3) : min(
+            smooth.size - margin, peak_idx + 13
+        )
+    ]
+    neigh = (
+        np.concatenate([left, right])
+        if left.size + right.size > 0
+        else smooth
+    )
+    baseline = float(np.median(neigh)) + 1e-6
+    prominence = peak / baseline
+    ratio_med = peak / med
+    # Both gates required — OR was flooding multi-panel figures.
+    if prominence < _SEAM_PROMINENCE_THR or ratio_med < _SEAM_RATIO_THR:
+        return None
+    # Thin peak: neighbors should drop
+    left_v = float(smooth[peak_idx - 1]) if peak_idx > 0 else peak
+    right_v = (
+        float(smooth[peak_idx + 1]) if peak_idx + 1 < smooth.size else peak
+    )
+    if min(left_v, right_v) > peak * 0.92:
+        return None  # plateau / soft gradient, not a seam
+
+    # Map peak from energy domain (w-1) back to image column index.
+    col_i = min(arr.shape[1] - 1, max(0, peak_idx))
+    peak_col_mean = float(arr[:, col_i].mean())
+    # Energy peaks sit on the *edge* of a white/black gutter, so check
+    # a neighborhood — not only the peak column itself.
+    gutter_hit = False
+    for dc in range(-_SEAM_GUTTER_NEIGHBOR, _SEAM_GUTTER_NEIGHBOR + 1):
+        c = col_i + dc
+        if 0 <= c < arr.shape[1]:
+            m = float(arr[:, c].mean())
+            if m >= _SEAM_GUTTER_HI or m <= _SEAM_GUTTER_LO:
+                gutter_hit = True
+                break
+    if gutter_hit:
+        return None  # multi-panel white/black gutter
+
+    # ≥2 similar interior peaks → multi-panel grid, not a single splice.
+    thr_multi = max(peak * 0.55, float(np.median(interior)) * 3.0)
+    n_strong = int(np.sum(interior >= thr_multi))
+    if n_strong >= 3:
+        return None
+
+    # Left/right fields around the seam must differ (true gel splice cue).
+    lo = max(0, col_i - 10)
+    mid_l = max(0, col_i - 1)
+    mid_r = min(arr.shape[1], col_i + 2)
+    hi = min(arr.shape[1], col_i + 11)
+    left_band = arr[:, lo:mid_l] if mid_l > lo else arr[:, lo : lo + 1]
+    right_band = arr[:, mid_r:hi] if hi > mid_r else arr[:, hi - 1 : hi]
+    left_mean = float(left_band.mean())
+    right_mean = float(right_band.mean())
+    left_std = float(left_band.std()) + 1e-6
+    right_std = float(right_band.std()) + 1e-6
+    mean_jump = abs(left_mean - right_mean)
+    noise_ratio = max(left_std, right_std) / min(left_std, right_std)
+    if mean_jump < _SEAM_MEAN_JUMP_MIN and noise_ratio < _SEAM_NOISE_RATIO_MIN:
+        return None
+
+    # Cap at medium: single-image edge peak is a screening note, not
+    # actionable high on its own (negative_controls_v1: 58 high FPs).
+    severity = "medium"
+    if (
+        prominence < _SEAM_PROMINENCE_THR * 1.25
+        and ratio_med < _SEAM_RATIO_THR * 1.25
+    ):
+        severity = "low"
+
+    frac = (peak_idx + 0.5) / float(smooth.size)
+    title = "Possible vertical splice seam (gel/blot heuristic)"
+    evidence = (
+        f"Column-wise edge energy peaks at relative x={frac:.2f} with "
+        f"prominence {prominence:.2f}× local baseline "
+        f"(median-normalized {ratio_med:.2f}); left/right mean jump "
+        f"{mean_jump:.1f}, noise ratio {noise_ratio:.2f}. Thin vertical "
+        f"discontinuities are a common gel-lane splice cue on PubPeer; "
+        f"confirm against uncropped original gels."
+    )
+    location = f"Page {img.page + 1} / image {img.index}"
+    raw = {
+        "kind": "vertical_gel_seam",
+        "check": "vertical_gel_seam",
+        "page": img.page,
+        "index": img.index,
+        "prominence": round(prominence, 4),
+        "ratio_to_median": round(ratio_med, 4),
+        "seam_x_fraction": round(frac, 4),
+        "peak_col_mean": round(peak_col_mean, 2),
+        "mean_jump": round(mean_jump, 2),
+        "noise_ratio": round(noise_ratio, 3),
+        "n_strong_peaks": n_strong,
+        "image_path": str(path),
+        "pubpeer_pattern": "image_splice_or_clone",
     }
     return severity, title, evidence, location, raw
 
@@ -1455,6 +1646,22 @@ class ImageForensicsDetector:
                     )
                 )
 
+            # P6.1: vertical gel/blot splice seam (screening-level)
+            seam = _vertical_gel_seam_check(img)
+            if seam is not None:
+                sev, title, ev, loc, raw = seam
+                findings.append(
+                    Finding.make(
+                        trace_id=doc.trace_id,
+                        detector=self.name,
+                        severity=sev,
+                        title=title,
+                        evidence=ev,
+                        location=loc,
+                        raw=raw,
+                    )
+                )
+
         findings.extend(_full_image_duplicate_findings(doc))
         findings.extend(_texture_overlap_findings(doc))
         # P0 cross-image SIFT
@@ -1526,8 +1733,9 @@ class ImageForensicsDetector:
             evidence=(
                 "Aggregate of SIFT-CMFD (primary), cross-image local "
                 "match, panel-then-match, JPEG ghost, ELA, secondary "
-                "grid copy-move, full-image identity, and texture "
-                "overlap. Decorative/tiny extractions excluded. "
+                "grid copy-move, vertical gel seam, full-image "
+                "identity, and texture overlap. Decorative/tiny "
+                "extractions excluded. "
                 f"SIFT path={'on' if sift_live else 'off'}."
             ),
             location="image_forensics",

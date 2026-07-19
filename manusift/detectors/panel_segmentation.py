@@ -1,27 +1,23 @@
-"""Multi-panel figure segmentation detector (P3.1).
+"""Within-figure panel segmentation + reuse (``panel_duplicate``).
 
-Scientific figures often
-contain multiple *panels*
-(typically labelled a, b,
-c, d) arranged in a grid.
-A common fraud signal is
-that two panels in the same
-figure are near-duplicates
-of one another -- the
-"forger" only ran the
-experiment once and
-re-used the same image
-twice. Detecting the
-duplication requires
-*first* identifying the
-panels, *then* comparing
-them. The other panels in
-the figure (which may be
-different images) provide
-the negative control: the
-reviewer can verify that
-the duplicate stands out
-amongst distinct panels.
+Registry name: ``panel_duplicate`` (class ``PanelSegmentationDetector``).
+
+**Not the same as** ``panel_dup``:
+
+| | this module (``panel_duplicate``) | ``panel_dup`` |
+|--|----------------------------------|---------------|
+| Scope | Panels **inside one** extracted figure | Across pages / figure regions |
+| Split | Otsu / layout segmentation | Whitespace-gap on raster regions |
+| Compare | SSIM + pHash between panels | Panel pHash across splits |
+
+See ``docs/DETECTOR_LAYERS.md``.
+
+---
+
+P3.1: Scientific figures often contain multiple *panels* (a, b, c, d).
+A common fraud signal is that two panels in the **same** figure are
+near-duplicates. Detecting that requires *first* identifying panels,
+*then* comparing them. Other panels provide a negative control.
 
 This module layers a panel
 *segmenter* and a

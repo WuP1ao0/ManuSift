@@ -1,0 +1,14 @@
+cff-version: 1.2.0
+message: "If you use ManuSift in academic work, please cite it as below."
+title: "ManuSift: Offline paper-integrity screener"
+type: software
+authors:
+  - name: "ManuSift contributors"
+repository-code: "https://github.com/WuP1ao0/ManuSift"
+license: MIT
+version: "0.1.0b1"
+date-released: "2026-07-19"
+abstract: >-
+  ManuSift screens scholarly PDFs (and companion Source Data) with an offline
+  detector suite for image forensics, table integrity signals, and text/metadata
+  anomalies, and exposes the same domain kernel via MCP tools.

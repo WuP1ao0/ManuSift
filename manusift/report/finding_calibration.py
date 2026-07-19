@@ -27,6 +27,8 @@ _SEV_RANK = {"info": 0, "low": 1, "medium": 2, "high": 3}
 _RANK_SEV = {0: "info", 1: "low", 2: "medium", 3: "high"}
 
 # Weak table checks: rarely warrant high on their own
+# (perfect decimal-tail matches are promoted out of this set in
+# ``_base_recalibrate`` when match_fraction≈1 and n is solid).
 _WEAK_CHECKS = frozenset(
     {
         "cross_table_matching_decimal_tails",
@@ -44,13 +46,46 @@ _WEAK_CHECKS = frozenset(
 _STRONG_CHECKS = frozenset(
     {
         "cross_table_fixed_offset",
+        "cross_table_partial_fixed_offset",
         "cross_table_repeated_values",
         "fixed_offset",
+        "partial_fixed_offset",
         "high_duplicate_rate",
         "improbable_repeated_values",
         "multi_column_high_duplicate_rate",
         "zero_variance",
         "zero_standard_deviation_entries",
+        "integer_shift_decimal_tail_reuse",
+        "three_column_additive_relationship",
+        "three_column_subtractive_relationship",
+        "excel_fabrication_span",
+        "sequence_reuse",
+        "identical_parallel_replicates",
+        "fixed_ratio",
+    }
+)
+
+# Nature Source Data often uses blank headers for parallel replicate
+# columns — empty labels alone must not demote these fabrication checks.
+_EMPTY_HEADER_IMMUNE_CHECKS = frozenset(
+    {
+        "fixed_offset",
+        "partial_fixed_offset",
+        "cross_table_fixed_offset",
+        "cross_table_partial_fixed_offset",
+        "cross_table_repeated_values",
+        "high_duplicate_rate",
+        "multi_column_high_duplicate_rate",
+        "matching_decimal_tails",
+        "cross_table_matching_decimal_tails",
+        "integer_shift_decimal_tail_reuse",
+        "integer_part_digit_change_decimal_tail_reuse",
+        "three_column_additive_relationship",
+        "three_column_subtractive_relationship",
+        "excel_fabrication_span",
+        "sequence_reuse",
+        "identical_parallel_replicates",
+        "fixed_ratio",
     }
 )
 
@@ -86,6 +121,49 @@ def _n_of(raw: dict[str, Any]) -> int:
             except (TypeError, ValueError):
                 continue
     return 0
+
+
+def _match_fraction_of(raw: dict[str, Any]) -> float:
+    """Best-effort match fraction for tail / partial-offset findings."""
+    if "match_fraction" in raw and raw["match_fraction"] is not None:
+        try:
+            return float(raw["match_fraction"])
+        except (TypeError, ValueError):
+            pass
+    n = _n_of(raw)
+    if n <= 0:
+        return 0.0
+    for key in ("matching_pairs", "matching_rows", "match_count"):
+        if key in raw and raw[key] is not None:
+            try:
+                return float(raw[key]) / float(n)
+            except (TypeError, ValueError, ZeroDivisionError):
+                continue
+    # exact fixed_offset implies full match
+    check = str(raw.get("check") or "")
+    if check in ("fixed_offset", "cross_table_fixed_offset"):
+        return 1.0
+    return 0.0
+
+
+def _is_clean_numeric_offset(off: Any) -> bool:
+    """Integers / tenths / 0.05-grid offsets typical of spreadsheet fabrication."""
+    try:
+        x = abs(float(off))
+    except (TypeError, ValueError):
+        return False
+    if x == 0.0:
+        return True
+    if abs(x - round(x)) < 1e-9:
+        return True
+    # one decimal place
+    if abs(x * 10 - round(x * 10)) < 1e-9:
+        return True
+    # two decimals on 0.05 grid
+    cents = round(x * 100)
+    if abs(x * 100 - cents) < 1e-6 and cents % 5 == 0:
+        return True
+    return False
 
 
 def _empty_label(s: Any) -> bool:
@@ -138,11 +216,15 @@ def _pair_cluster_key(f: Finding) -> str | None:
     # Within-table column pairs: cluster by table host from location
     if check in (
         "fixed_offset",
+        "partial_fixed_offset",
         "high_duplicate_rate",
         "mirror_symmetry",
         "matching_decimal_tails",
         "integer_shift_decimal_tail_reuse",
         "integer_part_digit_change_decimal_tail_reuse",
+        "cross_table_partial_fixed_offset",
+        "identical_parallel_replicates",
+        "sequence_reuse",
     ):
         loc = f.location or ""
         host = re.split(r",\s*columns?\b", loc, maxsplit=1, flags=re.I)[0]
@@ -178,16 +260,48 @@ def _base_recalibrate(f: Finding) -> tuple[str, list[str]]:
         right_c = raw.get("right_column")
         col = raw.get("column")
 
-        if check in _WEAK_CHECKS and rank > 2:
+        # Perfect decimal-tail reuse is an Excel-typed fabrication signature —
+        # treat as strong when nearly all pairs match and n is solid.
+        match_frac = _match_fraction_of(raw)
+        perfect_tail = (
+            check
+            in (
+                "matching_decimal_tails",
+                "cross_table_matching_decimal_tails",
+                "integer_shift_decimal_tail_reuse",
+            )
+            and n >= 6
+            and match_frac >= 0.95
+        )
+        treat_as_weak = check in _WEAK_CHECKS and not perfect_tail
+
+        if treat_as_weak and rank > 2:
             rank = 2
             reasons.append("weak_check_cap_medium")
 
-        if check == "fixed_offset" or check == "cross_table_fixed_offset":
+        if perfect_tail and prior in ("medium", "high") and rank < 3:
+            rank = 3
+            reasons.append("perfect_decimal_tail_boost_high")
+
+        # Non-zero fixed offset: keep high for clean "A = B + c" with solid n
+        # (s41586-style fabrication). Cap only messy small-n offsets.
+        if check in (
+            "fixed_offset",
+            "partial_fixed_offset",
+            "cross_table_fixed_offset",
+            "cross_table_partial_fixed_offset",
+        ):
             try:
                 off = raw.get("offset")
-                if off is not None and float(off) != 0.0 and rank > 2:
-                    rank = 2
-                    reasons.append("nonzero_offset_cap_medium")
+                if off is not None and float(off) != 0.0:
+                    clean = _is_clean_numeric_offset(off)
+                    if n >= 8 and clean:
+                        if prior in ("medium", "high") and rank < 3:
+                            rank = 3
+                            reasons.append("clean_nonzero_offset_boost_high")
+                    elif rank > 2 and (n < 8 or not clean):
+                        rank = 2
+                        reasons.append("nonzero_offset_cap_medium")
             except (TypeError, ValueError):
                 pass
 
@@ -195,32 +309,86 @@ def _base_recalibrate(f: Finding) -> tuple[str, list[str]]:
             rank = min(rank, 1)
             reasons.append("small_n")
 
-        if n and 5 <= n < 12 and rank > 2 and check in _WEAK_CHECKS:
+        if n and 5 <= n < 12 and rank > 2 and treat_as_weak:
             rank = 2
             reasons.append("modest_n_weak_check")
 
-        # Empty / placeholder column labels → demote (noisy SI tables)
+        # Empty / placeholder column labels → demote noisy SI tables,
+        # but NOT for fabrication-strong checks (Nature blank rep headers).
         empty_cols = 0
         for c in (left_c, right_c, col):
             if c is not None and _empty_label(c):
                 empty_cols += 1
-        if empty_cols and rank > 1:
+        # n>=5 covers sequence_reuse windows (default length 5) and small
+        # but solid fixed-offset blocks common in Source Data.
+        immune = check in _EMPTY_HEADER_IMMUNE_CHECKS and n >= 5
+        if empty_cols and rank > 1 and not immune:
             rank = max(1, rank - 1)
             reasons.append("empty_or_placeholder_column")
+        elif empty_cols and immune:
+            reasons.append("empty_header_immune_fabrication_check")
 
         # Cross-table exact reuse with large n stays eligible for high
-        if check in ("cross_table_repeated_values", "cross_table_fixed_offset"):
+        if check in (
+            "cross_table_repeated_values",
+            "cross_table_fixed_offset",
+            "cross_table_partial_fixed_offset",
+        ):
             try:
                 off = raw.get("offset")
                 zero_off = off is None or float(off) == 0.0
             except (TypeError, ValueError):
                 zero_off = True
             if n >= 50 and zero_off and check in _STRONG_CHECKS:
-                # keep high if was high; do not boost low→high aggressively
-                if prior == "high" and rank < 3 and "empty_or_placeholder_column" not in reasons:
+                # keep/restore high; empty headers no longer block this
+                if prior == "high" and rank < 3:
                     rank = 3
                     reasons.append("large_n_strong_cross_table")
 
+        # Paper-level Excel span: high only with several true high members.
+        # Blind n>=5 / table_count boost made multi-table legit papers high.
+        if check == "excel_fabrication_span":
+            try:
+                high_members = int(raw.get("high_member_count") or 0)
+            except (TypeError, ValueError):
+                high_members = 0
+            if high_members >= 5 and n >= 8 and rank < 3:
+                if prior in ("medium", "high"):
+                    rank = 3
+                    reasons.append("excel_span_boost_high_members")
+            elif rank > 2:
+                rank = 2
+                reasons.append("excel_span_cap_medium")
+
+        # Statistical duplicate excess on a single table: high is rarely
+        # actionable alone on clinical/assay tables with legitimate ties.
+        if check in (
+            "high_duplicate_rate",
+            "improbable_repeated_values",
+            "multi_column_high_duplicate_rate",
+            "duplicate_excess",
+        ) and rank > 2:
+            try:
+                rate = float(
+                    raw.get("duplicate_rate")
+                    or raw.get("rate")
+                    or raw.get("repeat_fraction")
+                    or 0
+                )
+            except (TypeError, ValueError):
+                rate = 0.0
+            try:
+                repeat_count = int(raw.get("repeat_count") or 0)
+            except (TypeError, ValueError):
+                repeat_count = 0
+            # Poisson-excess q-tests fire high on legit assay ties; keep
+            # high only for near-total column copies with solid n.
+            near_full_copy = (
+                rate >= 0.85 or (n and repeat_count and repeat_count / max(n, 1) >= 0.85)
+            )
+            if not near_full_copy or (n and n < 20):
+                rank = 2
+                reasons.append("duplicate_excess_cap_medium")
     # --- image forensics soft signals ---
     if det in ("image_forensics", "image_noise_inconsistency", "imagehash_dup"):
         kind = check
@@ -233,9 +401,45 @@ def _base_recalibrate(f: Finding) -> tuple[str, list[str]]:
         if kind == "image_forensics_summary" and rank > 2:
             rank = 2
             reasons.append("summary_cap_medium")
+        if kind == "vertical_gel_seam" and rank > 2:
+            rank = 2
+            reasons.append("gel_seam_cap_medium")
         if det == "image_noise_inconsistency" and rank > 1:
             rank = min(rank, 1)
             reasons.append("noise_inconsistency_low")
+
+    # Terminal-digit round bias: high only for extreme concentration.
+    if det == "table_round_bias" and rank > 2:
+        try:
+            ratio = float(raw.get("ratio") or raw.get("zero_five_ratio") or 0)
+        except (TypeError, ValueError):
+            ratio = 0.0
+        if ratio < 0.85:
+            rank = 2
+            reasons.append("round_bias_cap_medium")
+
+    # Cross-paper local index hygiene.
+    if det == "cross_paper_image":
+        other = str(raw.get("matched_paper_id") or "").strip().lower()
+        if other in {
+            "original",
+            "paper",
+            "main",
+            "document",
+            "file",
+            "image",
+            "",
+        } or (
+            10 <= len(other) <= 40
+            and all(c in "0123456789abcdef" for c in other)
+        ):
+            if rank > 1:
+                rank = 1
+                reasons.append("cross_paper_generic_id_demote")
+        # Small assets / non-substantial matches never high.
+        if rank > 2 and not raw.get("substantial_image", True):
+            rank = 2
+            reasons.append("cross_paper_small_asset_cap_medium")
 
     # --- figure OCR recovered grids are low-precision alone ---
     if det == "figure_table_ocr":

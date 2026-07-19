@@ -261,26 +261,27 @@ def verdict_for_trace(
     return verdict
 
 
-def _copy_sidecar_data(pdf_dir: Path, materials_dir: Path) -> list[str]:
-    """Copy companion data files (XLSX/CSV/TSV/JSON) found next to the
-    source PDF into the job's materials dir.
+_SI_PDF_NAME_RE = re.compile(
+    r"(supplement|si[_-]|moesm|supporting.?info|appendix)",
+    re.IGNORECASE,
+)
 
-    The pipeline analyses a *copy* of the PDF inside the job
-    workspace, so the ingest layer's "look in the PDF's parent dir"
-    fallback never sees the user's original directory -- this is what
-    made ``screen_verdict`` silently skip same-directory source data
-    (2026-07-18 Codex MCP session on s41565-025-02082-0). Mirroring
-    the CLI's ``--with-sidecar`` behaviour here makes it the default
-    for the MCP screen flow. Returns the copied file names.
+
+def _copy_sidecar_data(pdf_dir: Path, materials_dir: Path) -> list[str]:
+    """Copy companion data + SI PDFs next to the source PDF into materials/.
+
+    Copies XLSX/CSV/TSV/JSON (Source Data) and supplementary PDFs
+    (``*Supplementary*``, ``*MOESM*``, …) so the pipeline can merge SI
+    figures with the main PDF (P6.3). Returns the copied file names.
     """
     from ..ingest.xlsx import discover_companion_files
 
     copied: list[str] = []
     if not pdf_dir.is_dir():
         return copied
+    materials_dir.mkdir(parents=True, exist_ok=True)
     for fp in discover_companion_files(pdf_dir):
         try:
-            materials_dir.mkdir(parents=True, exist_ok=True)
             dest = materials_dir / fp.name
             if dest.exists():
                 continue
@@ -288,6 +289,25 @@ def _copy_sidecar_data(pdf_dir: Path, materials_dir: Path) -> list[str]:
             copied.append(fp.name)
         except OSError:
             continue
+    # Companion SI PDFs (not covered by data-file discovery).
+    try:
+        main_name = ""
+        # Prefer not re-copying the main paper if named similarly.
+        for fp in sorted(pdf_dir.iterdir()):
+            if not fp.is_file() or fp.suffix.lower() != ".pdf":
+                continue
+            if not _SI_PDF_NAME_RE.search(fp.name):
+                continue
+            dest = materials_dir / fp.name
+            if dest.exists():
+                continue
+            try:
+                dest.write_bytes(fp.read_bytes())
+                copied.append(fp.name)
+            except OSError:
+                continue
+    except OSError:
+        pass
     return copied
 
 

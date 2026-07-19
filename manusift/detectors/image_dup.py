@@ -1,6 +1,10 @@
-"""Image duplicate detector.
+"""Image duplicate detector — **primary** whole-image / strip path.
 
-Three-pass comparison of extracted figures:
+This is the offline-pipeline owner for cross-figure near-duplicates.
+Do **not** add competing whole-image hash logic to ``imagehash_dup``
+(agent-only single-algo probes). See ``docs/DETECTOR_LAYERS.md``.
+
+Multi-pass comparison of extracted figures:
 
 1. **Primary pHash** — reuse the precomputed ``ExtractedImage.phash``
    and flag pairs at or below the project Hamming threshold
@@ -13,18 +17,32 @@ Three-pass comparison of extracted figures:
    (default 12). Catches crops, re-encodes, and line-drawing
    figures that DCT pHash under-scores.
 
-3. **Region / tile bridge** — for remaining pairs, compare a small
+3. **Geometric transform pass** (PubPeer Cat II) — pHash after
+   H/V flip and 90/180/270° rotation so mirrored or rotated panel
+   reuse still matches. Medium/high by Hamming; capped pair budget.
+
+4. **Region / tile bridge** — for remaining pairs, compare a small
    grid of high-variance cell hashes across different images.
    This bridges the common gap where ``image_forensics`` finds
    local texture reuse (gel bands, blot fragments) but whole-image
    pHash never fires. Severity is medium; findings are capped.
 
+5. **Loading-control ROI** — bottom-of-figure strips (typical
+   β-actin / GAPDH / tubulin band region on Western blots). Flags
+   pairs whose lower strips match even when whole-image hashes do
+   not — a classic PubPeer cue for reused loading controls under
+   different experimental labels.
+
+Not a substitute for ``panel_dup`` / ``panel_duplicate`` (panel split
+scopes differ — see ``docs/DETECTOR_LAYERS.md``).
+
 Step 1 keeps N² over images. With typical figures (5–30) the cost
-is trivial; Step 2/3 only open rasters when needed.
+is trivial; later passes only open rasters when needed.
 """
 from __future__ import annotations
 
-from typing import Any
+import os
+from typing import Any, Callable
 
 from ..config import get_settings
 from ..contracts import ExtractedImage, Finding, ParsedDoc
@@ -36,6 +54,20 @@ _SECONDARY_HAMMING: int = 12
 # High severity when primary Hamming is this tight.
 _HIGH_SEVERITY_HAMMING: int = 4
 
+# Geometric transform pass (flip / rotate).
+_GEO_HAMMING: int = 10
+_GEO_HIGH_HAMMING: int = 4
+_MAX_GEO_PAIRS: int = 180
+_GEO_TRANSFORM_NAMES: tuple[str, ...] = (
+    "hflip",
+    "vflip",
+    "rot90",
+    "rot180",
+    "rot270",
+    "hflip_rot90",
+    "hflip_rot180",
+)
+
 # Region / tile bridge (forensics-hit → image_dup recall).
 _REGION_GRID: int = 4
 _REGION_CELL_MIN: int = 24  # px; skip tiny cells
@@ -44,6 +76,19 @@ _REGION_MIN_STD: float = 18.0  # skip flat / blank tiles
 _REGION_MAX_FINDINGS: int = 40
 # Cap multi-hash decode work on very large figure sets.
 _MAX_SECONDARY_PAIRS: int = 200
+
+# Loading-control bottom-strip pass (PubPeer #5–6).
+# y fractions of image height: (y0, y1) inclusive crop.
+_LC_STRIPS: tuple[tuple[float, float], ...] = (
+    (0.72, 1.0),   # classic bottom loading band
+    (0.55, 0.82),  # mid-low strip when multi-row blots stack
+)
+_LC_HAMMING: int = 5
+_LC_HIGH_HAMMING: int = 2
+_LC_MIN_STRIP_H: int = 16  # px after crop
+_LC_MIN_STD: float = 12.0  # skip blank white bottoms
+_LC_MAX_FINDINGS: int = 30
+_LC_MAX_PAIRS: int = 200
 
 
 def _hamming(a: str, b: str) -> int:
@@ -80,6 +125,199 @@ def _compute_algo_hash(algo: str, image_path: str | None) -> str | None:
         return str(h)
     except Exception:  # noqa: BLE001 — skip corrupt rasters
         return None
+
+
+def _pil_transforms() -> list[tuple[str, Callable[[Any], Any]]]:
+    """Named geometry transforms used for Cat-II reuse matching."""
+    from PIL import Image as PILImage
+
+    return [
+        ("hflip", lambda im: im.transpose(PILImage.FLIP_LEFT_RIGHT)),
+        ("vflip", lambda im: im.transpose(PILImage.FLIP_TOP_BOTTOM)),
+        ("rot90", lambda im: im.transpose(PILImage.ROTATE_90)),
+        ("rot180", lambda im: im.transpose(PILImage.ROTATE_180)),
+        ("rot270", lambda im: im.transpose(PILImage.ROTATE_270)),
+        (
+            "hflip_rot90",
+            lambda im: im.transpose(PILImage.FLIP_LEFT_RIGHT).transpose(
+                PILImage.ROTATE_90
+            ),
+        ),
+        (
+            "hflip_rot180",
+            lambda im: im.transpose(PILImage.FLIP_LEFT_RIGHT).transpose(
+                PILImage.ROTATE_180
+            ),
+        ),
+    ]
+
+
+def _compute_transform_phashes(
+    image_path: str | None,
+) -> dict[str, str]:
+    """pHash for identity + flip/rotate views of one raster."""
+    if not image_path:
+        return {}
+    try:
+        import imagehash
+        from PIL import Image
+    except Exception:  # noqa: BLE001
+        return {}
+    out: dict[str, str] = {}
+    try:
+        with Image.open(image_path) as img:
+            base = img.convert("RGB")
+            try:
+                out["identity"] = str(imagehash.phash(base))
+            except Exception:  # noqa: BLE001
+                pass
+            for name, fn in _pil_transforms():
+                try:
+                    transformed = fn(base)
+                    out[name] = str(imagehash.phash(transformed))
+                except Exception:  # noqa: BLE001
+                    continue
+    except Exception:  # noqa: BLE001
+        return {}
+    return out
+
+
+def _best_geo_match(
+    hashes_a: dict[str, str],
+    hashes_b: dict[str, str],
+) -> tuple[str, str, int] | None:
+    """Best (transform_on_a, transform_on_b, hamming) under geo gate.
+
+    Compares non-identity transforms of A to identity of B and
+    identity of A to non-identity transforms of B (covers either
+    side being the flipped/rotated reuse).
+    """
+    best: tuple[str, str, int] | None = None
+    best_d = _GEO_HAMMING + 1
+    id_a = hashes_a.get("identity")
+    id_b = hashes_b.get("identity")
+    if id_b:
+        for tname, ha in hashes_a.items():
+            if tname == "identity" or not ha:
+                continue
+            if len(ha) != len(id_b):
+                continue
+            d = _hamming(ha, id_b)
+            if d < best_d:
+                best_d = d
+                best = (tname, "identity", d)
+    if id_a:
+        for tname, hb in hashes_b.items():
+            if tname == "identity" or not hb:
+                continue
+            if len(id_a) != len(hb):
+                continue
+            d = _hamming(id_a, hb)
+            if d < best_d:
+                best_d = d
+                best = ("identity", tname, d)
+    if best is None or best[2] > _GEO_HAMMING:
+        return None
+    return best
+
+
+def _loading_control_enabled() -> bool:
+    raw = (os.environ.get("MANUSIFT_LOADING_CONTROL_ROI") or "1").strip().lower()
+    return raw not in {"0", "false", "off", "no"}
+
+
+def _looks_blot_like(img: ExtractedImage) -> bool:
+    """Cheap gate: wide-enough raster, not a tiny icon."""
+    w = int(img.width or 0)
+    h = int(img.height or 0)
+    if w < 80 or h < 60:
+        return False
+    if int(img.bytes_size or 0) < 8 * 1024:
+        return False
+    # Prefer landscape or square-ish (gels); still allow tall multi-panel
+    return True
+
+
+def _loading_control_strip_hashes(
+    image_path: str | None,
+) -> list[dict[str, Any]]:
+    """Hash bottom/mid-low horizontal strips (loading-control ROI).
+
+    Returns list of ``{strip_id, y0, y1, ahash, std}``.
+    """
+    if not image_path:
+        return []
+    try:
+        import imagehash
+        import statistics
+        from PIL import Image
+    except Exception:  # noqa: BLE001
+        return []
+    out: list[dict[str, Any]] = []
+    try:
+        with Image.open(image_path) as img:
+            gray = img.convert("L")
+            w, h = gray.size
+            if h < 40 or w < 40:
+                return []
+            for si, (yf0, yf1) in enumerate(_LC_STRIPS):
+                y0 = max(0, int(h * yf0))
+                y1 = min(h, int(h * yf1))
+                if y1 - y0 < _LC_MIN_STRIP_H:
+                    continue
+                strip = gray.crop((0, y0, w, y1))
+                tiny = strip.resize((32, max(8, strip.size[1] // 4 or 8)))
+                try:
+                    sample = list(
+                        getattr(tiny, "get_flattened_data", tiny.getdata)()
+                    )
+                    std = float(statistics.pstdev(sample)) if len(sample) > 4 else 0.0
+                except statistics.StatisticsError:
+                    std = 0.0
+                if std < _LC_MIN_STD:
+                    continue
+                try:
+                    hx = str(imagehash.average_hash(strip))
+                except Exception:  # noqa: BLE001
+                    continue
+                out.append(
+                    {
+                        "strip_id": si,
+                        "y0": y0,
+                        "y1": y1,
+                        "y0_frac": round(yf0, 3),
+                        "y1_frac": round(yf1, 3),
+                        "ahash": hx,
+                        "std": round(std, 2),
+                    }
+                )
+    except Exception:  # noqa: BLE001
+        return []
+    return out
+
+
+def _best_loading_control_match(
+    strips_a: list[dict[str, Any]],
+    strips_b: list[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any], int] | None:
+    """Best (strip_a, strip_b, hamming) under loading-control gate."""
+    best: tuple[dict[str, Any], dict[str, Any], int] | None = None
+    best_d = _LC_HAMMING + 1
+    for sa in strips_a:
+        ha = sa.get("ahash") or ""
+        for sb in strips_b:
+            hb = sb.get("ahash") or ""
+            if not ha or not hb or len(ha) != len(hb):
+                continue
+            d = _hamming(ha, hb)
+            if d < best_d:
+                best_d = d
+                best = (sa, sb, d)
+                if d == 0:
+                    return best
+    if best is None or best[2] > _LC_HAMMING:
+        return None
+    return best
 
 
 def _region_cell_hashes(
@@ -174,9 +412,15 @@ class ImageDuplicateDetector:
         # Track pairs already reported so secondary/region passes
         # do not double-count the same (i, j).
         flagged_pairs: set[tuple[int, int]] = set()
+        # Whole-image-level hits only (primary / secondary / geo).
+        # Region tile hits do NOT go here — loading-control still
+        # needs to fire when only the bottom strip matches.
+        whole_flagged: set[tuple[int, int]] = set()
         n_primary = 0
         n_secondary = 0
+        n_geo = 0
         n_region = 0
+        n_loading = 0
 
         # ----- Pass 1: primary pHash -----
         # 2026-07 (negative_controls_v1): collect matches first,
@@ -248,6 +492,7 @@ class ImageDuplicateDetector:
                 )
             )
             flagged_pairs.add((i, j))
+            whole_flagged.add((i, j))
             n_primary += 1
 
         # ----- Pass 2: secondary multi-hash (aHash / dHash) -----
@@ -342,7 +587,88 @@ class ImageDuplicateDetector:
                 )
             )
             flagged_pairs.add((i, j))
+            whole_flagged.add((i, j))
             n_secondary += 1
+
+        # ----- Pass 2.5: geometric transform (flip / rotate) -----
+        # PubPeer Cat II: same panel reused after H/V flip or 90° k rot.
+        geo_pairs = [
+            (i, j)
+            for i in eligible_indexes
+            for j in eligible_indexes
+            if j > i
+            and (i, j) not in flagged_pairs
+            and images[i].image_path
+            and images[j].image_path
+        ]
+        geo_pairs.sort(key=_phash_hint)
+        geo_pairs = geo_pairs[:_MAX_GEO_PAIRS]
+        geo_cache: dict[int, dict[str, str]] = {}
+
+        def _get_geo(idx: int) -> dict[str, str]:
+            if idx not in geo_cache:
+                geo_cache[idx] = _compute_transform_phashes(
+                    images[idx].image_path
+                )
+            return geo_cache[idx]
+
+        for i, j in geo_pairs:
+            ha = _get_geo(i)
+            hb = _get_geo(j)
+            if not ha or not hb:
+                continue
+            hit = _best_geo_match(ha, hb)
+            if hit is None:
+                continue
+            t_a, t_b, d = hit
+            a, b = images[i], images[j]
+            sev = "high" if d <= _GEO_HIGH_HAMMING else "medium"
+            transform_label = (
+                t_a if t_a != "identity" else t_b
+            )
+            findings.append(
+                Finding.make(
+                    trace_id=doc.trace_id,
+                    detector=self.name,
+                    severity=sev,
+                    title=(
+                        f"Near-duplicate after {transform_label} "
+                        f"(geometric pass)"
+                    ),
+                    evidence=(
+                        f"Image p{i} (page {a.page + 1}) and p{j} "
+                        f"(page {b.page + 1}) match at pHash distance "
+                        f"{d} after geometric transform "
+                        f"(A:{t_a} vs B:{t_b}; ≤{_GEO_HAMMING}). "
+                        f"Consistent with flipped/rotated panel reuse."
+                    ),
+                    location=(
+                        f"Page {a.page + 1} / image {a.index}  ↔  "
+                        f"Page {b.page + 1} / image {b.index}"
+                    ),
+                    raw={
+                        "image_a": {
+                            "page": a.page,
+                            "index": a.index,
+                            "transform": t_a,
+                        },
+                        "image_b": {
+                            "page": b.page,
+                            "index": b.index,
+                            "transform": t_b,
+                        },
+                        "hamming": d,
+                        "algorithm": "phash_geometric",
+                        "pass": "geometric",
+                        "transform": transform_label,
+                        "pubpeer_pattern": "image_repositioned_reuse",
+                        "check": "geometric_transform_dup",
+                    },
+                )
+            )
+            flagged_pairs.add((i, j))
+            whole_flagged.add((i, j))
+            n_geo += 1
 
         # ----- Pass 3: region / tile bridge -----
         # Only compare images that still have no whole-image hit.
@@ -423,14 +749,135 @@ class ImageDuplicateDetector:
                 flagged_pairs.add((i, j))
                 n_region += 1
 
+        # ----- Pass 4: loading-control bottom-strip ROI -----
+        # Whole-image mismatch + matching lower strip → classic reused
+        # actin/GAPDH under different experimental labels (PubPeer).
+        if _loading_control_enabled():
+            lc_indexes = [
+                i
+                for i in eligible_indexes
+                if images[i].image_path and _looks_blot_like(images[i])
+            ]
+            lc_cache: dict[int, list[dict[str, Any]]] = {}
+
+            def _lc_strips(idx: int) -> list[dict[str, Any]]:
+                if idx not in lc_cache:
+                    lc_cache[idx] = _loading_control_strip_hashes(
+                        images[idx].image_path
+                    )
+                return lc_cache[idx]
+
+            # Skip only whole-image-level pairs; region tile hits
+            # (e.g. shared bottom band) must still reach LC pass.
+            lc_pairs = [
+                (i, j)
+                for pos, i in enumerate(lc_indexes)
+                for j in lc_indexes[pos + 1 :]
+                if (i, j) not in whole_flagged
+            ]
+            # Prefer pairs not already close on primary pHash
+            def _lc_phash_hint(pair: tuple[int, int]) -> int:
+                i, j = pair
+                pa, pb = images[i].phash, images[j].phash
+                if pa and pb and len(pa) == len(pb):
+                    return -_hamming(pa, pb)  # prefer distant first
+                return 0
+
+            lc_pairs.sort(key=_lc_phash_hint)
+            lc_pairs = lc_pairs[:_LC_MAX_PAIRS]
+            for i, j in lc_pairs:
+                if n_loading >= _LC_MAX_FINDINGS:
+                    break
+                strips_a = _lc_strips(i)
+                strips_b = _lc_strips(j)
+                if not strips_a or not strips_b:
+                    continue
+                hit = _best_loading_control_match(strips_a, strips_b)
+                if hit is None:
+                    continue
+                sa, sb, d = hit
+                # If whole-image primary already near-identical, skip —
+                # already reported as figure reuse, not specifically LC.
+                pa, pb = images[i].phash, images[j].phash
+                whole_close = bool(
+                    pa
+                    and pb
+                    and len(pa) == len(pb)
+                    and _hamming(pa, pb) <= threshold
+                )
+                if whole_close:
+                    continue
+                a, b = images[i], images[j]
+                sev = "high" if d <= _LC_HIGH_HAMMING else "medium"
+                findings.append(
+                    Finding.make(
+                        trace_id=doc.trace_id,
+                        detector=self.name,
+                        severity=sev,
+                        title=(
+                            "Possible loading-control band reuse "
+                            "(bottom-strip ROI)"
+                        ),
+                        evidence=(
+                            f"Lower-figure strip on p{i} "
+                            f"(page {a.page + 1}, y={sa['y0_frac']}-"
+                            f"{sa['y1_frac']}) matches p{j} "
+                            f"(page {b.page + 1}, y={sb['y0_frac']}-"
+                            f"{sb['y1_frac']}) at aHash distance {d} "
+                            f"(≤{_LC_HAMMING}). Whole-image hashes differ "
+                            f"or were not already flagged as identical — "
+                            f"consistent with a reused β-actin/GAPDH-style "
+                            f"loading control under different labels."
+                        ),
+                        location=(
+                            f"Page {a.page + 1} / image {a.index} "
+                            f"strip[{sa['strip_id']}]  ↔  "
+                            f"Page {b.page + 1} / image {b.index} "
+                            f"strip[{sb['strip_id']}]"
+                        ),
+                        raw={
+                            "check": "loading_control_roi_dup",
+                            "pass": "loading_control",
+                            "hamming": d,
+                            "algorithm": "strip_ahash",
+                            "pubpeer_pattern": "image_loading_control_reuse",
+                            "strip_a": {
+                                "y0_frac": sa["y0_frac"],
+                                "y1_frac": sa["y1_frac"],
+                                "std": sa["std"],
+                            },
+                            "strip_b": {
+                                "y0_frac": sb["y0_frac"],
+                                "y1_frac": sb["y1_frac"],
+                                "std": sb["std"],
+                            },
+                            "image_a": {
+                                "page": a.page,
+                                "index": a.index,
+                            },
+                            "image_b": {
+                                "page": b.page,
+                                "index": b.index,
+                            },
+                        },
+                    )
+                )
+                # Do not add to flagged_pairs: whole-image still free
+                # for other passes; LC is a specialized signal.
+                n_loading += 1
+
         stats: dict[str, Any] = size_stats.to_stats_dict()
         stats.update(
             {
                 "n_primary_hits": n_primary,
                 "n_secondary_hits": n_secondary,
+                "n_geometric_hits": n_geo,
                 "n_region_hits": n_region,
+                "n_loading_control_hits": n_loading,
                 "primary_threshold": threshold,
                 "secondary_threshold": _SECONDARY_HAMMING,
+                "geometric_threshold": _GEO_HAMMING,
+                "loading_control_threshold": _LC_HAMMING,
             }
         )
         return DetectorResult(

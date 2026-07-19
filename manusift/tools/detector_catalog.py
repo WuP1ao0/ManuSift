@@ -97,6 +97,7 @@ DETECTOR_CATEGORY: dict[str, str] = {
     # (visual
     # integrity)
     "image_dup": "image",
+    "cross_paper_image": "image",
     "image_forensics": "image",
     "image_ssim": "image",
     "image_sift_copymove": "image",
@@ -141,6 +142,9 @@ DETECTOR_CATEGORY: dict[str, str] = {
     "stat_grim": "statistical",
     "stat_pvalue": "statistical",
     "stat_percent": "statistical",
+    "stat_pvalue_pileup": "statistical",
+    "stat_sprite": "statistical",
+    "stat_corr_psd": "statistical",
     # ---- table /
     # data-source
     # statistics

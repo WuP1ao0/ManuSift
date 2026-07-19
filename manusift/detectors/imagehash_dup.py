@@ -1,47 +1,20 @@
-"""Cross-page image duplicate detector using the ``imagehash`` library
-(Step T3).
+"""Agent-only single-algorithm imagehash probes (not the batch path).
 
-Pre-T3, the ``image_dup``
-detector used a hand-rolled
-hex-string Hamming distance
-over 64-bit pHash strings that
-``ParsedDoc`` had produced at
-PDF-parse time. That worked,
-but it conflated three things:
-how the hash was computed,
-how it was stored, and how
-two images were compared.
-Hardcoding a single hash family
-(pHash) meant we could not
-benefit from stronger perceptual
-hashes (aHash, dHash, wHash)
-that ``imagehash`` supports and
-that the literature recommends
-for different content types
-(photographs vs. line drawings
-vs. scanned text).
+**Production / offline screen:** use ``image_dup`` (multi-pass pHash +
+aHash/dHash + geometric + region + loading-control). These classes are
+listed in ``pipeline.PIPELINE_EXCLUDED`` so batch screen does not
+double-count.
 
-T3 layers a second detector
-on top of the existing
-``image_dup`` and exposes the
-full ``imagehash`` API:
+**Do not add new whole-image duplicate logic here** — extend
+``image_dup.py`` instead. See ``docs/DETECTOR_LAYERS.md``.
 
-  * ``PHashDetector`` -- the
-    classic DCT-based perceptual
-    hash. Good for natural
-    images; the one the original
-    ``image_dup`` used
-    conceptually.
-  * ``AHashDetector`` -- average
-    hash. Cheap, robust to
-    scaling, weak on rotation.
-  * ``DHashDetector`` --
-    difference hash. Good for
-    line drawings and screenshots.
-  * ``WHashDetector`` -- wavelet
-    hash. Slowest but most
-    accurate on JPEG photographs
-    that have been re-encoded.
+Historical note (Step T3): thin wrappers around ``imagehash`` for
+agent inspection of one algorithm at a time:
+
+  * ``PHashDetector`` — DCT pHash
+  * ``AHashDetector`` — average hash
+  * ``DHashDetector`` — difference hash
+  * ``WHashDetector`` — wavelet hash (costly; agent-only)
 
 Each detector compares every
 pair of images in the document

@@ -1,9 +1,8 @@
-"""Offline report regeneration from findings.json (P3).
+"""CLI entry to regenerate reports from findings.json.
 
-Usage::
+Primary: investigation_pairs (+ optional llm_report / plain).
+See docs/REPORT_PATH.md.
 
-    python -m manusift.report.from_findings path/to/job_dir
-    python -m manusift.report.from_findings path/to/findings.json --calibrate
 """
 from __future__ import annotations
 

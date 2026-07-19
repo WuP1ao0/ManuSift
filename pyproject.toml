@@ -9,7 +9,26 @@ description = "ManuSift — paper-integrity screener (PDF + figures -> forgery-s
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
-authors = [{name = "ManuSift"}]
+authors = [{name = "ManuSift contributors"}]
+keywords = [
+    "paper-integrity",
+    "research-integrity",
+    "image-forensics",
+    "pdf",
+    "academic",
+    "mcp",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering",
+]
+urls = { Homepage = "https://github.com/WuP1ao0/ManuSift", Repository = "https://github.com/WuP1ao0/ManuSift", Issues = "https://github.com/WuP1ao0/ManuSift/issues" }
 dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.27",

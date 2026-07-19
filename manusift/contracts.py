@@ -364,46 +364,17 @@ class AnalysisResult:
     duration_ms: int
 
 
-# ---------- chat transcript (R2) ----------
+# ---------- chat transcript DTO ----------
 #
-# Moved out of
-# ``manusift.tui.chat_app``
-# so the rendering module
-# can import it without
-# pulling in textual /
-# ChatApp / the rest of
-# the TUI. The TUI module
-# re-exports it via
-# ``from .chat_app import
-# ChatMessage`` for back-
-# compat.
+# Shared message shape for workspace TUI / session logs.
+# The conversational ``chat_app`` TUI was removed (product B+C only);
+# do not reintroduce imports from a deleted ``manusift.tui.chat_app``.
 @dataclass
 class ChatMessage:
-    """One line in the
-    transcript. ``role`` is
-    ``"user"`` /
-    ``"assistant"`` /
-    ``"system"`` /
-    ``"tool"``. The
-    rendering layer maps
-    role -> style + glyph.
+    """One line in a transcript.
 
-    Not ``frozen=True``
-    because callers
-    sometimes update
-    ``timestamp`` after
-    construction (e.g.
-    the persistence layer
-    in ``chat_app.py``
-    stamps a fresh
-    ``time.time()`` when
-    the original is zero).
-    A future refactor
-    could promote it to
-    frozen + factory but
-    the existing tests
-    rely on the mutable
-    form.
+    ``role`` is ``"user"`` / ``"assistant"`` / ``"system"`` / ``"tool"``.
+    Mutable so callers can fill ``timestamp`` after construction.
     """
     role: str
     content: str

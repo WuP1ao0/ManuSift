@@ -1,8 +1,10 @@
-"""HTML report builder.
+"""Secondary HTML report builder (early findings dump).
 
-Step 1 keeps this deliberately small: a single static page with a
-severity-colored findings list. No JS, no charts, no PDF export.
-Step 2+ can layer on richer rendering.
+**Not** the batch/MCP primary report path. Prefer
+`investigation_pairs.write_investigation_pairs` (see
+`docs/REPORT_PATH.md`). Kept for formatters / legacy callers.
+
+Original module purpose: HTML report of findings for TUI/formatters.
 """
 from __future__ import annotations
 

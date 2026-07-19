@@ -1,15 +1,15 @@
 """ManuSift agent package — public surface.
 
-Domain Kernel tools stay outside this package. Runtime selection:
+**Supported entry:** ``create_agent_loop`` → PydanticAI by default.
 
-  * **default** — ``create_agent_loop`` → PydanticAI (``PydanticAgentLoop``)
-  * **legacy** — hand-rolled ``AgentLoop`` in ``legacy_loop.py``
-    (``MANUSIFT_AGENT_RUNTIME=legacy``)
+  * **pydantic_ai** (default) — ``PydanticAgentLoop`` (maintained)
+  * **legacy** — frozen ``AgentLoop`` in ``legacy_loop.py``
+    (``MANUSIFT_AGENT_RUNTIME=legacy`` only; do not extend)
 
-Backward-compatible re-exports (keep existing imports working)::
+Backward-compatible re-exports::
 
-    from manusift.agent import AgentLoop, AgentLoopResult
     from manusift.agent import create_agent_loop
+    from manusift.agent import AgentLoop, AgentLoopResult  # legacy
 """
 from __future__ import annotations
 

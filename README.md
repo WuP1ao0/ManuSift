@@ -9,20 +9,36 @@ patterns.
 ## Quickstart
 
 Requires **Python ≥ 3.10** (3.11 recommended). Windows, Linux and macOS
-are supported; heavy vision deps are installed as wheels.
+x86_64/arm64 are supported when pip can fetch wheels for OpenCV /
+NumPy / SciPy (no compiler required on common platforms).
 
 ```bash
-git clone <repo-url> && cd ManuSift1
+git clone https://github.com/WuP1ao0/ManuSift.git
+cd ManuSift
 python -m venv .venv
-# Windows: .venv\Scripts\activate   Linux/macOS: source .venv/bin/activate
+# Windows:  .venv\Scripts\activate
+# Linux/macOS: source .venv/bin/activate
+python -m pip install -U pip
 pip install -e .
 
-# Screen a paper (offline pipeline, no LLM keys needed)
+# Verify install (package-data + CLI + offline screen, no API keys)
+python scripts/install_smoke.py
+
+# Screen a paper (offline pipeline; no LLM keys / no network)
+manusift screen evals/fixtures/clean_academic.pdf --no-llm --suites fast
+# Or any PDF:
 manusift screen path/to/paper.pdf --no-llm
+# Optional: pin the job workspace
+manusift screen path/to/paper.pdf --no-llm --workspace ./my_jobs
 ```
 
-Results land in `data/jobs/<trace_id>/output/` (`report.html`,
-`findings.json`, `issues.json`, plus `investigation_pairs.html`).
+Default workspace is `data/jobs/<trace_id>/` (created automatically).
+Outputs include `findings.json`, `report.html`, `issues.json`, and
+`investigation_pairs.html` under `…/output/`.
+
+Shipped sample PDFs live in `evals/fixtures/` (tracked in git so a bare
+clone can smoke-test offline). If they are missing, `scripts/install_smoke.py`
+generates a one-page PDF with PyMuPDF.
 
 Optional extras:
 
@@ -31,11 +47,26 @@ pip install -e ".[dev]"   # pytest + ruff, for contributors
 pip install -e ".[ocr]"   # EasyOCR+torch (~2 GB): figure_grim / figure_table_ocr
 ```
 
-LLM enrichment/adjudication is **off by default**; set
-`MANUSIFT_ANTHROPIC_API_KEY` (or OpenAI equivalents) and
-`MANUSIFT_LLM_ENRICH_MODE` / `MANUSIFT_LLM_ADJUDICATE` to enable.
-Run the tests with `python -m pytest -q` (~2300 tests, no network or
-benchmark data required).
+LLM enrichment/adjudication is **off by default** and is **not** required
+for offline screening. To enable later, copy `.env.example` → `.env` and set
+`MANUSIFT_ANTHROPIC_API_KEY` / `MANUSIFT_OPENAI_API_KEY` (see
+`manusift/config.py`). Never commit `.env`.
+
+Contributor tests: `pip install -e ".[dev]"` then `python -m pytest -q`
+(~2300 tests; no network or large benchmark corpora required for the
+default suite).
+
+## License & community
+
+- **License:** [MIT](LICENSE)
+- **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Code of Conduct:** [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- **Security:** [SECURITY.md](SECURITY.md)
+- **Cite:** [CITATION.cff](CITATION.cff)
+
+**Disclaimer:** ManuSift is a *screening* aid for integrity signals. It is not a
+legal determination of misconduct and does not replace human review (editors,
+institutions, or domain experts).
 
 ## Product shape (2026-07): **B + C only**
 
@@ -48,30 +79,36 @@ benchmark data required).
 job browser remains as `manusift-workspace` / `manusift-tui`.
 
 ```bash
-# B — batch screen (core suite by default)
+# B — batch screen (default suite is deep = full offline pipeline)
 manusift screen paper.pdf --with-sidecar --no-llm
 manusift screen paper.pdf --data-paths ./source_data --suites table
+manusift screen paper.pdf --no-llm --suites fast   # lighter triage
 
-# Suites: core | full | image | table | fast
+# Suites: core | deep | fast | full | image | table
 manusift suites
+# Same entry via module (if console scripts not on PATH):
+python -m manusift screen paper.pdf --no-llm
 
 # C — MCP for Claude Desktop / Cursor / other agents
-manusift mcp --list-tools          # curated 40 kernel tools
+manusift mcp --list-tools          # curated ~40 kernel tools
 manusift mcp --all-tools           # full registry (large)
 manusift-mcp --list-tools          # same server entry point
+python -m manusift mcp --list-tools
 
-# Cursor / Claude Desktop (stdio)
+# Cursor / Claude Desktop (stdio example)
 # { "command": "manusift-mcp", "args": [], "env": { "MANUSIFT_WORKSPACE_DIR": "..." } }
 ```
 
-See `docs/mcp/README.md` for MCP client config; the agent-runtime
-(PydanticAI + MCP) architecture is documented in
-`docs/AGENT_RUNTIME_MIGRATION.md`.
+See `docs/mcp/README.md` for MCP client config.
+
+**Detector layering** (pipeline vs agent-only vs EXCLUDED; `image_dup`
+vs `imagehash_*`; `panel_dup` vs `panel_duplicate`):
+`docs/DETECTOR_LAYERS.md`.
 
 ## Status (2026-07, beta)
 
-**~2300 pytest (0 failed), 6 eval cases + 6 e2e eval passing,
-9 console scripts, 48 registered detectors (39 in pipeline),
+**~2300 pytest, 6 eval cases + 6 e2e eval, 9 console scripts,
+~52 registered detectors (~44 offline pipeline; 8 EXCLUDED agent-only),
 40 curated MCP tools.**
 
 Current capabilities:

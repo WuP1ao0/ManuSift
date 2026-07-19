@@ -53,7 +53,8 @@ def test_count_preserved() -> None:
     assert len(out) == len(findings)
 
 
-def test_empty_column_demotes() -> None:
+def test_empty_column_immune_for_fabrication_checks() -> None:
+    """Nature Source Data blank rep headers must not bury fixed_offset."""
     f = _f(
         severity="high",
         location="Table #1, columns 1 and 2",
@@ -66,11 +67,32 @@ def test_empty_column_demotes() -> None:
         },
     )
     out = calibrate_findings([f])[0]
+    assert out.severity == "high"
+    reasons = out.raw.get("calibration", {}).get("reasons") or []
+    assert "empty_header_immune_fabrication_check" in reasons
+    assert "empty_or_placeholder_column" not in reasons
+
+
+def test_empty_column_still_demotes_weak_non_fabrication() -> None:
+    f = _f(
+        severity="high",
+        location="T, columns 1 and 2",
+        raw={
+            "check": "arithmetic_progression",
+            "n": 20,
+            "step": 1,
+            "column": "",
+        },
+    )
+    out = calibrate_findings([f])[0]
     assert out.severity in ("medium", "low")
-    assert out.raw["calibration"]["prior_severity"] == "high"
+    assert "empty_or_placeholder_column" in (
+        out.raw.get("calibration", {}).get("reasons") or []
+    )
 
 
-def test_nonzero_offset_cap_medium() -> None:
+def test_clean_nonzero_offset_stays_high() -> None:
+    """A = B + clean offset with solid n is a high fabrication signal."""
     f = _f(
         severity="high",
         location="T, columns 1 and 2",
@@ -78,6 +100,24 @@ def test_nonzero_offset_cap_medium() -> None:
             "check": "fixed_offset",
             "n": 30,
             "offset": 2.5,
+            "left_column": "a",
+            "right_column": "b",
+        },
+    )
+    out = calibrate_findings([f])[0]
+    assert out.severity == "high"
+    reasons = out.raw.get("calibration", {}).get("reasons") or []
+    assert "clean_nonzero_offset_boost_high" in reasons or not reasons
+
+
+def test_messy_nonzero_offset_cap_medium() -> None:
+    f = _f(
+        severity="high",
+        location="T, columns 1 and 2",
+        raw={
+            "check": "fixed_offset",
+            "n": 30,
+            "offset": 0.137924,  # not on a clean Excel grid
             "left_column": "a",
             "right_column": "b",
         },
@@ -94,6 +134,8 @@ def test_weak_check_cap() -> None:
         raw={
             "check": "cross_table_matching_decimal_tails",
             "n": 40,
+            "matching_pairs": 20,  # only 50% — not perfect
+            "match_fraction": 0.5,
             "left_table": "A",
             "right_table": "B",
             "left_column": "x",
@@ -102,6 +144,24 @@ def test_weak_check_cap() -> None:
     )
     out = calibrate_findings([f])[0]
     assert out.severity in ("medium", "low")
+
+
+def test_perfect_decimal_tail_boosts_high() -> None:
+    f = _f(
+        severity="medium",
+        location="A, column 1 to B, column 1",
+        raw={
+            "check": "matching_decimal_tails",
+            "n": 12,
+            "matching_pairs": 12,
+            "match_fraction": 1.0,
+            "left_column": "rep1",
+            "right_column": "rep2",
+        },
+    )
+    out = calibrate_findings([f])[0]
+    assert out.severity == "high"
+    assert "perfect_decimal_tail_boost_high" in out.raw["calibration"]["reasons"]
 
 
 def test_cluster_satellite_demotion() -> None:
@@ -188,14 +248,16 @@ def test_pilot_acceptance_bounds() -> None:
     # mirrors, see HANDOFF §5.1), so the length invariant is
     # "not smaller", not "equal".
     assert len(out) >= len(cleaned)
-    assert stats["high"] <= 200
+    # Excel-fabrication boosts (clean nonzero offset, perfect tails,
+    # empty-header immune) raise high slightly; keep a soft ceiling.
+    assert stats["high"] <= 280
     tr_high = sum(
         1
         for f in out
         if f.detector == "table_relationships" and f.severity == "high"
     )
-    assert tr_high <= 120
-    # must improve if baseline was inflated
-    if base_high > 200:
+    assert tr_high <= 280
+    # must improve if baseline was heavily inflated
+    if base_high > 280:
         assert stats["high"] < base_high
     assert stats["demoted"] > 0

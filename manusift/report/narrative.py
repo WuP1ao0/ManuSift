@@ -1,59 +1,8 @@
-"""Narrative report renderer (R-audit, 2026-06).
+"""LLM narrative HTML/PDF — secondary enrichment path.
 
-The pre-existing
-``build_report_html`` produces a
-*flat dump* of every
-finding -- useful for a
-power user scanning a 200-
-finding report, but
-painful to read as a
-narrative. The integrity-
-investigation skill
-(``data/skills/integrity_report.md``)
-turns the LLM into a
-report writer: the LLM
-calls the analysis tools,
-synthesises a markdown
-report, and then calls
-``render_report`` with the
-markdown. This module is
-the markdown-to-HTML/PDF
-half of that pipeline.
+Not the batch default. Primary offline report is investigation_pairs
+(docs/REPORT_PATH.md). Narrative runs when LLM enrichment is enabled.
 
-Why a separate renderer
-rather than expanding
-``build_report_html``:
-
-  * The flat-dump
-    renderer is a pure
-    function of the
-    findings list (good
-    for batch / scripted
-    use).
-  * The narrative
-    renderer is a pure
-    function of the
-    markdown string
-    (good for LLM-driven
-    use).
-  * Mixing the two would
-    require either a
-    flag argument or a
-    polymorphic output,
-    both of which the LLM
-    would have to
-    discover by reading
-    code rather than by
-    reading tool
-    descriptions.
-
-We re-use the existing
-``build_report_pdf`` helper
-to render PDF, so the
-markdown path picks up the
-same weasyprint integration
-(when available) without
-duplicating that logic.
 """
 from __future__ import annotations
 

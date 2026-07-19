@@ -617,3 +617,137 @@ def test_duplicate_excess_skips_p_value_columns() -> None:
     result = TableRelationshipDetector().run(_doc(table))
 
     assert "duplicate_excess" not in _checks(result)
+
+
+def test_nonzero_clean_offset_is_high_when_n_solid() -> None:
+    """s41586-style: A = B + fixed clean offset with n>=8 → high."""
+    rows = [[str(1.0 + i * 0.1), str(1.3 + i * 0.1)] for i in range(10)]
+    table = _table(["group_a", "group_b"], rows)
+
+    result = TableRelationshipDetector().run(_doc(table))
+
+    finding = _finding(result, "fixed offset")
+    assert finding.severity == "high"
+    assert _evidence(finding)["offset"] == 0.3
+    assert _evidence(finding)["match_fraction"] == 1.0
+
+
+def test_partial_fixed_offset_when_most_rows_share_diff() -> None:
+    """90%+ rows share one offset → partial_fixed_offset (not full copy)."""
+    rows = []
+    for i in range(9):
+        rows.append([str(1.0 + i), str(1.1 + i)])  # offset +0.1
+    rows.append(["99.0", "0.5"])  # one break
+
+    table = _table(["ctrl", "treat"], rows)
+    result = TableRelationshipDetector().run(_doc(table))
+
+    finding = _finding(result, "partial fixed offset")
+    evidence = _evidence(finding)
+    assert evidence["check"] == "partial_fixed_offset"
+    assert evidence["matching_pairs"] == 9
+    assert evidence["n"] == 10
+    assert evidence["match_fraction"] >= 0.9
+    assert evidence["offset"] == 0.1
+
+
+def test_perfect_decimal_tails_high_when_n_ge_6() -> None:
+    rows = [
+        ["12.37", "18.37"],
+        ["15.42", "21.42"],
+        ["18.59", "24.59"],
+        ["21.64", "27.64"],
+        ["11.11", "19.11"],
+        ["13.22", "20.22"],
+    ]
+    table = _table(["rep_a", "rep_b"], rows)
+    result = TableRelationshipDetector().run(_doc(table))
+
+    finding = _finding(result, "matching decimal tails")
+    assert finding.severity == "high"
+    assert _evidence(finding)["matching_pairs"] == 6
+
+
+def test_excel_fabrication_span_across_tables() -> None:
+    """Multiple source-data tables with copy/offset → paper-level span."""
+    t1 = _named_table(
+        "t1",
+        "Fig.5b",
+        ["a", "b"],
+        [[str(1.0 + i), str(1.0 + i)] for i in range(6)],
+    )
+    t2 = _named_table(
+        "t2",
+        "Fig.5f",
+        ["a", "b"],
+        [[str(2.0 + i), str(2.0 + i)] for i in range(6)],
+    )
+    t3 = _named_table(
+        "t3",
+        "Fig.5g",
+        ["a", "b"],
+        [[str(1.23 + i), str(1.23 + i + 1)] for i in range(6)],  # integer shift tails
+    )
+
+    result = TableRelationshipDetector().run(_doc(t1, t2, t3))
+    span = _finding(result, "excel-style fabricated")
+    evidence = _evidence(span)
+    assert evidence["check"] == "excel_fabrication_span"
+    assert evidence["table_count"] >= 2
+    assert evidence["n"] >= 5
+
+
+def test_identical_parallel_replicates_zero_scatter() -> None:
+    """PubPeer: claimed independent replicates with identical numbers."""
+    rows = [
+        ["1.12", "1.12", "1.12", "2.0"],
+        ["1.45", "1.45", "1.45", "2.1"],
+        ["1.78", "1.78", "1.78", "2.2"],
+        ["2.01", "2.01", "2.01", "2.3"],
+    ]
+    table = _table(["rep1", "rep2", "rep3", "mean_other"], rows)
+    result = TableRelationshipDetector().run(_doc(table))
+
+    finding = _finding(result, "identical parallel replicates")
+    evidence = _evidence(finding)
+    assert evidence["check"] == "identical_parallel_replicates"
+    assert evidence["column_count"] >= 3
+    assert evidence.get("pubpeer_pattern") == "source_data_zero_biological_variance"
+    assert finding.severity == "high"
+
+
+def test_sequence_reuse_across_tables() -> None:
+    """PubPeer: same multi-cell paste block in another sheet/condition."""
+    seq = ["1.11", "2.22", "3.33", "4.44", "5.55", "6.66"]
+    t1 = _named_table(
+        "t1",
+        "Fig.1a",
+        ["values"],
+        [[v] for v in seq],
+    )
+    t2 = _named_table(
+        "t2",
+        "Fig.2b",
+        ["other"],
+        [[v] for v in (["9.9"] + seq + ["8.8"])],
+    )
+    result = TableRelationshipDetector().run(_doc(t1, t2))
+
+    finding = _finding(result, "reuse the same")
+    evidence = _evidence(finding)
+    assert evidence["check"] == "sequence_reuse"
+    assert evidence["window"] == 5
+    assert evidence.get("pubpeer_pattern") == "source_data_block_paste"
+    assert finding.severity == "high"
+
+
+def test_fixed_ratio_between_columns() -> None:
+    """Constant multiplicative fabrication A ≈ k·B."""
+    rows = [[str(1.0 + i), str(2.0 * (1.0 + i))] for i in range(8)]
+    table = _table(["a", "b"], rows)
+    result = TableRelationshipDetector().run(_doc(table))
+    finding = _finding(result, "fixed ratio")
+    evidence = _evidence(finding)
+    assert evidence["check"] == "fixed_ratio"
+    assert abs(float(evidence["ratio"]) - 2.0) < 1e-6
+    assert finding.severity == "high"

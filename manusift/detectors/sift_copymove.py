@@ -1,4 +1,11 @@
-"""Copy-move forgery detector using SIFT keypoint matching (T8 + P0).
+"""SIFT copy-move core + standalone pipeline detector (``image_sift_copymove``).
+
+**Ownership (P3):** shared algorithm core for ``image_forensics`` (within-
+image CMFD, cross-image match helpers) **and** the registered offline
+detector ``SiftCopyMoveDetector``. Forensics is the suite owner; this
+module owns the reusable SIFT/RANSAC implementation. Both may emit
+findings under different detector names — do not remove either from
+the pipeline without a double-count audit. See ``docs/DETECTOR_LAYERS.md``.
 
 Primary algorithm (SIFT-CMFD style, literature defaults):
 

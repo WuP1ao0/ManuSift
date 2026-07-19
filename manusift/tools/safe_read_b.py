@@ -1,4 +1,14 @@
-"""R-2026-06-17 (Phase B:
+"""Phase B safe-read implementation (document extract, tracker, redact).
+
+**Deprecated as a public import path.** Prefer::
+
+    from manusift.tools.safe_read import detect_xlsx_figs, …
+
+This module remains the **implementation home** for Phase B so
+``safe_read`` can re-export without a circular cycle. Direct imports
+of ``manusift.tools.safe_read_b`` emit ``DeprecationWarning``.
+
+R-2026-06-17 (Phase B:
 borrow from
 Claude Code +
 Hermes):
@@ -8,7 +18,7 @@ hardening
 modules.  See
 ``manusift/tools/safe_read.py``
 for the 8 small
-ones (Phase A).
+ones (Phase A) and the unified public surface.
 
 Borrowed from
 (see the comparison
@@ -156,9 +166,40 @@ doc):
 """
 from __future__ import annotations
 
+import os
 import re
+import sys
 import threading
+import warnings
 from pathlib import Path
+
+
+def _maybe_warn_direct_import() -> None:
+    """Deprecate direct ``safe_read_b`` imports (facade is ``safe_read``).
+
+    Suppress when imported by ``safe_read`` re-export, under pytest
+    (legacy tests), or ``MANUSIFT_SUPPRESS_SAFE_READ_B_WARNING=1``.
+    """
+    if os.environ.get("MANUSIFT_SUPPRESS_SAFE_READ_B_WARNING") == "1":
+        return
+    if os.environ.get("PYTEST_CURRENT_TEST"):
+        return
+    # Walk frames: if any is manusift.tools.safe_read, skip.
+    frame = sys._getframe(1)
+    while frame is not None:
+        mod = frame.f_globals.get("__name__") or ""
+        if mod == "manusift.tools.safe_read":
+            return
+        frame = frame.f_back  # type: ignore[assignment]
+    warnings.warn(
+        "manusift.tools.safe_read_b is a deprecated import path; "
+        "use manusift.tools.safe_read (unified Phase A+B surface).",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+
+
+_maybe_warn_direct_import()
 from typing import Any
 
 

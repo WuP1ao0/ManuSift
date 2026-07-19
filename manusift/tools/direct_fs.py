@@ -349,7 +349,7 @@ class ReadFileTool:
         # the
         # session
         # ends.
-        from .safe_read_b import get_tracker
+        from .safe_read import get_tracker
         _max_lines_early = int(input.get("max_lines") or 1000)
         _max_lines_early = min(_max_lines_early, 4000)
         # R-2026-06-17 (Phase B):
@@ -497,7 +497,7 @@ class ReadFileTool:
             # of
             # them
             # directly.
-            from .safe_read_b import suggest_similar_files
+            from .safe_read import suggest_similar_files
             similar = suggest_similar_files(path_str)
             err: dict[str, object] = {
                 "ok": False,
@@ -691,7 +691,7 @@ class ReadFileTool:
             # normal
             # text-read
             # branch.
-            from .safe_read_b import try_extract_document_real
+            from .safe_read import try_extract_document_real
             _extracted = try_extract_document_real(
                 path_str,
                 on_error="fallback",
@@ -891,7 +891,8 @@ class ReadFileTool:
         # itself
         # is
         # gone.
-        from .safe_read_b import redact_sensitive_text
+        from .safe_read import redact_sensitive_text
+
         out["content"] = redact_sensitive_text(
             out["content"]
         )
@@ -923,7 +924,7 @@ class ReadFileTool:
         # the
         # same
         # content.
-        from .safe_read_b import get_tracker
+        from .safe_read import get_tracker
         _tracker = get_tracker(ctx.trace_id or "default")
         try:
             _mtime = path.stat().st_mtime
@@ -1138,7 +1139,7 @@ class IngestFromPathTool:
             # of
             # them
             # directly.
-            from .safe_read_b import suggest_similar_files
+            from .safe_read import suggest_similar_files
             similar = suggest_similar_files(path_str)
             err: dict[str, object] = {
                 "ok": False,

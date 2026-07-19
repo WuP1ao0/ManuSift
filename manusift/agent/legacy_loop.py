@@ -1,18 +1,16 @@
-"""Legacy ReAct agent loop (Step J3) with streaming (P3).
+"""Legacy ReAct agent loop — **frozen maintenance / compat only**.
 
-Extracted from ``manusift.agent`` package init so the package
-surface stays thin. Prefer
-``manusift.agent.factory.create_agent_loop`` for production;
-import ``AgentLoop`` from here (or via ``manusift.agent``)
-when you need the hand-rolled driver explicitly
-(``MANUSIFT_AGENT_RUNTIME=legacy``).
+**Do not extend this file for new features.** Production code must use
+``manusift.agent.factory.create_agent_loop()`` (defaults to
+``PydanticAgentLoop``). Set ``MANUSIFT_AGENT_RUNTIME=legacy`` only for
+emergency fallback or historical tests.
 
-The loop drives an LLM through a sequence of
-"thought, tool call, tool result, thought" turns
-until the model stops on its own (an ``end_turn``
-or ``stop`` finish reason) or we hit ``max_steps``.
-``run_stream()`` yields accumulated ``ChatResponse``
-chunks for TUI rendering.
+P3 pattern: keep the old driver importable (API dual-support) while
+the factory treats pydantic as the sole maintained implementation.
+
+The loop drives an LLM through "thought, tool call, tool result"
+turns until ``end_turn`` / ``stop`` or ``max_steps``.
+``run_stream()`` yields accumulated ``ChatResponse`` chunks.
 """
 from __future__ import annotations
 

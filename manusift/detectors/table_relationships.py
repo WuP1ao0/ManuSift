@@ -7,6 +7,13 @@ decimal tails, integer-shift decimal-tail reuse, concentrated one- or two-digit
 terminal patterns within and across tables, high duplicate rates, improbable
 repeated values, three-column arithmetic identities, and zero-variance columns.
 
+Excel-fabrication upgrades (2026-07, s41586-oriented):
+clean non-zero fixed offsets (A = B + c) promote to **high** when n is solid;
+``partial_fixed_offset`` catches ≥90% row-wise shared diffs; perfect two-decimal
+tail reuse promotes to high; paper-level ``excel_fabrication_span`` aggregates
+cross-figure Source Data fingerprints. Calibration keeps blank Nature replicate
+headers from burying these signals (see ``finding_calibration``).
+
 Statistical additions (2026-07, see ``_statistical_column_findings``):
 (near-)arithmetic sequences via sorted-gap CV / rank R^2 with index-axis
 guards, dominant-spacing (modal-gap) series, Poisson duplicate-excess tests
@@ -33,6 +40,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import statistics
 from collections import Counter
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
@@ -293,7 +301,143 @@ def _ones_matches_first_decimal(text: str) -> bool:
 
 
 def _round_decimal(value: Decimal, places: str = "0.000001") -> Decimal:
-    return value.quantize(Decimal(places), rounding=ROUND_HALF_UP)
+    try:
+        if not value.is_finite():
+            return value
+        return value.quantize(Decimal(places), rounding=ROUND_HALF_UP)
+    except Exception:  # noqa: BLE001 — InvalidOperation on extreme magnitudes
+        return value
+
+# --- Excel-style fabrication severity helpers (s41586-oriented) ---
+# Partial fixed-offset: modal row-wise difference covers most pairs.
+_PARTIAL_OFFSET_MIN_FRAC = 0.90
+_PARTIAL_OFFSET_MIN_N = 6
+# Perfect decimal-tail match → high when n is large enough.
+_PERFECT_TAIL_HIGH_MIN_N = 6
+# Non-zero fixed offset promoted to high when n is solid + offset is "clean".
+_CLEAN_OFFSET_HIGH_MIN_N = 8
+# Paper-level span summary thresholds.
+_EXCEL_SPAN_MIN_HITS = 5
+_EXCEL_SPAN_MIN_TABLES = 2
+# PubPeer / Source-Data paste: exact value-run reuse length.
+_SEQ_REUSE_WINDOW = 5
+_SEQ_REUSE_MAX_FINDINGS = 40
+# Parallel replicate columns that are element-wise identical.
+_IDENTICAL_REPS_MIN_COLS = 3
+_IDENTICAL_REPS_MIN_ROWS = 3
+_EXCEL_FABRICATION_CHECKS = frozenset(
+    {
+        "fixed_offset",
+        "partial_fixed_offset",
+        "cross_table_fixed_offset",
+        "cross_table_partial_fixed_offset",
+        "cross_table_repeated_values",
+        "matching_decimal_tails",
+        "cross_table_matching_decimal_tails",
+        "integer_shift_decimal_tail_reuse",
+        "integer_part_digit_change_decimal_tail_reuse",
+        "high_duplicate_rate",
+        "multi_column_high_duplicate_rate",
+        "three_column_additive_relationship",
+        "three_column_subtractive_relationship",
+        "sequence_reuse",
+        "identical_parallel_replicates",
+        "fixed_ratio",
+    }
+)
+
+# Constant multiplicative relation A ≈ k·B (PubPeer-style fabricated series).
+_FIXED_RATIO_MIN_N = 6
+_FIXED_RATIO_REL_ERR = Decimal("0.002")  # 0.2% relative tolerance on k
+
+
+def _is_clean_offset(offset: Decimal) -> bool:
+    """True for offsets typical of hand-edited spreadsheets.
+
+    Integers, single-decimal tenths (0.1, 1.5), or two-decimal
+    multiples of 0.05 — typical of hand-edited / "Excel-typed" series.
+    """
+    a = abs(offset)
+    if a == 0:
+        return True
+    if a == a.to_integral_value():
+        return True
+    tenths = a.quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+    if a == tenths:
+        return True
+    hundredths = a.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if a == hundredths:
+        try:
+            cents = int((a * 100).to_integral_value())
+        except (InvalidOperation, ValueError):
+            return False
+        return cents % 5 == 0
+    return False
+
+
+def _fixed_offset_severity(offset: Decimal, n: int) -> str:
+    """Severity for exact row-wise fixed offsets (copy or A=B+c)."""
+    if offset == 0:
+        return "high"
+    if n >= _CLEAN_OFFSET_HIGH_MIN_N and _is_clean_offset(offset):
+        return "high"
+    if n >= MIN_COLUMN_VALUES:
+        return "medium"
+    return "low"
+
+
+def _pubpeer_tag(check: str) -> dict[str, str]:
+    """Lightweight taxonomy tag for report / aggregation layers."""
+    mapping = {
+        "fixed_offset": "source_data_group_copy_or_shift",
+        "partial_fixed_offset": "source_data_group_copy_or_shift",
+        "cross_table_fixed_offset": "source_data_group_copy_or_shift",
+        "cross_table_partial_fixed_offset": "source_data_group_copy_or_shift",
+        "cross_table_repeated_values": "source_data_group_copy_or_shift",
+        "matching_decimal_tails": "source_data_decimal_tail_reuse",
+        "cross_table_matching_decimal_tails": "source_data_decimal_tail_reuse",
+        "integer_shift_decimal_tail_reuse": "source_data_decimal_tail_reuse",
+        "sequence_reuse": "source_data_block_paste",
+        "identical_parallel_replicates": "source_data_zero_biological_variance",
+        "excel_fabrication_span": "source_data_systemic_excel_fingerprint",
+        "high_duplicate_rate": "source_data_group_copy_or_shift",
+        "multi_column_high_duplicate_rate": "source_data_group_copy_or_shift",
+        "fixed_ratio": "source_data_group_copy_or_shift",
+    }
+    tag = mapping.get(check)
+    return {"pubpeer_pattern": tag} if tag else {}
+
+
+def _quantize_seq(values: list[Decimal], places: int = 6) -> list[str]:
+    q = Decimal(10) ** -places
+    out: list[str] = []
+    for v in values:
+        try:
+            out.append(str(v.quantize(q, rounding=ROUND_HALF_UP)))
+        except (InvalidOperation, ValueError):
+            out.append(str(v))
+    return out
+
+
+def _decimal_tail_severity(matching: int, n_pairs: int) -> str:
+    """Perfect two-decimal-tail reuse across parallel groups → high."""
+    if n_pairs <= 0:
+        return "low"
+    if matching == n_pairs and n_pairs >= _PERFECT_TAIL_HIGH_MIN_N:
+        return "high"
+    if matching / n_pairs >= MIN_CONCENTRATION_FRACTION:
+        return "medium"
+    return "low"
+
+
+def _modal_offset(
+    diffs: list[Decimal],
+) -> tuple[Decimal, int] | None:
+    if not diffs:
+        return None
+    counts = Counter(diffs)
+    offset, count = counts.most_common(1)[0]
+    return offset, count
 
 
 def _is_variability_header(header: str) -> bool:
@@ -592,10 +736,303 @@ class TableRelationshipDetector:
             findings.extend(self._pair_findings(doc, table, t_index, label, headers, cols))
             findings.extend(self._multi_column_findings(doc, label, headers, cols))
             findings.extend(self._triple_findings(doc, label, headers, cols))
+            findings.extend(
+                self._identical_parallel_replicate_findings(
+                    doc, label, headers, cols
+                )
+            )
             findings.extend(self._statistical_column_findings(doc, table, t_index, label, headers))
         findings.extend(self._cross_table_findings(doc, tables))
         findings.extend(self._cross_table_terminal_digit_findings(doc, tables))
+        findings.extend(self._sequence_reuse_findings(doc, tables))
+        findings.extend(self._excel_fabrication_span_findings(doc, findings))
         return DetectorResult(detector=self.name, findings=findings, ok=True)
+
+    def _identical_parallel_replicate_findings(
+        self,
+        doc: ParsedDoc,
+        label: str,
+        headers: list[str],
+        cols: dict[int, list[Decimal]],
+    ) -> list[Finding]:
+        """Flag ≥3 columns that are element-wise identical (zero variance).
+
+        Common PubPeer Source-Data cue: claimed biological/technical
+        replicates with perfectly identical numbers.
+        """
+        findings: list[Finding] = []
+        items = sorted(cols.items())
+        if len(items) < _IDENTICAL_REPS_MIN_COLS:
+            return findings
+        # Greedy groups of consecutive column indices that match fully.
+        i = 0
+        while i < len(items):
+            col_i, vals_i = items[i]
+            if len(vals_i) < _IDENTICAL_REPS_MIN_ROWS:
+                i += 1
+                continue
+            group = [col_i]
+            j = i + 1
+            while j < len(items):
+                col_j, vals_j = items[j]
+                n = min(len(vals_i), len(vals_j))
+                if n < _IDENTICAL_REPS_MIN_ROWS:
+                    break
+                if vals_i[:n] == vals_j[:n]:
+                    group.append(col_j)
+                    j += 1
+                else:
+                    # allow non-consecutive only one skip? keep consecutive-only
+                    break
+            if len(group) >= _IDENTICAL_REPS_MIN_COLS:
+                names = [
+                    headers[c] if c < len(headers) else f"col_{c + 1}"
+                    for c in group
+                ]
+                n = len(vals_i)
+                findings.append(
+                    self._finding(
+                        doc,
+                        "high",
+                        (
+                            f"{label} columns {names} are identical parallel "
+                            f"replicates (zero scatter)"
+                        ),
+                        f"{label}, columns "
+                        + ", ".join(str(c + 1) for c in group),
+                        {
+                            "check": "identical_parallel_replicates",
+                            "n": n,
+                            "column_count": len(group),
+                            "columns": names,
+                            "left_column": names[0],
+                            "right_column": names[-1],
+                            **_pubpeer_tag("identical_parallel_replicates"),
+                        },
+                    )
+                )
+                i = j
+            else:
+                i += 1
+        # Also non-consecutive: any set of 3+ columns with identical values
+        # (PubPeer often has rep columns interspersed with means).
+        if len(findings) == 0 and len(items) >= _IDENTICAL_REPS_MIN_COLS:
+            seen_sig: dict[tuple[str, ...], list[int]] = {}
+            for col, vals in items:
+                if len(vals) < _IDENTICAL_REPS_MIN_ROWS:
+                    continue
+                sig = tuple(_quantize_seq(vals))
+                seen_sig.setdefault(sig, []).append(col)
+            for sig, col_list in seen_sig.items():
+                if len(col_list) < _IDENTICAL_REPS_MIN_COLS:
+                    continue
+                names = [
+                    headers[c] if c < len(headers) else f"col_{c + 1}"
+                    for c in col_list
+                ]
+                findings.append(
+                    self._finding(
+                        doc,
+                        "high",
+                        (
+                            f"{label} columns {names} share identical "
+                            f"replicate values"
+                        ),
+                        f"{label}, columns "
+                        + ", ".join(str(c + 1) for c in col_list),
+                        {
+                            "check": "identical_parallel_replicates",
+                            "n": len(sig),
+                            "column_count": len(col_list),
+                            "columns": names,
+                            "layout": "non_consecutive",
+                            "left_column": names[0],
+                            "right_column": names[-1],
+                            **_pubpeer_tag("identical_parallel_replicates"),
+                        },
+                    )
+                )
+        return findings
+
+    def _sequence_reuse_findings(
+        self,
+        doc: ParsedDoc,
+        tables: list[Any],
+    ) -> list[Finding]:
+        """Exact contiguous value-run reuse across columns / tables.
+
+        PubPeer Source-Data threads often show the same multi-cell paste
+        block appearing in another sheet or condition column.
+        """
+        window = _SEQ_REUSE_WINDOW
+        # map window signature -> list of loci
+        index: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+        prepared: list[tuple[str, list[str], dict[int, list[Decimal]]]] = []
+        for t_index, table in enumerate(tables):
+            cols = _numeric_columns(table)
+            if not cols:
+                continue
+            label = _format_table_label(table, t_index)
+            headers = getattr(table, "headers", []) or []
+            prepared.append((label, headers, cols))
+            for col, values in cols.items():
+                if len(values) < window:
+                    continue
+                q = _quantize_seq(values)
+                header = headers[col] if col < len(headers) else f"col_{col + 1}"
+                for start in range(0, len(q) - window + 1):
+                    sig = tuple(q[start : start + window])
+                    # skip pure constant windows (often pad zeros)
+                    if len(set(sig)) <= 1:
+                        continue
+                    index.setdefault(sig, []).append(
+                        {
+                            "table": label,
+                            "column": header,
+                            "col_index": col,
+                            "start": start,
+                            "n": len(values),
+                        }
+                    )
+
+        findings: list[Finding] = []
+        seen_pairs: set[tuple[str, str, str]] = set()
+        for sig, loci in index.items():
+            if len(findings) >= _SEQ_REUSE_MAX_FINDINGS:
+                break
+            if len(loci) < 2:
+                continue
+            # distinct (table, column) pairs only
+            distinct: list[dict[str, Any]] = []
+            keys: set[tuple[str, str]] = set()
+            for loc in loci:
+                k = (str(loc["table"]), str(loc["column"]))
+                if k in keys:
+                    continue
+                keys.add(k)
+                distinct.append(loc)
+            if len(distinct) < 2:
+                continue
+            left, right = distinct[0], distinct[1]
+            pair_key = tuple(
+                sorted(
+                    (
+                        f"{left['table']}|{left['column']}",
+                        f"{right['table']}|{right['column']}",
+                    )
+                )
+            ) + (sig[0],)
+            if pair_key in seen_pairs:
+                continue
+            seen_pairs.add(pair_key)  # type: ignore[arg-type]
+            same_table = left["table"] == right["table"]
+            severity = "high" if not same_table else "medium"
+            findings.append(
+                self._finding(
+                    doc,
+                    severity,
+                    (
+                        f"{left['table']} and {right['table']} reuse the same "
+                        f"{window}-value numeric sequence"
+                    ),
+                    (
+                        f"{left['table']} col '{left['column']}' "
+                        f"@row {left['start'] + 1} ↔ "
+                        f"{right['table']} col '{right['column']}' "
+                        f"@row {right['start'] + 1}"
+                    ),
+                    {
+                        "check": "sequence_reuse",
+                        "n": window,
+                        "window": window,
+                        "sequence": list(sig),
+                        "left_table": left["table"],
+                        "right_table": right["table"],
+                        "left_column": left["column"],
+                        "right_column": right["column"],
+                        "left_start": left["start"],
+                        "right_start": right["start"],
+                        "locus_count": len(distinct),
+                        **_pubpeer_tag("sequence_reuse"),
+                    },
+                )
+            )
+        return findings
+
+    def _excel_fabrication_span_findings(
+        self,
+        doc: ParsedDoc,
+        findings: list[Finding],
+    ) -> list[Finding]:
+        """Paper-level cluster: same Excel-style checks across multiple tables.
+
+        Fabricated numeric fingerprints (fixed offset, identical decimal
+        tails, column copies) spanning several source-data sheets / figures.
+        """
+        hits = [
+            f
+            for f in findings
+            if isinstance(f.raw, dict)
+            and str(f.raw.get("check") or "") in _EXCEL_FABRICATION_CHECKS
+        ]
+        if len(hits) < _EXCEL_SPAN_MIN_HITS:
+            return []
+        tables: set[str] = set()
+        checks: Counter[str] = Counter()
+        high_hits = 0
+        pattern_tags: Counter[str] = Counter()
+        for f in hits:
+            raw = f.raw if isinstance(f.raw, dict) else {}
+            checks[str(raw.get("check") or "")] += 1
+            tag = str(raw.get("pubpeer_pattern") or "")
+            if tag:
+                pattern_tags[tag] += 1
+            if f.severity == "high":
+                high_hits += 1
+            for key in ("left_table", "right_table"):
+                label = str(raw.get(key) or "").strip()
+                if label:
+                    tables.add(label)
+            # Within-table findings: use fig/host from location prefix
+            if not raw.get("left_table") and f.location:
+                host = re.split(
+                    r",\s*columns?\b", f.location, maxsplit=1, flags=re.I
+                )[0].strip()
+                if host:
+                    tables.add(host)
+        if len(tables) < _EXCEL_SPAN_MIN_TABLES:
+            return []
+        # High only when several *member* findings are already high.
+        # table_count alone promoted legit multi-table papers (negative
+        # controls 2026-07: excel span high FP on PLOS/SciRep tables).
+        severity = "high" if high_hits >= 3 else "medium"
+        top_checks = [
+            {"check": c, "count": n} for c, n in checks.most_common(8)
+        ]
+        return [
+            self._finding(
+                doc,
+                severity,
+                (
+                    f"Excel-style fabricated numeric patterns span "
+                    f"{len(tables)} tables ({len(hits)} signals)"
+                ),
+                "paper-level source-data aggregate",
+                {
+                    "check": "excel_fabrication_span",
+                    "n": len(hits),
+                    "table_count": len(tables),
+                    "high_member_count": high_hits,
+                    "tables": sorted(tables)[:40],
+                    "top_checks": top_checks,
+                    "pubpeer_patterns": [
+                        {"pattern": p, "count": c}
+                        for p, c in pattern_tags.most_common(8)
+                    ],
+                    **_pubpeer_tag("excel_fabrication_span"),
+                },
+            )
+        ]
 
     def _column_findings(
         self,
@@ -789,7 +1226,7 @@ class TableRelationshipDetector:
                     findings.append(
                         self._finding(
                             doc,
-                            "high" if diffs[0] == 0 else "medium",
+                            _fixed_offset_severity(diffs[0], n),
                             f"{label} columns '{left_header}' and '{right_header}' have a fixed offset",
                             f"{label}, columns {left_col + 1} and {right_col + 1}",
                             {
@@ -798,9 +1235,81 @@ class TableRelationshipDetector:
                                 "left_column": left_header,
                                 "right_column": right_header,
                                 "offset": diffs[0],
+                                "match_fraction": 1.0,
                             },
                         )
                     )
+                else:
+                    modal = _modal_offset(diffs)
+                    if modal is not None:
+                        modal_off, modal_count = modal
+                        frac = modal_count / n
+                        if (
+                            n >= _PARTIAL_OFFSET_MIN_N
+                            and modal_count >= MIN_COLUMN_VALUES
+                            and frac >= _PARTIAL_OFFSET_MIN_FRAC
+                        ):
+                            findings.append(
+                                self._finding(
+                                    doc,
+                                    _fixed_offset_severity(modal_off, modal_count),
+                                    (
+                                        f"{label} columns '{left_header}' and "
+                                        f"'{right_header}' have a partial fixed offset"
+                                    ),
+                                    f"{label}, columns {left_col + 1} and {right_col + 1}",
+                                    {
+                                        "check": "partial_fixed_offset",
+                                        "n": n,
+                                        "matching_pairs": modal_count,
+                                        "match_fraction": round(frac, 4),
+                                        "left_column": left_header,
+                                        "right_column": right_header,
+                                        "offset": modal_off,
+                                    },
+                                )
+                            )
+
+                # Constant multiplicative relation A ≈ k·B (k not 0/1).
+                ratios: list[Decimal] = []
+                for i in range(n):
+                    if left[i] == 0:
+                        continue
+                    try:
+                        ratio = right[i] / left[i]
+                    except Exception:  # noqa: BLE001
+                        continue
+                    if not ratio.is_finite():
+                        continue
+                    # Skip absurd magnitudes (quantize would InvalidOperation).
+                    if abs(ratio) > Decimal("1e12") or abs(ratio) < Decimal("1e-12"):
+                        continue
+                    ratios.append(_round_decimal(ratio, "0.000001"))
+                if len(ratios) >= _FIXED_RATIO_MIN_N:
+                    r0 = ratios[0]
+                    if r0 != 0 and r0 != 1 and all(
+                        abs(r - r0) <= abs(r0) * _FIXED_RATIO_REL_ERR
+                        for r in ratios
+                    ):
+                        findings.append(
+                            self._finding(
+                                doc,
+                                "high" if len(ratios) >= 8 else "medium",
+                                (
+                                    f"{label} columns '{left_header}' and "
+                                    f"'{right_header}' have a fixed ratio"
+                                ),
+                                f"{label}, columns {left_col + 1} and {right_col + 1}",
+                                {
+                                    "check": "fixed_ratio",
+                                    "n": len(ratios),
+                                    "ratio": r0,
+                                    "left_column": left_header,
+                                    "right_column": right_header,
+                                    "match_fraction": 1.0,
+                                },
+                            )
+                        )
 
                 exact = sum(1 for i in range(n) if left[i] == right[i])
                 if n > exact >= MIN_COLUMN_VALUES and exact / n >= MIN_DUPLICATE_FRACTION:
@@ -850,16 +1359,20 @@ class TableRelationshipDetector:
                     len(tail_pairs) >= MIN_COLUMN_VALUES
                     and matching / len(tail_pairs) >= MIN_CONCENTRATION_FRACTION
                 ):
+                    tail_sev = _decimal_tail_severity(matching, len(tail_pairs))
                     findings.append(
                         self._finding(
                             doc,
-                            "medium",
+                            tail_sev,
                             f"{label} columns '{left_header}' and '{right_header}' have matching decimal tails",
                             f"{label}, columns {left_col + 1} and {right_col + 1}",
                             {
                                 "check": "matching_decimal_tails",
                                 "n": len(tail_pairs),
                                 "matching_pairs": matching,
+                                "left_column": left_header,
+                                "right_column": right_header,
+                                "match_fraction": round(matching / len(tail_pairs), 4),
                             },
                         )
                     )
@@ -873,7 +1386,7 @@ class TableRelationshipDetector:
                         findings.append(
                             self._finding(
                                 doc,
-                                "medium",
+                                "high" if len(tail_pairs) >= _PERFECT_TAIL_HIGH_MIN_N else "medium",
                                 (
                                     f"{label} columns '{left_header}' and '{right_header}' "
                                     "show integer-shift decimal-tail reuse"
@@ -1089,7 +1602,7 @@ class TableRelationshipDetector:
                             findings.append(
                                 self._finding(
                                     doc,
-                                    "high" if diffs[0] == 0 else "medium",
+                                    _fixed_offset_severity(diffs[0], n),
                                     (
                                         f"{left_label} and {right_label} "
                                         "show cross-table fixed offset"
@@ -1102,6 +1615,7 @@ class TableRelationshipDetector:
                                         "check": "cross_table_fixed_offset",
                                         "n": n,
                                         "offset": diffs[0],
+                                        "match_fraction": 1.0,
                                         "left_table": left_label,
                                         "right_table": right_label,
                                         "left_column": left_header,
@@ -1109,6 +1623,44 @@ class TableRelationshipDetector:
                                     },
                                 )
                             )
+                        else:
+                            modal = _modal_offset(diffs)
+                            if modal is not None:
+                                modal_off, modal_count = modal
+                                frac = modal_count / n
+                                if (
+                                    n >= _PARTIAL_OFFSET_MIN_N
+                                    and modal_count >= MIN_COLUMN_VALUES
+                                    and frac >= _PARTIAL_OFFSET_MIN_FRAC
+                                ):
+                                    findings.append(
+                                        self._finding(
+                                            doc,
+                                            _fixed_offset_severity(
+                                                modal_off, modal_count
+                                            ),
+                                            (
+                                                f"{left_label} and {right_label} "
+                                                "show cross-table partial fixed offset"
+                                            ),
+                                            (
+                                                f"{left_label}, column {left_col + 1} "
+                                                f"to {right_label}, column "
+                                                f"{right_col + 1}"
+                                            ),
+                                            {
+                                                "check": "cross_table_partial_fixed_offset",
+                                                "n": n,
+                                                "matching_pairs": modal_count,
+                                                "match_fraction": round(frac, 4),
+                                                "offset": modal_off,
+                                                "left_table": left_label,
+                                                "right_table": right_label,
+                                                "left_column": left_header,
+                                                "right_column": right_header,
+                                            },
+                                        )
+                                    )
                         if exact / n >= MIN_DUPLICATE_FRACTION:
                             findings.append(
                                 self._finding(
@@ -1150,7 +1702,9 @@ class TableRelationshipDetector:
                             findings.append(
                                 self._finding(
                                     doc,
-                                    "medium",
+                                    _decimal_tail_severity(
+                                        matching, len(tail_pairs)
+                                    ),
                                     (
                                         f"{left_label} and {right_label} "
                                         "show cross-table matching decimal tails"
@@ -1163,6 +1717,9 @@ class TableRelationshipDetector:
                                         "check": "cross_table_matching_decimal_tails",
                                         "n": len(tail_pairs),
                                         "matching_pairs": matching,
+                                        "match_fraction": round(
+                                            matching / len(tail_pairs), 4
+                                        ),
                                         "left_table": left_label,
                                         "right_table": right_label,
                                         "left_column": left_header,
@@ -1337,12 +1894,16 @@ class TableRelationshipDetector:
     ) -> Finding:
         # ponytail: deterministic heuristics only; upgrade path is calibrated
         # per-domain thresholds once ManuSift has labeled table-forensics cases.
+        payload = dict(evidence)
+        check = str(payload.get("check") or "")
+        if check and "pubpeer_pattern" not in payload:
+            payload.update(_pubpeer_tag(check))
         return Finding.make(
             trace_id=doc.trace_id,
             detector=self.name,
             severity=severity,  # type: ignore[arg-type]
             title=title,
             location=location,
-            evidence=_as_json(evidence),
-            raw=_json_ready(evidence),
+            evidence=_as_json(payload),
+            raw=_json_ready(payload),
         )

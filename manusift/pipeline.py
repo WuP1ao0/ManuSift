@@ -47,16 +47,21 @@ def _enrich_with_llm(findings: list[Finding]) -> int:
     ``cluster_batch`` (default), ``cap``, ``off``.
 
     Returns number of LLM API units (batches or 1:1 calls). Mock client
-    short-circuits with 0. ``llm_max_concurrency=0`` marks all skipped.
+    short-circuits with 0. ``llm_max_concurrency=0`` (CLI ``--no-llm``)
+    skips client construction entirely so third-party installs without
+    API keys never touch the LLM factory.
     """
     from .llm.enrichment import enrich_findings
 
     settings = get_settings()
+    max_concurrency = int(settings.llm_max_concurrency)
+    if max_concurrency <= 0:
+        return 0
     client = get_llm_client()
     return enrich_findings(
         findings,
         client,
-        max_concurrency=int(settings.llm_max_concurrency),
+        max_concurrency=max_concurrency,
         budget_seconds=float(settings.llm_enrichment_budget_seconds),
         per_call_timeout=float(settings.llm_call_timeout_seconds),
     )
@@ -176,6 +181,10 @@ _BUILTIN_DETECTOR_CLASS_NAMES: list[str] = [
     # the p-value consistency detector. Closes
     # the ``stat_pvalue`` gap.
     "PValueConsistencyDetector",
+    # P6.2 PubPeer stats: p-pile-up, SPRITE-lite (gated), corr PSD
+    "PValuePileupDetector",
+    "SpriteLiteDetector",
+    "CorrelationMatrixPSDDetector",
     # R-2026-06-15 (Phase 3, real-case benchmark):
     # the percent-divisibility detector. Closes
     # the ``stat_percent`` gap.
@@ -192,6 +201,10 @@ _BUILTIN_DETECTOR_CLASS_NAMES: list[str] = [
     "TableFileMetadataDetector",
     # P0 deep-screen: author highlighter fills → focused table checks
     "TableHighlightFocusDetector",
+    # P4b / 2026-07: PDF table numbers ↔ companion Source Data
+    # (xlsx/csv SI). No-op when materials/ is empty; runs SI
+    # fig-key alignment when Source_Data_Fig*.xlsx is present.
+    "SourceDataConsistencyDetector",
     # R-2026-06-15 (Phase 3, real-case benchmark):
     # the noise-inconsistency detector (catches
     # images where the noise floor is different
@@ -221,6 +234,7 @@ _BUILTIN_DETECTOR_CLASS_NAMES: list[str] = [
         # aligned with the P0-PEER patch.
         "PaperMillAuthorshipDetector",
         "ImageDuplicateDetector",
+        "CrossPaperImageDetector",
     "ImageForensicsDetector",
     "TextPatternDetector",
     # 2026-07 (fraud_web_v1): run the two cheap text
@@ -313,50 +327,50 @@ _BUILTIN_DETECTOR_CLASS_NAMES: list[str] = [
 ]
 
 
-# 2026-07 (fraud_web_v1 follow-up): the detector *registry*
-# (_DETECTOR_SPECS, 46 classes) and this pipeline list used to
-# drift silently -- detectors were added to the registry but
-# never ran in the offline pipeline (e.g. text_tortured_phrases
-# and paper_mill_template, which then missed real benchmark
-# signals). PIPELINE_EXCLUDED makes every intentional exclusion
-# explicit and auditable; tests/test_pipeline_detector_coverage.py
-# hard-fails if a registry class is neither in the pipeline list
-# nor documented here.
+# Registry vs pipeline vs agent-only: see docs/DETECTOR_LAYERS.md.
+# PIPELINE_EXCLUDED makes every intentional offline exclusion
+# explicit; tests/test_pipeline_detector_coverage.py hard-fails if a
+# registry class is neither in the pipeline list nor documented here.
 #
-#   key: registry class name; value: why it does not run in the
-#   offline pipeline (and what to do if that changes).
+#   key: registry class name; value: why it does not run offline
+#   (and where the capability lives instead).
 PIPELINE_EXCLUDED: dict[str, str] = {
     "AHashDetector": (
-        "Agent-callable hash probe. image_dup already runs the "
-        "multi-hash pHash/aHash/dHash combination internally with "
-        "benchmark-tuned thresholds (HANDOFF §5.1)."
+        "Agent-only single-algo probe (imagehash_dup). Primary path is "
+        "image_dup multi-pass (pHash+aHash/dHash+geo+region+LC). "
+        "Do not extend imagehash_dup — extend image_dup. "
+        "See docs/DETECTOR_LAYERS.md."
     ),
-    "DHashDetector": "Same as AHashDetector.",
-    "PHashDetector": "Same as AHashDetector.",
-    "WHashDetector": "Same as AHashDetector.",
+    "DHashDetector": (
+        "Agent-only single-algo probe; covered by image_dup secondary. "
+        "See docs/DETECTOR_LAYERS.md."
+    ),
+    "PHashDetector": (
+        "Agent-only single-algo probe; covered by image_dup primary. "
+        "See docs/DETECTOR_LAYERS.md."
+    ),
+    "WHashDetector": (
+        "Agent-only wavelet hash probe; not in image_dup multi-pass "
+        "(cost). Call on demand only. See docs/DETECTOR_LAYERS.md."
+    ),
     "SsimDuplicateDetector": (
-        "Whole-image SSIM probe; overlaps image_forensics and "
-        "panel_duplicate SSIM coverage. No benchmark evidence of "
-        "added value yet -- available as an agent tool on demand."
+        "Agent-only whole-image SSIM. Overlaps image_forensics / "
+        "panel_duplicate panel SSIM; no benchmark lift for pipeline. "
+        "See docs/DETECTOR_LAYERS.md."
     ),
     "ImageStatisticsDetector": (
-        "Global image-statistics probe; no benchmark evidence yet. "
-        "Agent-callable on demand."
+        "Agent-only global image-statistics probe. "
+        "See docs/DETECTOR_LAYERS.md."
     ),
     "FigureTableOCRDetector": (
-        "Heavy OCR path, disabled in eval "
-        "(MANUSIFT_FIGURE_TABLE_OCR=0). Enable explicitly for "
-        "scanned-table papers (HANDOFF P4 long-term path)."
-    ),
-    "SourceDataConsistencyDetector": (
-        "Requires companion source-data files (XLSX/CSV), which "
-        "PDF-only benchmark cases do not have."
+        "Heavy OCR; off in eval (MANUSIFT_FIGURE_TABLE_OCR=0). "
+        "Enable explicitly for scanned-table papers."
     ),
     "TableForensicsDetector": (
-        "Orchestrator that re-runs the table detectors the pipeline "
-        "already runs (benford, duplicate/near-duplicate rows, "
-        "cross-table copy, outlier, round-bias, relationships, file "
-        "metadata, highlight). Running it here would double-report."
+        "Agent-only orchestrator that re-runs pipeline table detectors "
+        "(benford, dup rows, relationships, …) + risk summary. "
+        "Would double-report if added to offline pipeline. "
+        "See docs/DETECTOR_LAYERS.md."
     ),
 }
 
@@ -504,6 +518,17 @@ def run_pipeline(
             trace_id=job_state.trace_id,
             workspace_dir=paths.root.parent,
         )
+
+        # P6.3: pull figures from companion SI PDFs in materials/
+        try:
+            from .ingest.companion_pdf import merge_companion_pdf_images
+
+            doc = merge_companion_pdf_images(doc, paths)
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "companion SI image merge failed",
+                extra={"err": str(exc)},
+            )
 
         # Step H3 — checkpoint-aware detector loop.
         #
@@ -734,6 +759,55 @@ def run_pipeline(
             log.warning(
                 "some detectors failed",
                 extra={"failed": failed, "results": len(results)},
+            )
+
+        # P6.3: append this paper's figure pHashes to the local index
+        # so later screens can detect cross-paper reuse.
+        try:
+            import os as _os
+
+            if (_os.environ.get("MANUSIFT_FINGERPRINT_AUTO_INDEX") or "1").strip().lower() not in {
+                "0",
+                "false",
+                "off",
+                "no",
+            }:
+                from .knowledge.fingerprint_index import index_paper_images
+
+                # Same resolver as cross_paper_image (avoid "original" stem).
+                try:
+                    from .detectors.cross_paper_image import (
+                        _paper_id as _fp_paper_id,
+                    )
+
+                    paper_key = _fp_paper_id(doc) or job_state.trace_id
+                except Exception:  # noqa: BLE001
+                    paper_key = (
+                        str((doc.metadata or {}).get("doi") or "")
+                        or Path(doc.source_path).stem
+                        or job_state.trace_id
+                    )
+                if str(paper_key).strip().lower() in {
+                    "original",
+                    "paper",
+                    "main",
+                    "",
+                }:
+                    paper_key = job_state.trace_id
+                n_idx = index_paper_images(
+                    paper_id=paper_key,
+                    images=doc.images,
+                    source="main",
+                    path=None,
+                )
+                log.info(
+                    "fingerprint index updated",
+                    extra={"paper_id": paper_key, "n": n_idx},
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "fingerprint auto-index failed",
+                extra={"err": str(exc)},
             )
 
         # P0: severity recalibration + pair-cluster demotion (no drops).

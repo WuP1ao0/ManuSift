@@ -197,14 +197,26 @@ Full client configs: [`docs/mcp/README.md`](docs/mcp/README.md).
 
 ### Optional local helpers
 
+These are **not** a hosted ManuSift cloud. Primary product remains **batch CLI + MCP**.
+
 ```bash
-# Job browser on disk (not a chat agent)
+# Job browser for finished jobs on disk (not a chat agent)
 manusift-workspace
 # or
 manusift-tui
+```
 
-# Local upload API + simple dashboard
-python -m uvicorn manusift.web.app:app --port 8765
+**Optional local HTTP API:** start a server on your own machine, then call **that**
+loopback address (there is no public `manusift.com` upload endpoint):
+
+```bash
+# Terminal A — binds only to this computer by default
+python -m uvicorn manusift.web.app:app --host 127.0.0.1 --port 8765
+
+# Terminal B — curl talks to the process you just started
+curl -F file=@paper.pdf http://127.0.0.1:8765/api/upload
+# response includes trace_id, then:
+curl http://127.0.0.1:8765/api/jobs/<trace_id>/findings
 ```
 
 | Method | Path | Purpose |
@@ -216,11 +228,6 @@ python -m uvicorn manusift.web.app:app --port 8765
 | `GET` | `/api/jobs/{trace_id}/progress` | Detector progress |
 | `GET` | `/api/jobs/{trace_id}/findings` | Findings JSON |
 | `GET` | `/api/jobs/{trace_id}/report` | HTML report |
-
-```bash
-curl -F file=@paper.pdf http://127.0.0.1:8765/api/upload
-curl http://127.0.0.1:8765/api/jobs/<trace_id>/findings
-```
 
 ---
 

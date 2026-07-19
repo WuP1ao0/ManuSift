@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "manusift"
 version = "0.1.0b1"
-description = "ManuSift — paper-integrity screener (PDF + figures -> forgery-suspect report)"
+description = "Screen scholarly PDFs and Source Data for integrity red flags—image reuse, table anomalies, metadata—offline CLI and MCP. No API key required."
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}

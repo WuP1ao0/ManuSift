@@ -1,10 +1,12 @@
 # ManuSift
 
-Paper-integrity screener: PDF (+ companion Source Data) → detector suite →
-findings + HTML report. Flags suspicious metadata, image forensics
-(ELA, copy-move, texture reuse), table forgery signals (Benford with
-domain gates, near-dup rows, cross-sheet copy, …), and text/reference
-patterns.
+**Screen scholarly PDFs and companion Source Data for research-integrity
+red flags**—image reuse and forensics, table/source-data anomalies, and
+metadata or text patterns—then write findings plus HTML reports.
+
+Runs **offline** by default (`manusift screen --no-llm`; no API key).
+Batch CLI for humans; **MCP** tools for other agents. Conversational chat
+is not part of the product.
 
 ## Quickstart
 

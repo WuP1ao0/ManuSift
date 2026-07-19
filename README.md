@@ -207,8 +207,6 @@ my_detector = "my_pkg:MyDetector"
 
 ## Architecture
 
-See `HANDOFF.md` §6 for the architecture overview. TL;DR:
-
 ```
 PDF → ingest (PyMuPDF) → pipeline detectors
        (39 in pipeline; 3rd-party plugins via entry_points)
@@ -268,9 +266,8 @@ workflow header for the one-time upload command.
 
 The 2026-07-18 roadmap (P1–P5: precision triage, external
 verification, MCP product surface, figure-text cross-checks, eval
-expansion + CI gate) is **complete** — see `ROADMAP.md` for
-acceptance records and `HANDOFF.md` for session-level technical
-notes. Registered follow-ups for future versions: cross-paper
-evidence comparison (retraction-database + image-fingerprint
-corpus), DePlot cross-validation for charts, adversarial
-("whitewashed") benchmark cases.
+expansion + CI gate) is **complete**. Registered follow-ups for
+future versions: cross-paper evidence comparison
+(retraction-database + image-fingerprint corpus), DePlot
+cross-validation for charts, adversarial ("whitewashed") benchmark
+cases.

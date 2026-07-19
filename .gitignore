@@ -66,3 +66,11 @@ benchmark-data.tar.gz
 
 # Benchmark run artifacts (generated)
 manusift_run/
+
+# Dev-local files kept out of the public repo (2026-07-18)
+HANDOFF.md
+ROADMAP.md
+.codegraphignore
+benchmarks/
+real_eval_fraud_cases*/
+docs/AGENT_RUNTIME_MIGRATION.md

@@ -148,7 +148,9 @@ def test_progress_endpoint_after_full_pipeline(tmp_path, monkeypatch) -> None:
     body = resp.json()
     assert body["total_steps"] == len(expected)
     assert body["completed_count"] == len(expected)
-    assert body["completed_steps"] == expected
+    # Parallel detector workers finish out of registry order; the
+    # progress contract is multiset equality, not list identity.
+    assert sorted(body["completed_steps"]) == sorted(expected)
     assert body["failed_count"] == 0
 
 
@@ -156,8 +158,8 @@ def test_progress_endpoint_after_full_pipeline(tmp_path, monkeypatch) -> None:
 
 def test_on_step_complete_hook_fires_per_detector(tmp_path, monkeypatch) -> None:
     """The pipeline's ``on_step_complete`` hook fires once per
-    detector, in order. This is the contract the web layer's
-    /progress endpoint relies on."""
+    detector. Order may vary when ``MANUSIFT_DETECTOR_WORKERS`` > 1;
+    the web /progress layer only needs each name exactly once."""
     monkeypatch.setenv("MANUSIFT_WORKSPACE_DIR", str(tmp_path / "jobs"))
     (tmp_path / "jobs").mkdir()
 
@@ -178,7 +180,9 @@ def test_on_step_complete_hook_fires_per_detector(tmp_path, monkeypatch) -> None
         fired.append(res.detector)
 
     run_pipeline(pdf_path, paths, state, on_step_complete=hook)
-    assert fired == expected
+    assert sorted(fired) == sorted(expected)
+    assert len(fired) == len(expected)
+    assert len(set(fired)) == len(expected)
 
 
 # ---------- 4. Server restart: on-disk step files are the source of truth ----------

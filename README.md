@@ -42,7 +42,6 @@ Signals only—not a misconduct verdict. Humans use **batch CLI**; other agents 
 - [Docs & integrity notes](#docs--integrity-notes)
 - [Architecture](#architecture)
 - [Development](#development)
-- [Related work](#related-work)
 - [License & community](#license--community)
 - [Disclaimer](#disclaimer)
 
@@ -333,23 +332,6 @@ Workflow: [`.github/workflows/benchmark_gate.yml`](.github/workflows/benchmark_g
 **Roadmap status:** 2026-07 P1–P5 (triage, external checks, MCP surface, figure–text,
 eval + CI gate) is complete. Follow-ups: cross-paper corpora, chart cross-validation,
 adversarial “whitewashed” cases.
-
----
-
-## Related work
-
-ManuSift sits among tools that help *screen* integrity signals (each with a different
-scope and license). Complementary examples:
-
-| Project | Focus (rough) |
-|---------|----------------|
-| [ELIS](https://github.com/researchintegrity/elis) | Open image-forensics stack (PDF extract, copy-move, TruFor, …) |
-| [statcheck](https://github.com/MicheleNuijten/statcheck) | NHST statistic vs *p*-value consistency (R / ecosystem) |
-| [ASReview](https://github.com/asreview/asreview) | Active-learning *literature* screening (different problem; strong OSS README norms) |
-| Commercial image services (e.g. ImageTwin / Proofig-class) | Cross-paper image search at scale (typically closed / SaaS) |
-
-ManuSift’s niche: **one offline batch + MCP kernel** covering image, table/SI, text,
-and metadata on a single paper (and local Source Data)—open MIT, no chat product.
 
 ---
 

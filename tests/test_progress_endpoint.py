@@ -195,10 +195,8 @@ def test_progress_endpoint_falls_back_to_disk_on_restart(
     tid = "t-restart"
     paths = JobPaths.for_trace(tid, tmp_path / "jobs")
     paths.ensure()
-    # R-2026-06-15 (Phase 3, real-case benchmark):
-    # the pipeline list grew from 12 to 23. The
-    # test writes 3 step files at indices 0, 1, 2
-    # (the first three detectors in the new list:
+    # Write 3 step files at indices 0, 1, 2
+    # (first three pipeline detectors:
     # ``metadata``, ``pdf_metadata``, ``supplementary``).
     write_step(
         paths.step_path(0, "metadata"),

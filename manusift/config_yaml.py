@@ -398,7 +398,7 @@ def _read_yaml_file(path: Path) -> dict[str, Any]:
     non-dict top level
     is a user error; we
     do not crash the
-    chat TUI over a
+    process over a
     malformed yaml).
     """
     try:

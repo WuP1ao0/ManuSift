@@ -89,7 +89,7 @@ def test_compact_splash_markup_returns_rich_tags() -> None:
 
 
 def test_compact_splash_markup_parses_as_textual_content() -> None:
-    """The chat TUI renders the
+    """The optional workspace TUI renders the
     compact splash through
     Textual's markup parser, so
     the emitted tags must be

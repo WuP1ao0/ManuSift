@@ -1,8 +1,8 @@
 """Knowledge-base subpackage (E-audit, 2026-06).
 
 The end-to-end audit found
-that the LLM agent in
-``manusift-chat`` had no
+that host agents (and the
+removed chat TUI) had no
 way to consult a user's
 external knowledge base.
 This subpackage layers a

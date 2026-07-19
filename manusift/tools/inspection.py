@@ -1,17 +1,10 @@
 """Tools for inspecting past detector findings (T2).
 
-Pre-T2, the LLM agent in
-``manusift-chat`` could only call
-the five built-in detector tools
-(metadata / image_dup /
-image_forensics / text_patterns
-/ citation_network). It had no
-way to read a *specific* finding
-in detail or to list past
-findings by category. T2 layers
-two read-only inspection tools
-on top of the existing
-``Tool`` Protocol:
+Read-only inspection for agent/MCP hosts:
+list findings and open one by id. (Historical
+note: pre-T2 chat-era agents could only invoke
+detectors, not re-read stored findings.) Layers
+two tools on the ``Tool`` Protocol:
 
   * ``read_finding`` -- look up
     a single finding by its

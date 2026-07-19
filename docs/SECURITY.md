@@ -39,10 +39,12 @@ finding, the action is:
   2. **re-run the eval suite** to confirm nothing broke
   3. **re-run this doc** to record the new lock
 
-In CI, `pip-audit` runs on every push via
-`.github/workflows/ci.yml` (see that file for the exact command).
-A finding that exits non-zero **fails the build** — a deliberate
-choice to keep known-vulnerable deps out of main.
+In CI, `pip-audit` runs on push to `main` via
+`.github/workflows/ci.yml`: freeze **non-editable** third-party deps
+(`pip freeze --exclude-editable`) then `pip-audit -r … --strict`.
+(The local editable `manusift` package is not on PyPI and must not be
+audited as a named distribution.) A finding that exits non-zero
+**fails the build**.
 
 ## When this doc is wrong
 

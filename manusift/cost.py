@@ -1,9 +1,9 @@
 """LLM cost tracking (Step P1-E).
 
 The pre-P1-E pipeline had no notion of "how much
-did this LLM call cost". The chat TUI made
-several LLM calls per session and the operator
-had no way to know whether a session cost 0.001
+did this LLM call cost". Agent hosts may make
+several LLM calls per session; without a log the
+operator cannot tell whether a session cost 0.001
 USD or 0.10 USD.
 
 P1-E layers a cost log on top of the existing

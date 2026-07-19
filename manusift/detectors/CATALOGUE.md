@@ -17,6 +17,7 @@ and why `table_forensics` is not in the offline pipeline.
 - [`citation_network`](#citation-network)
 - [`cited_retraction`](#cited-retraction)
 - [`compliance`](#compliance)
+- [`cross_paper_image`](#cross-paper-image)
 - [`data_availability_concern`](#data-availability-concern)
 - [`figure_grim`](#figure-grim)
 - [`figure_stat_text`](#figure-stat-text)
@@ -43,9 +44,12 @@ and why `table_forensics` is not in the offline pipeline.
 - [`ref_duplicate`](#ref-duplicate)
 - [`ref_format_anomaly`](#ref-format-anomaly)
 - [`source_data_consistency`](#source-data-consistency)
+- [`stat_corr_psd`](#stat-corr-psd)
 - [`stat_grim`](#stat-grim)
 - [`stat_percent`](#stat-percent)
 - [`stat_pvalue`](#stat-pvalue)
+- [`stat_pvalue_pileup`](#stat-pvalue-pileup)
+- [`stat_sprite`](#stat-sprite)
 - [`supplementary`](#supplementary)
 - [`table_benford`](#table-benford)
 - [`table_cross_copy`](#table-cross-copy)
@@ -90,6 +94,12 @@ and why `table_forensics` is not in the offline pipeline.
 ### `compliance`
 
 > Scan the document text
+
+
+### `cross_paper_image`
+
+> P6.3: match figure pHashes against the local fingerprint index
+> (cross-paper reuse). See `cross_paper_image.py`.
 
 
 ### `data_availability_concern`
@@ -222,6 +232,12 @@ and why `table_forensics` is not in the offline pipeline.
 > Cross-check PDF table numbers against companion Source Data.
 
 
+### `stat_corr_psd`
+
+> P6.2: correlation / covariance matrices that fail positive
+> semi-definiteness. See `stat_extra.py`.
+
+
 ### `stat_grim`
 
 > The GRIM test on every
@@ -235,6 +251,18 @@ and why `table_forensics` is not in the offline pipeline.
 ### `stat_pvalue`
 
 > Recompute the p-value
+
+
+### `stat_pvalue_pileup`
+
+> P6.2: concentration of reported p-values just below α=0.05.
+> See `stat_extra.py`.
+
+
+### `stat_sprite`
+
+> P6.2 SPRITE-lite summary M±SD,n feasibility (default off).
+> See `stat_extra.py`.
 
 
 ### `supplementary`

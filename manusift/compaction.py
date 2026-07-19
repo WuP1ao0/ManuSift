@@ -51,9 +51,9 @@ log = get_logger(__name__)
 def chat_sessions_root() -> Path:
     """The directory that holds one subdir per chat
     session. ``data/chats/`` by default; the
-    parent of the workspace dir, mirroring how
-    ``manusift-tui`` / ``manusift-chat`` place
-    their state."""
+    parent of the workspace dir (legacy chat
+    session layout; chat TUI removed — path
+    kept for compacting leftover local data)."""
     return get_settings().workspace_dir.parent / "chats"
 
 

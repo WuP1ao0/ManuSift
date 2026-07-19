@@ -1,8 +1,9 @@
 """Cyber / vaporwave splash banner (Step T1).
 
-A self-contained, zero-dependency
-banner for ``manusift-chat`` and
-``manusift``. The banner is hand-
+A self-contained, zero-dependency banner for
+``manusift`` CLI / optional workspace TUI
+(``manusift-workspace``). Conversational chat
+TUI entry points were removed. The banner is hand-
 crafted 7-row block letters using
 ``\u2588`` (U+2588, full block).
 The border uses box-drawing

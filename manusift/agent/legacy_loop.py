@@ -510,7 +510,7 @@ class AgentLoop:
         # L6 — optional audit sink. Called once per
         # successful tool execute with a dict
         # describing the call. None means "no audit";
-        # chat_app.py passes a function that appends
+        # Host UIs (historical chat_app, tests) pass a function that appends
         # a JSONL line. The sink must never raise;
         # a faulty audit must not break the agent.
         self._audit_sink = audit_sink
@@ -664,15 +664,14 @@ class AgentLoop:
         top of the next turn with
         ``stop_reason='cancelled'``.
 
-        This is the public API the
-        chat TUI's ``/stop`` slash
-        command calls. The interrupt
-        is best-effort: if the loop
-        is already inside an LLM
+        Public API for host UIs that
+        cancel a run (historical chat
+        ``/stop``; tests / embedding
+        hosts). Best-effort: if the
+        loop is already inside an LLM
         streaming ``for`` loop, the
-        current turn completes
-        naturally and the loop
-        exits at the next iteration.
+        current turn completes and
+        the loop exits next iteration.
 
         The flag is reset at the
         start of each
@@ -754,18 +753,14 @@ class AgentLoop:
     # R-2026-06-15 (Phase 0.1): the
     # ``interrupt_requested`` flag
     # is set by ``AgentLoop.interrupt()``
-    # when the user types ``/stop`` in
-    # the chat TUI. The streaming loop
-    # checks this at the top of every
-    # turn and exits early with
-    # ``stop_reason='cancelled'`` so
-    # the user can break out of a
-    # long-running agent run. The
-    # flag is reset at the start of
-    # each ``run_stream()`` call so
-    # a stale interrupt from a
-    # previous run does not leak
-    # into the next one.
+    # when a host calls
+    # ``AgentLoop.interrupt()``. The
+    # streaming loop checks this at the
+    # top of every turn and exits early
+    # with ``stop_reason='cancelled'``.
+    # Reset at the start of each
+    # ``run_stream()`` so a stale flag
+    # does not leak into the next run.
     _interrupt_requested: bool = False
     # R-audit (2026-06-12):
     # the
@@ -1072,17 +1067,12 @@ class AgentLoop:
             # R-2026-06-15 (Phase 0.1):
             # check the interrupt flag
             # at the top of every turn.
-            # When the user types
-            # ``/stop`` mid-run, this
-            # branch exits the loop with
-            # ``stop_reason='cancelled'``
-            # so the chat TUI can show
-            # a "cancelled" system
-            # message. The check is
-            # placed *before* the LLM
-            # call so a stuck network
-            # call cannot prevent
-            # cancellation.
+            # When a host interrupts
+            # mid-run, exit with
+            # ``stop_reason='cancelled'``.
+            # Check *before* the LLM call
+            # so a stuck network request
+            # cannot prevent cancellation.
             # R-2026-06-15 (Phase 3 + P3-1):
             # also check the
             # parent's

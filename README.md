@@ -52,9 +52,11 @@ for offline screening. To enable later, copy `.env.example` → `.env` and set
 `MANUSIFT_ANTHROPIC_API_KEY` / `MANUSIFT_OPENAI_API_KEY` (see
 `manusift/config.py`). Never commit `.env`.
 
-Contributor tests: `pip install -e ".[dev]"` then `python -m pytest -q`
-(~2300 tests; no network or large benchmark corpora required for the
-default suite).
+Contributor tests: `pip install -e ".[dev]"` then e.g.
+`python -m pytest -q tests/test_install_smoke.py` or the CI subset in
+`.github/workflows/ci.yml`. Full-tree `pytest -q` is large (~thousands of
+cases) and may include environment- or corpus-gated skips/fails; CI does
+**not** require the entire tree green.
 
 ## License & community
 
@@ -107,9 +109,9 @@ vs `imagehash_*`; `panel_dup` vs `panel_duplicate`):
 
 ## Status (2026-07, beta)
 
-**~2300 pytest, 6 eval cases + 6 e2e eval, 9 console scripts,
-~52 registered detectors (~44 offline pipeline; 8 EXCLUDED agent-only),
-40 curated MCP tools.**
+**6 eval cases + 6 e2e eval, 9 console scripts,
+52 registered detectors (44 offline pipeline; 8 EXCLUDED agent-only),
+40 curated MCP tools.** Large pytest tree; CI runs a reproducible subset.
 
 Current capabilities:
 
@@ -262,7 +264,7 @@ adapter.
 
 ```bash
 ./.venv/Scripts/python.exe -m pytest
-# ~2300 passed, a few environment-gated skips
+# CI subset / install_smoke — prefer targeted pytest; full tree optional
 
 ./.venv/Scripts/manusift-evals
 # 5 passed, 1 LLM-gated skip (set MANUSIFT_LLM_EVALS=1 to enable)

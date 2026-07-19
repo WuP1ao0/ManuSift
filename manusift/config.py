@@ -18,22 +18,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # ``env_file=".env"`` was a *relative*
 # path. Pydantic resolves it against
 # the current working directory, so
-# running ``manusift-chat`` from
-# ``C:\Users\22509`` (or any directory
-# other than the project root) would
-# silently miss the project's
-# ``.env`` and fall back to
-# ``MockLLM`` -- confusing the user
-# with a "no API key configured"
-# warning. We now resolve to the
-# repo root via the package's
-# ``__file__`` (parents[2] from
-# ``manusift/config.py``), so the
-# same ``.env`` is loaded regardless
-# of cwd. The original cwd-relative
-# lookup is preserved as a fallback
-# for users who keep ``.env`` in
-# their working dir on purpose.
+# running any CLI (``manusift screen``,
+# ``manusift-mcp``, …) from outside the
+# project root would silently miss the
+# project's ``.env`` and fall back to
+# ``MockLLM``. We resolve to the repo
+# root via the package ``__file__``, so
+# the same ``.env`` loads regardless of
+# cwd. Cwd-relative ``.env`` remains a
+# fallback for users who keep secrets
+# next to their working directory.
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _PROJECT_ENV = _REPO_ROOT / ".env"
 _CWD_ENV = Path.cwd() / ".env"
@@ -702,30 +696,18 @@ class Settings(BaseSettings):
     # Network failures degrade to ``info`` findings,
     # never ``high``.
     das_resolution_enabled: bool = False
-    # P4.2 — directory holding SKILL.md files.
-    # The chat TUI exposes a ``/skill <name>``
-    # command that loads a file from this
-    # directory into the conversation. The
-    # default points under the workspace so
-    # users can ship their own skills with
-    # the project.
-    # P4.3 — when True, the chat TUI requires
-    # the user to confirm an agent plan
-    # before any tool call is dispatched.
-    # The TUI sets this on the fly via the
-    # ``/plan on`` slash command; the env
-    # variable ``MANUSIFT_PLAN_MODE=1``
-    # turns it on at boot.
+    # P4.2 — directory holding skill markdown
+    # files (``data/skills/`` by default). Host
+    # agents / library loops may load these;
+    # the conversational chat TUI that once
+    # exposed ``/skill`` was removed (B+C).
+    # P4.3 — plan-mode gate for agent hosts
+    # that support confirmation before tool
+    # calls. Env: ``MANUSIFT_PLAN_MODE=1``.
     plan_mode: bool = False
-    # A.4: auto-accept tool calls
-    # without a confirmation
-    # prompt. Disabled by default;
-    # the user opts in via the
-    # ``/auto-accept`` slash
-    # command in the chat TUI or
-    # by setting
-    # ``MANUSIFT_AUTO_ACCEPT=1``
-    # in the environment.
+    # Auto-accept tool calls without a
+    # confirmation prompt (agent hosts).
+    # Env: ``MANUSIFT_AUTO_ACCEPT=1``.
     auto_accept: bool = False
     skills_dir: Path = Field(
         default_factory=lambda: Path("./data/skills")

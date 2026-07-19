@@ -22,17 +22,13 @@ markdown body:
     the bound PDF. Then summarize the
     findings in plain English.
 
-Skills live in ``settings.skills_dir``. By
-default that is ``./data/skills``; users can
-add or remove skills by editing files
-there. The chat TUI exposes a ``/skill
-<name>`` slash command that loads the
-skill's body into the conversation as a
-user-role message — the agent sees the
-skill prompt the same way it would see any
-other user instruction, so the skill's
-template composes with the regular
-tool-calling loop.
+Skills live in ``settings.skills_dir``
+(default ``./data/skills``). Host agents or
+library ``create_agent_loop`` sessions may
+load a skill body as a user-role instruction
+so it composes with tool-calling. The old
+chat TUI ``/skill`` slash command is gone
+(product B+C).
 
 Guarantees:
 
@@ -75,9 +71,8 @@ class SkillNotFound(LookupError):
 class SkillArgument:
     """One argument declared in the skill's
     YAML frontmatter. ``required`` defaults
-    to ``False`` so the chat TUI can
-    pre-fill an empty value when the user
-    forgets to provide one."""
+    to ``False`` so hosts can pre-fill an
+    empty value when the user omits one."""
     name: str
     description: str = ""
     required: bool = False

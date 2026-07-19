@@ -18,7 +18,7 @@ description + ``docs/mcp/README.md`` — keep all three in sync):
 Issues (not raw findings) are the counting unit: the P1.1 aggregation
 layer already collapses detector chatter on the same evidence object
 into one issue, so one duplicated figure cannot inflate the verdict by
-firing five detectors at once.
+firing multiple detectors at once.
 
 Score (0-1, severity-weighted, deliberately simple):
 

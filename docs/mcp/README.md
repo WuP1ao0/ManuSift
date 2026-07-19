@@ -177,4 +177,6 @@ Per-call `trace_id` may also be passed in tool arguments; that overrides the ser
 
 - Workspace paths must be writable (`MANUSIFT_WORKSPACE_DIR`).
 - Heavy detectors (OCR, Crossref) may need optional deps and network.
-- For chat-TUI agent runtime selection see `docs/AGENT_RUNTIME_MIGRATION.md` (`MANUSIFT_AGENT_RUNTIME`).
+- Optional host-agent loop runtime (`create_agent_loop`, not product CLI):
+  see `docs/AGENT_RUNTIME_MIGRATION.md` (`MANUSIFT_AGENT_RUNTIME`).
+  Conversational chat TUI was removed; use MCP or batch `manusift screen`.

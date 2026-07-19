@@ -2,7 +2,7 @@
 
 T2 adds two read-only tools that
 let the LLM agent in
-``manusift-chat`` inspect past
+agent/MCP hosts inspect past
 detector findings:
 
   * ``read_finding`` -- look up

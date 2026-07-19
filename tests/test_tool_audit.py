@@ -1,6 +1,6 @@
 """Tests for the per-tool-call audit log (L6, B5).
 
-When the chat TUI launches an agent loop, every
+When a host launches an agent loop, every
 tool.execute should leave a JSONL line under
 ``data/chats/<sid>/tool_calls.jsonl`` describing the
 call. This is the audit trail that lets a user

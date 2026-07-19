@@ -1,16 +1,14 @@
 """Knowledge-backend Protocol (E-audit, 2026-06).
 
 The end-to-end audit found
-that the LLM agent in
-``manusift-chat`` had no
+that host agents (and the
+removed chat TUI) had no
 way to consult a user's
 external knowledge base --
-the detector output and
-the LLM's own prior
-context were the only
-sources the LLM could
-draw on when reasoning
-about a paper.
+detector output and the
+LLM's prior context were
+the only sources available
+when reasoning about a paper.
 
 This module defines the
 *protocol* that any

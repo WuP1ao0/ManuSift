@@ -16,24 +16,31 @@ def test_suite_names_defined() -> None:
     assert SUITE_DETECTORS["full"] is None
 
 
-def test_mcp_default_surface_is_curated() -> None:
+def test_mcp_curated_allowlist_still_defined() -> None:
+    """Optional --curated surface (not the server default)."""
     from manusift.mcp.surface import MCP_DEFAULT_TOOLS
 
     assert "ingest_from_path" in MCP_DEFAULT_TOOLS
     assert "table_forensics" in MCP_DEFAULT_TOOLS
     assert "image_forensics" in MCP_DEFAULT_TOOLS
     assert "render_report" in MCP_DEFAULT_TOOLS
-    # P3 product surface leads the list
     assert MCP_DEFAULT_TOOLS[:4] == [
         "screen_verdict",
         "submit_screen",
         "get_job_status",
         "get_job_result",
     ]
-    # Conversational / shell tools not on default MCP surface
+    for name in (
+        "source_data_consistency",
+        "cross_paper_image",
+        "stat_pvalue_pileup",
+        "stat_corr_psd",
+        "stat_sprite",
+    ):
+        assert name in MCP_DEFAULT_TOOLS, name
+    # Curated list stays smaller than full registry
     assert "bash" not in MCP_DEFAULT_TOOLS
-    assert "task" not in MCP_DEFAULT_TOOLS
-    assert len(MCP_DEFAULT_TOOLS) < 50
+    assert 40 <= len(MCP_DEFAULT_TOOLS) < 60
 
 
 def test_cli_help_is_bc_not_chat() -> None:
@@ -70,8 +77,9 @@ def test_pipeline_includes_table_suite_classes() -> None:
         assert name in _BUILTIN_DETECTOR_CLASS_NAMES
 
 
-def test_mcp_list_tools_default_is_curated() -> None:
+def test_mcp_list_tools_default_is_full_registry() -> None:
     from manusift.mcp.server import main
+    from manusift.tools import iter_registered_tools
     import io
     from contextlib import redirect_stdout
 
@@ -79,7 +87,24 @@ def test_mcp_list_tools_default_is_curated() -> None:
     with redirect_stdout(buf):
         main(["--list-tools"])
     data = json.loads(buf.getvalue())
-    assert data["count"] > 5
-    assert data["count"] < 50
+    full = {t.name for t in iter_registered_tools()}
+    assert data["count"] == len(full)
+    assert data["count"] >= 80
     assert "ingest_from_path" in data["tools"]
+    assert "bash" in data["tools"]
+    assert "source_data_consistency" in data["tools"]
+
+
+def test_mcp_list_tools_curated_flag() -> None:
+    from manusift.mcp.server import main
+    from manusift.mcp.surface import MCP_DEFAULT_TOOLS
+    import io
+    from contextlib import redirect_stdout
+
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        main(["--list-tools", "--curated"])
+    data = json.loads(buf.getvalue())
+    assert data["count"] == len(MCP_DEFAULT_TOOLS)
     assert "bash" not in data["tools"]
+    assert "ingest_from_path" in data["tools"]

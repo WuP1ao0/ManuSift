@@ -148,6 +148,11 @@ class Settings(BaseSettings):
     # response, so the pipeline keeps moving.
     default_llm_provider: str = "openai"
 
+    # How many offline pipeline detectors may run concurrently after
+    # PDF parse. 1 = serial (legacy behaviour). Threads share the
+    # parsed doc (read-oriented); env ``MANUSIFT_DETECTOR_WORKERS``
+    # overrides this at runtime.
+    detector_workers: int = 4
     # Concurrency + per-call timeout for LLM enrichment. Set
     # ``llm_max_concurrency=0`` to disable enrichment entirely
     # (useful for benchmarking the pipeline without LLM cost).

@@ -1,12 +1,16 @@
-"""Curated MCP tool surface for product shape B+C.
+"""MCP tool surfaces for product shape B+C.
 
-Other agents should call a small Domain Kernel surface, not the full
-~66-tool registry (schema bloat / model confusion). Full registry remains
-available via ``manusift mcp --all-tools``.
+**Default MCP server** exposes **every** registered tool (~80+:
+detectors + agent utilities). Prefer that for full Domain Kernel access.
+
+``MCP_DEFAULT_TOOLS`` is the optional **curated** allow-list used only when
+the server is started with ``--curated`` (smaller schema for hosts that
+prefer a focused subset).
 """
 from __future__ import annotations
 
-# Ordered for discoverability in MCP clients.
+# Optional curated allow-list (``manusift mcp --curated``).
+# Ordered for discoverability when the restricted surface is requested.
 MCP_DEFAULT_TOOLS: list[str] = [
     # product surface (P3): one-call triage + async jobs
     "screen_verdict",
@@ -33,7 +37,7 @@ MCP_DEFAULT_TOOLS: list[str] = [
     "panel_dup",
     "page_raster_dup",
     "ai_generated_figure",
-    # table suite
+    # table suite + SI (Source Data xlsx/csv vs PDF tables)
     "table_forensics",
     "table_benford",
     "table_duplicate_row",
@@ -44,6 +48,12 @@ MCP_DEFAULT_TOOLS: list[str] = [
     "table_relationships",
     "table_file_metadata",
     "table_highlight_focus",
+    "source_data_consistency",
+    # P6 image / stats / cross-paper (also in offline pipeline)
+    "cross_paper_image",
+    "stat_pvalue_pileup",
+    "stat_corr_psd",
+    "stat_sprite",
     # stats / text / refs
     "stat_grim",
     "stat_pvalue",

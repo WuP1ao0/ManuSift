@@ -79,8 +79,11 @@ def test_mcp_stdio_end_to_end() -> None:
                 names = [t.name for t in tools.tools]
                 assert "ingest_from_path" in names
                 assert "pdf_metadata" in names
-                # curated surface: ~40 tools, not the full 73 dump
-                assert len(names) < 60
+                # default MCP exposes full registry (~80+)
+                assert "source_data_consistency" in names
+                assert "cross_paper_image" in names
+                assert "bash" in names
+                assert len(names) >= 80
 
                 r = await session.call_tool(
                     "ingest_from_path", {"path": str(PDF)}

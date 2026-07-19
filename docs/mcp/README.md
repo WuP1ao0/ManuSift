@@ -12,7 +12,9 @@ manusift-mcp --list-tools
 python -m manusift.mcp --list-tools
 ```
 
-Expect ~40 curated tool names (screen_verdict, submit_screen, ingest_from_path, image_dup, render_report, …).
+By default, expect the **full** registered tool list (~80+: detectors,
+screen jobs, agent utilities). Optional ``--curated`` restricts to the
+smaller kernel allow-list in ``manusift.mcp.surface.MCP_DEFAULT_TOOLS``.
 
 ## Three-minute quickstart: `screen_verdict`
 
@@ -129,7 +131,7 @@ claude mcp add manusift -- "C:\Users\22509\Desktop\ManuSift1\.venv\Scripts\manus
 Or project scope: copy [`claude_code.mcp.json`](./claude_code.mcp.json)
 to the project root as `.mcp.json` and restart `claude`.
 
-Verify inside a session: `/mcp` should list `manusift` with ~40 tools
+Verify inside a session: `/mcp` should list `manusift` with ~80+ tools
 (`screen_verdict`, `submit_screen`, `ingest_from_path`, `image_forensics`,
 `table_forensics`, …).
 

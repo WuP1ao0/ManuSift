@@ -2,19 +2,26 @@
 
 The pipeline is a single function that takes a workspace path + a PDF
 path, runs every stage, writes artifacts, and returns an
-``AnalysisResult``. It is called from a FastAPI BackgroundTask — there
-is no concurrent job runner, so we do not need locks.
+``AnalysisResult``. It is called from a FastAPI BackgroundTask.
+
+Detector steps after PDF parse are **independent** (each receives the
+same read-oriented ``ParsedDoc``). By default they run on a thread pool
+(``MANUSIFT_DETECTOR_WORKERS``, default 4; set to 1 for serial).
 """
 from __future__ import annotations
 
 import json
+import os
+import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any, Type
 
 from .checkpoint import read_step_silent, write_step
 from .config import get_settings
-from .contracts import AnalysisResult, Finding, JobState
+from .contracts import AnalysisResult, Finding, JobState, ParsedDoc
 from .detectors import (
     DetectorResult,
     detector_name_for_class,
@@ -28,6 +35,60 @@ from .trace import get_logger
 from .workspace import JobPaths
 
 log = get_logger(__name__)
+
+
+def _detector_worker_count() -> int:
+    """How many detectors may run at once (1 = serial).
+
+    Env ``MANUSIFT_DETECTOR_WORKERS`` wins; else Settings.detector_workers;
+    else 4. Values < 1 clamp to 1.
+    """
+    raw = (os.environ.get("MANUSIFT_DETECTOR_WORKERS") or "").strip()
+    if raw:
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            pass
+    try:
+        n = int(getattr(get_settings(), "detector_workers", 4) or 4)
+    except Exception:  # noqa: BLE001
+        n = 4
+    return max(1, n)
+
+
+def _run_detector_body(cls: Type[Any], doc: ParsedDoc) -> DetectorResult:
+    """Execute one detector; isolate crashes. Thread-safe if ``doc`` is R/O."""
+    name = cls().name
+    t0 = time.time()
+    try:
+        res = cls().run(doc)
+    except Exception as exc:  # noqa: BLE001 — isolation is the point
+        log.exception("detector crashed", extra={"detector": name})
+        crashed = Finding.make(
+            trace_id=doc.trace_id,
+            detector=name,
+            severity="info",
+            title=f"{name} crashed",
+            evidence=(
+                f"Detector raised: {type(exc).__name__}: {exc}"
+            ),
+            location="(pipeline)",
+            raw={"exception": repr(exc)},
+        )
+        return DetectorResult(
+            detector=name,
+            ok=False,
+            findings=[crashed],
+            error=f"{type(exc).__name__}: {exc}",
+            duration_ms=int((time.time() - t0) * 1000),
+        )
+    return DetectorResult(
+        detector=res.detector,
+        ok=res.ok,
+        findings=res.findings,
+        error=res.error,
+        duration_ms=int((time.time() - t0) * 1000) or res.duration_ms,
+    )
 
 
 def _parse_pdf(pdf_path: Path, trace_id: str, workspace_dir: Path):
@@ -530,216 +591,70 @@ def run_pipeline(
                 extra={"err": str(exc)},
             )
 
-        # Step H3 — checkpoint-aware detector loop.
+        # Checkpoint-aware detector loop (serial or threaded).
         #
-        # Each detector gets its own try/except. Its result is
-        # written to ``steps/NN_<name>.json`` the moment it
-        # finishes, ok or not, so a crash partway through loses at
-        # most one detector's work. On a fresh run, the runner
-        # first checks each step's checkpoint file and skips the
-        # detector if the file exists and ``ok=True``.
-        detectors_run: list[str] = []
-        results: list[DetectorResult] = []
+        # Each detector is independent on a shared read-oriented
+        # ParsedDoc. Workers > 1 use ThreadPoolExecutor for run();
+        # skip/cache handling stays on the main thread; step writes
+        # and bus events are serialized under a lock. Final results
+        # are ordered by pipeline index for deterministic findings.
+        from .detector_trace import (
+            emit_done,
+            emit_error,
+            emit_skipped,
+            emit_started,
+            should_skip_detector,
+        )
 
-        for idx, cls in enumerate(_detector_classes):
-            name = cls().name
-            step_file = paths.step_path(idx, name)
-            # R-2026-06-13: detector-trace instrumentation. Emit
-            # ``detector.started`` BEFORE the detector runs so the
-            # TUI's progress block can show the "running" state.
-            # The phase is empty for now; detectors that emit
-            # mid-run progress (e.g. OCR step) will call
-            # ``emit_progress`` themselves. The skip heuristic
-            # decides BEFORE the run whether to emit
-            # ``detector.skipped`` instead.
-            from .detector_trace import (
-                DetectorTrace,
-                emit_done,
-                emit_error,
-                emit_skipped,
-                emit_started,
-                should_skip_detector,
-            )
-            # R-2026-06-13: only apply the skip heuristic to
-            # built-in detectors. Plugin (entry-point) detectors
-            # were explicitly installed by the user; the heuristic
-            # must not second-guess their intent (e.g. a plugin
-            # with a ``citation_network``-style name is not the
-            # same as the built-in citation_network detector).
-            _is_builtin = cls.__name__ in _BUILTIN_DETECTOR_CLASS_NAMES
-            skip_it, skip_reason = should_skip_detector(
-                name, doc, is_builtin=_is_builtin
-            )
-            if skip_it:
-                try:
-                    emit_skipped(
-                        job_state.trace_id, name, skip_reason
-                    )
-                except Exception:  # noqa: BLE001
-                    pass
-                # Still record the skip as a DetectorResult so the
-                # downstream pipeline sees a deterministic entry.
-                res = DetectorResult(
-                    detector=name,
-                    ok=True,
-                    findings=[],
-                    duration_ms=0,
-                )
-                # Persist a checkpoint so a resume re-runs would
-                # also be a no-op.
-                try:
-                    write_step(step_file, res)
-                except OSError as exc:  # pragma: no cover
-                    log.warning(
-                        "could not write step file (skip)",
-                        extra={
-                            "path": str(step_file),
-                            "err": str(exc),
-                        },
-                    )
-                detectors_run.append(name)
-                results.append(res)
-                # Still emit a job.step_completed for parity with
-                # the non-skip path -- the trace contract says one
-                # step_completed per detector.
-                try:
-                    get_bus().emit(Event(
-                        "job.step_completed",
-                        {
-                            "trace_id": job_state.trace_id,
-                            "detector": name,
-                            "ok": True,
-                            "duration_ms": 0,
-                            "findings_count": 0,
-                            "skipped": True,
-                            "skip_reason": skip_reason,
-                        },
-                    ))
-                except Exception:  # noqa: BLE001
-                    pass
-                continue
-            cached = read_step_silent(step_file) if step_file.exists() else None
-            if cached is not None and cached.ok:
-                # Resume: this detector already finished, reuse it.
-                log.info(
-                    "detector step cached; skipping rerun",
-                    extra={"detector": name, "step": str(step_file.name)},
-                )
-                detectors_run.append(name)
-                results.append(cached)
-                # R-2026-06-13: also emit detector.started + done
-                # for resumed steps so the TUI trace reflects the
-                # full lifecycle (otherwise the TUI's "done" count
-                # would undercount).
-                try:
-                    emit_started(job_state.trace_id, name)
-                    emit_done(
-                        job_state.trace_id,
-                        name,
-                        int(getattr(cached, "duration_ms", 0) or 0),
-                        len(cached.findings),
-                    )
-                except Exception:  # noqa: BLE001
-                    pass
-                continue
-            # Otherwise run the detector and write its step.
-            t0 = time.time()
-            # R-2026-06-13: emit detector.started before run().
-            try:
-                emit_started(job_state.trace_id, name)
-            except Exception:  # noqa: BLE001
-                pass
-            try:
-                res = cls().run(doc)
-            except Exception as exc:  # noqa: BLE001 — isolation is the point
-                log.exception(
-                    "detector crashed", extra={"detector": name}
-                )
-                crashed = Finding.make(
-                    trace_id=doc.trace_id,
-                    detector=name,
-                    severity="info",
-                    title=f"{name} crashed",
-                    evidence=(
-                        f"Detector raised: {type(exc).__name__}: {exc}"
-                    ),
-                    location="(pipeline)",
-                    raw={"exception": repr(exc)},
-                )
-                res = DetectorResult(
-                    detector=name,
-                    ok=False,
-                    findings=[crashed],
-                    error=f"{type(exc).__name__}: {exc}",
-                    duration_ms=int((time.time() - t0) * 1000),
-                )
-                # R-2026-06-13: emit detector.error.
-                try:
-                    emit_error(
-                        job_state.trace_id,
-                        name,
-                        res.error or "",
-                        int(res.duration_ms or 0),
-                    )
-                except Exception:  # noqa: BLE001
-                    pass
-            else:
-                # Decorate with duration — cls.run() may not have.
-                res = DetectorResult(
-                    detector=res.detector,
-                    ok=res.ok,
-                    findings=res.findings,
-                    error=res.error,
-                    duration_ms=int((time.time() - t0) * 1000) or res.duration_ms,
-                )
-                # R-2026-06-13: emit detector.done.
-                try:
-                    emit_done(
-                        job_state.trace_id,
-                        name,
-                        int(res.duration_ms or 0),
-                        len(res.findings),
-                    )
-                except Exception:  # noqa: BLE001
-                    pass
-            # Persist the step atomically before doing anything else.
+        n_workers = _detector_worker_count()
+        log.info(
+            "detector concurrency",
+            extra={"workers": n_workers, "detectors": len(_detector_classes)},
+        )
+
+        results_by_idx: dict[int, DetectorResult] = {}
+        names_by_idx: dict[int, str] = {}
+        to_run: list[tuple[int, Type[Any], str, Path]] = []
+        side_lock = threading.Lock()
+
+        def _persist_and_notify(
+            idx: int,
+            name: str,
+            step_file: Path,
+            res: DetectorResult,
+            *,
+            skipped: bool = False,
+            skip_reason: str | None = None,
+            cached: bool = False,
+        ) -> None:
             try:
                 write_step(step_file, res)
-            except OSError as exc:  # pragma: no cover — disk full etc.
+            except OSError as exc:  # pragma: no cover
                 log.warning(
                     "could not write step file",
                     extra={"path": str(step_file), "err": str(exc)},
                 )
-            detectors_run.append(name)
-            results.append(res)
-            # E3: emit job.step_completed
-            # so a webhook consumer can
-            # react to per-detector
-            # outcomes. The ``ok`` field
-            # is the per-detector status;
-            # ``duration_ms`` is the
-            # wall-clock time spent in
-            # the detector; ``findings_count``
-            # is the size of the
-            # detector's findings list.
+            results_by_idx[idx] = res
+            names_by_idx[idx] = name
+            payload: dict[str, Any] = {
+                "trace_id": job_state.trace_id,
+                "detector": name,
+                "ok": res.ok,
+                "duration_ms": res.duration_ms,
+                "findings_count": len(res.findings),
+            }
+            if skipped:
+                payload["skipped"] = True
+                payload["skip_reason"] = skip_reason
+            if cached:
+                payload["cached"] = True
             try:
-                get_bus().emit(Event(
-                    "job.step_completed",
-                    {
-                        "trace_id": job_state.trace_id,
-                        "detector": name,
-                        "ok": res.ok,
-                        "duration_ms": res.duration_ms,
-                        "findings_count": len(res.findings),
-                    },
-                ))
+                get_bus().emit(Event("job.step_completed", payload))
             except Exception as exc:  # noqa: BLE001
                 log.warning(
                     "job.step_completed event emission failed",
                     extra={"err": str(exc)},
                 )
-            # Live progress notification. Errors here must not
-            # break the pipeline — the hook is a UI nicety.
             if on_step_complete is not None:
                 try:
                     on_step_complete(res, job_state)
@@ -748,6 +663,121 @@ def run_pipeline(
                         "on_step_complete hook raised",
                         extra={"err": str(exc)},
                     )
+
+        for idx, cls in enumerate(_detector_classes):
+            name = cls().name
+            step_file = paths.step_path(idx, name)
+            _is_builtin = cls.__name__ in _BUILTIN_DETECTOR_CLASS_NAMES
+            skip_it, skip_reason = should_skip_detector(
+                name, doc, is_builtin=_is_builtin
+            )
+            if skip_it:
+                try:
+                    emit_skipped(job_state.trace_id, name, skip_reason)
+                except Exception:  # noqa: BLE001
+                    pass
+                res = DetectorResult(
+                    detector=name, ok=True, findings=[], duration_ms=0
+                )
+                _persist_and_notify(
+                    idx, name, step_file, res, skipped=True, skip_reason=skip_reason
+                )
+                continue
+            cached_res = (
+                read_step_silent(step_file) if step_file.exists() else None
+            )
+            if cached_res is not None and cached_res.ok:
+                log.info(
+                    "detector step cached; skipping rerun",
+                    extra={"detector": name, "step": str(step_file.name)},
+                )
+                try:
+                    emit_started(job_state.trace_id, name)
+                    emit_done(
+                        job_state.trace_id,
+                        name,
+                        int(getattr(cached_res, "duration_ms", 0) or 0),
+                        len(cached_res.findings),
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+                _persist_and_notify(
+                    idx, name, step_file, cached_res, cached=True
+                )
+                continue
+            to_run.append((idx, cls, name, step_file))
+
+        def _execute_one(
+            item: tuple[int, Type[Any], str, Path],
+        ) -> tuple[int, str, Path, DetectorResult]:
+            idx, cls, name, step_file = item
+            with side_lock:
+                try:
+                    emit_started(job_state.trace_id, name)
+                except Exception:  # noqa: BLE001
+                    pass
+            res = _run_detector_body(cls, doc)
+            with side_lock:
+                if not res.ok and res.error:
+                    try:
+                        emit_error(
+                            job_state.trace_id,
+                            name,
+                            res.error or "",
+                            int(res.duration_ms or 0),
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+                else:
+                    try:
+                        emit_done(
+                            job_state.trace_id,
+                            name,
+                            int(res.duration_ms or 0),
+                            len(res.findings),
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+            return idx, name, step_file, res
+
+        if to_run:
+            if n_workers <= 1 or len(to_run) == 1:
+                for item in to_run:
+                    idx, name, step_file, res = _execute_one(item)
+                    with side_lock:
+                        _persist_and_notify(idx, name, step_file, res)
+            else:
+                workers = min(n_workers, len(to_run))
+                with ThreadPoolExecutor(max_workers=workers) as pool:
+                    futs = {
+                        pool.submit(_execute_one, item): item[0]
+                        for item in to_run
+                    }
+                    for fut in as_completed(futs):
+                        try:
+                            idx, name, step_file, res = fut.result()
+                        except Exception as exc:  # noqa: BLE001
+                            # Should be rare — body already isolates
+                            i = futs[fut]
+                            name = _detector_classes[i]().name
+                            step_file = paths.step_path(i, name)
+                            res = DetectorResult(
+                                detector=name,
+                                ok=False,
+                                findings=[],
+                                error=repr(exc),
+                                duration_ms=0,
+                            )
+                            idx = i
+                        with side_lock:
+                            _persist_and_notify(idx, name, step_file, res)
+
+        # Deterministic order = pipeline registration order
+        detectors_run = [
+            names_by_idx[i]
+            for i in sorted(names_by_idx)
+        ]
+        results = [results_by_idx[i] for i in sorted(results_by_idx)]
 
         # Flatten DetectorResult envelopes into the list of Finding
         # objects the rest of the pipeline + report builder expects.

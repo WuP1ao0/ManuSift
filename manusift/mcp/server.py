@@ -269,13 +269,24 @@ def main(argv: list[str] | None = None) -> None:
         default=None,
         help=(
             "Comma-separated allow-list of tool names. "
-            "Default: curated B+C kernel surface (see manusift.mcp.surface)."
+            "Default: every registered tool (~80+)."
         ),
     )
     parser.add_argument(
         "--all-tools",
         action="store_true",
-        help="Expose every registered tool (large schema; not default).",
+        help=(
+            "Expose every registered tool (default behaviour; kept for "
+            "backward-compatible CLI / docs)."
+        ),
+    )
+    parser.add_argument(
+        "--curated",
+        action="store_true",
+        help=(
+            "Restrict to the smaller B+C kernel allow-list "
+            "(see manusift.mcp.surface.MCP_DEFAULT_TOOLS)."
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -284,21 +295,23 @@ def main(argv: list[str] | None = None) -> None:
         if args.tools:
             allow = {t.strip() for t in args.tools.split(",") if t.strip()}
             names = [n for n in names if n in allow]
-        elif not args.all_tools:
+        elif args.curated:
             from .surface import MCP_DEFAULT_TOOLS
 
             allow = set(MCP_DEFAULT_TOOLS)
             names = [n for n in names if n in allow]
+        # else: full registry (default)
         print(json.dumps({"tools": names, "count": len(names)}, indent=2))
         return
 
     allow = None
     if args.tools:
         allow = [t.strip() for t in args.tools.split(",") if t.strip()]
-    elif not args.all_tools:
+    elif args.curated:
         from .surface import MCP_DEFAULT_TOOLS
 
         allow = list(MCP_DEFAULT_TOOLS)
+    # else: full registry (default); --all-tools is a no-op alias
     _silence_stdout_leaks()
     ctx = _default_ctx(args.trace_id)
     server = build_server(ctx=ctx, tool_names=allow)

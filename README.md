@@ -92,8 +92,8 @@ manusift suites
 python -m manusift screen paper.pdf --no-llm
 
 # C — MCP for Claude Desktop / Cursor / other agents
-manusift mcp --list-tools          # curated ~40 kernel tools
-manusift mcp --all-tools           # full registry (large)
+manusift mcp --list-tools          # full registry (~80+ tools; default)
+manusift mcp --curated             # optional smaller kernel allow-list
 manusift-mcp --list-tools          # same server entry point
 python -m manusift mcp --list-tools
 
@@ -111,7 +111,8 @@ vs `imagehash_*`; `panel_dup` vs `panel_duplicate`):
 
 **6 eval cases + 6 e2e eval, 9 console scripts,
 52 registered detectors (44 offline pipeline; 8 EXCLUDED agent-only),
-40 curated MCP tools.** Large pytest tree; CI runs a reproducible subset.
+~80+ MCP tools by default (full registry; ``--curated`` for smaller set).**
+Large pytest tree; CI runs a reproducible subset.
 
 Current capabilities:
 

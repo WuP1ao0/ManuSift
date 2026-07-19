@@ -289,11 +289,14 @@ def cmd_mcp(args: argparse.Namespace) -> int:
         argv.append("--list-tools")
     if args.tools:
         argv.extend(["--tools", args.tools])
-    elif not args.all_tools:
-        # Default B+C surface: curated kernel tools, not full 66-tool dump
+    elif getattr(args, "curated", False):
+        # Optional smaller surface (explicit opt-in)
         from .mcp.surface import MCP_DEFAULT_TOOLS
 
         argv.extend(["--tools", ",".join(MCP_DEFAULT_TOOLS)])
+    elif args.all_tools:
+        # Default is already full registry; flag kept for compat.
+        argv.append("--all-tools")
     mcp_main(argv)
     return 0
 
@@ -377,12 +380,17 @@ def build_parser() -> argparse.ArgumentParser:
     mp.add_argument(
         "--tools",
         default=None,
-        help="Comma-separated tool allow-list (default: curated B+C surface)",
+        help="Comma-separated tool allow-list (default: all registered tools)",
     )
     mp.add_argument(
         "--all-tools",
         action="store_true",
-        help="Expose every registered tool (legacy; large schema)",
+        help="Expose every registered tool (default; kept for compatibility)",
+    )
+    mp.add_argument(
+        "--curated",
+        action="store_true",
+        help="Restrict to smaller kernel allow-list (MCP_DEFAULT_TOOLS)",
     )
     mp.set_defaults(func=cmd_mcp)
 

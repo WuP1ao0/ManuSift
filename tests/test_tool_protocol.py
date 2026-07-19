@@ -1,6 +1,6 @@
 """Tests for the Tool Protocol + detector adapter (Step J1).
 
-Borrowed design from the leaked Claude Code v2.1.88 source
+Tool protocol contract tests
 (``Tool`` interface). These tests check the three contracts
 the rest of the agent stack relies on:
   * Every detector is also a Tool (no rewrite needed).

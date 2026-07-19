@@ -1,10 +1,9 @@
 """Tool registry (Step J4 prep, Step J1 first cut).
 
-Borrowed design from the leaked Claude Code v2.1.88 source
-(``tools/`` directory + JSON manifest). We re-implement the
-same idea with Python's standard ``importlib.metadata``
-entry-points mechanism — third-party tools live in their own
-pip packages and ship a one-line entry point in pyproject.toml.
+Plugin-style tool discovery via Python's standard
+``importlib.metadata`` entry-points mechanism — third-party
+tools live in their own pip packages and ship a one-line entry
+point in pyproject.toml.
 
 The registry is lazy: every call to ``iter_registered_tools``
 re-reads the entry points table, so a tool installed at

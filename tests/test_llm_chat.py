@@ -1,11 +1,10 @@
 """Tests for LLMClient.chat() with tools (Step J2).
 
-Borrowed design from Anthropic's Messages API and the leaked
-Claude Code v2.1.88 source. The AgentLoop (Step J3) will call
-``client.chat(messages, tools)`` and get back a normalized
-``ChatResponse``. These tests pin the wire format for each
-provider, and confirm the mock is enough to exercise the
-agent loop end-to-end.
+Pins the wire format for Anthropic/OpenAI-style tool chat
+responses. The AgentLoop (Step J3) calls
+``client.chat(messages, tools)`` and gets a normalized
+``ChatResponse``. These tests confirm the mock is enough to
+exercise the agent loop end-to-end.
 
 The tests use ``monkeypatch.setattr`` to swap the lazy SDK
 client method with a fake that returns a pre-built response.

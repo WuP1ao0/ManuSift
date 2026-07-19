@@ -29,8 +29,7 @@ Design decisions:
   1. **Do NOT modify the detector classes themselves.** The
      instrumentation is a wrapper around the pipeline's existing
      ``for cls in _pipeline_detector_classes()`` loop. Detectors
-     stay untouched (per the user's "对已有 detector 不要大改内部
-     逻辑" instruction).
+     stay untouched (instrumentation wraps the pipeline loop only).
   2. **Event ordering is guaranteed per detector.** A single
      detector cannot interleave its started/done events with
      another detector's events because the pipeline runs them

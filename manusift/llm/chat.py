@@ -1,10 +1,10 @@
 """Chat response type (Step J2).
 
-Borrowed design from the leaked Claude Code v2.1.88 source
-(``response.content`` is a list of typed blocks, not a
-string). Both OpenAI and Anthropic return slightly different
-shapes, so we normalize here. The AgentLoop (Step J3) only
-ever sees ChatResponse and never the raw provider dicts.
+Normalizes provider chat responses into typed content blocks
+(``response.content`` as a list of blocks, not a bare string).
+Both OpenAI and Anthropic return slightly different shapes, so
+we normalize here. The AgentLoop (Step J3) only ever sees
+ChatResponse and never the raw provider dicts.
 
 The shape:
   * ``content_blocks`` — a list of typed dicts. Each block

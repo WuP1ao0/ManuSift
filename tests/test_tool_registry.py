@@ -5,12 +5,10 @@ the agent's tool surface. The two are siblings: a third-party
 package can ship a Detector (which the pipeline runs) or a
 Tool (which the agent can call) or both.
 
-Borrowed design: the leaked Claude Code v2.1.88 source uses
-a ``.claude-plugin/plugin.json`` file-system convention. We
-re-implement the same idea with Python's
-``importlib.metadata.entry_points`` — a third-party package
+Tools are discovered via Python's
+``importlib.metadata.entry_points``: a third-party package
 declares a one-line entry point in its ``pyproject.toml``,
-the registry picks it up at runtime.
+and the registry picks it up at runtime.
 """
 from __future__ import annotations
 

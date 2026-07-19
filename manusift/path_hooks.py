@@ -1,78 +1,17 @@
 """Path-detection and pre-processing for user turns
 (R-audit 2026-06-11).
 
-The user reported
-"manusift cannot find
-the file" with the
-following input:
+Problem: LLMs are unreliable at extracting filesystem paths
+from free-text turns. A user may paste an absolute path (with
+or without quotes) plus natural language, and the model often
+narrates "I will register the PDF" without calling
+``ingest_from_path``, or calls it with an empty JSON body.
 
-  > "C:\\Users\\22509\\Desktop\\ManuSift1\\docs\\s41565-025-02082-0"
-  > 审查这篇文档
-
-The LLM's response
-sequence was:
-  1. "I'll register the
-     PDF and run the
-     integrity screen."
-     (narration, no
-     tool call)
-  2. ``tools 0 calls``
-     (no tool call)
-  3. "The detectors don't
-     see the PDF
-     directly. Let me
-     check the workspace
-     for the parsed
-     artifacts."
-     (hallucinated
-     failure --
-     detectors don't
-     see the PDF
-     because the LLM
-     never registered
-     it)
-  4. "The detector
-     service is currently
-     unable to lookup the
-     trace."
-     (still narrating)
-
-The root cause: the
-LLM is **unreliable at
-extracting paths from
-user messages**. It
-sees the path wrapped
-in Chinese-style double
-quotes, narrates "I
-will register the PDF",
-and then calls
-``ingest_from_path({})``
-with an empty JSON
-object. The system
-prompt has the rule
-"always pass the path
-as a JSON value", but
-the LLM does not
-follow it.
-
-The fix is
-**deterministic
-pre-processing** of
-the user turn: if a
-path-like string is
-detected in the user
-message, we **inject
-the tool calls
-ourselves** before the
-LLM gets to act. The
-LLM then sees the tool
-result and continues
-from there. This is
-the "do the obvious
-thing automatically"
-pattern -- trust the
-LLM less, trust the
-code more.
+Fix: **deterministic pre-processing** of the user turn. If a
+path-like string is detected, inject the obvious tool calls
+before the model acts; the model then continues from real tool
+results. Prefer code for path extraction over prompt-only
+instructions.
 
 ## The three pre-canned
 ## tool calls

@@ -1,10 +1,9 @@
 """Tool Protocol (Step J1).
 
-Borrowed design from the leaked Claude Code v2.1.88 source
-(``Tool`` interface, 4 methods: name / description / inputSchema /
-execute). We re-implement it as a Python ``Protocol`` so any
-class with the right shape — including our existing detectors —
-qualifies without inheriting from a base class.
+Agent-callable domain tools expose four members: ``name``,
+``description``, ``inputSchema``, and ``execute``. Implemented as a
+Python ``Protocol`` so any class with the right shape — including
+existing detectors — qualifies without inheriting from a base class.
 """
 from __future__ import annotations
 

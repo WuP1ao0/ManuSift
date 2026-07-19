@@ -125,7 +125,10 @@ Fallback:
 One-line registration (user scope):
 
 ```bash
-claude mcp add manusift -- "C:\Users\22509\Desktop\ManuSift1\.venv\Scripts\manusift-mcp.exe"
+# Prefer manusift-mcp on PATH after pip install -e .
+claude mcp add manusift -- manusift-mcp
+# Windows venv fallback (adjust to your clone):
+# claude mcp add manusift -- ".venv\Scripts\manusift-mcp.exe"
 ```
 
 Or project scope: copy [`claude_code.mcp.json`](./claude_code.mcp.json)

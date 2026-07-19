@@ -1,6 +1,6 @@
 """Tests for the AgentLoop (Step J3).
 
-Borrowed design from the leaked Claude Code v2.1.88 source.
+Agent loop integration tests (tool listing + step protocol).
 We exercise the loop with a controllable mock LLM (the
 ``MockLLM`` from J2) and confirm:
 
@@ -107,10 +107,9 @@ def test_loop_finishes_after_one_text_response() -> None:
 # ---------- 2. The system prompt lists the available tools ----------
 
 def test_system_prompt_includes_tool_names() -> None:
-    """Per the leaked Claude Code source: the system
-    prompt tells the model which tools exist. We assert
-    that the LLMClient received a system message that
-    contains every registered tool name."""
+    """The system prompt should list available tools so the
+    model can call them by name. Assert the LLMClient received
+    a system message containing every registered tool name."""
     script = [
         ChatResponse(
             content_blocks=[{"type": "text", "text": "ok"}],

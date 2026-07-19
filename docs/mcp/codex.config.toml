@@ -2,16 +2,20 @@
 # Merge this block into your existing config.toml (do not replace the
 # whole file if you already have other mcp_servers).
 #
+# Prefer `manusift-mcp` on PATH after `pip install -e .`. On Windows you
+# may use the venv console script instead, e.g.
+#   .venv\Scripts\manusift-mcp.exe
+#
 # One-call triage: ask Codex to "screen this paper with screen_verdict".
 # For large PDFs the async chain is submit_screen -> get_job_status ->
 # get_job_result; a raw JSON-RPC call sequence is in
 # docs/mcp/async_calls.example.jsonl (same repo).
 
 [mcp_servers.manusift]
-command = 'C:\Users\22509\Desktop\ManuSift1\.venv\Scripts\manusift-mcp.exe'
+command = "manusift-mcp"
 args = []
 
 [mcp_servers.manusift.env]
-MANUSIFT_WORKSPACE_DIR = 'C:\Users\22509\Desktop\ManuSift1\data\jobs'
-PYTHONUTF8 = '1'
-PYTHONIOENCODING = 'utf-8'
+MANUSIFT_WORKSPACE_DIR = "./data/jobs"
+PYTHONUTF8 = "1"
+PYTHONIOENCODING = "utf-8"

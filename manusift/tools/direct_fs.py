@@ -210,23 +210,17 @@ class ReadFileTool:
                         "path is required but missing from your "
                         "JSON input. Re-call the tool with the "
                         'path as a JSON key, e.g. '
-                        '{"path": "C:\\Users\\22509\\Desktop\\paper.pdf"}. '
+                        '{"path": "/path/to/paper.pdf"}. '
                         "The user gave a path in their message; "
                         "pass it through verbatim."
                     ),
                 }
             )
         path = Path(path_str)
-        # R-2026-06-17 (Phase A + borrow
-        # from Claude Code + Hermes):
-        # 8 small
-        # ``read_file``
-        # hardening
-        # checks go
-        # here, *before*
-        # the file is
-        # touched. The
-        # order matters:
+        # R-2026-06-17 (Phase A): 8 small
+        # ``read_file`` hardening checks go
+        # here, *before* the file is
+        # touched. The order matters:
         # the cheapest
         # checks (path
         # string only)
@@ -1083,7 +1077,7 @@ class IngestFromPathTool:
                         "path is required but missing from your "
                         "JSON input. Re-call the tool with the "
                         'path as a JSON key, e.g. '
-                        '{"path": "C:\\Users\\22509\\Desktop\\paper.pdf"}. '
+                        '{"path": "/path/to/paper.pdf"}. '
                         "The user gave a path in their message; "
                         "pass it through verbatim."
                     ),
@@ -2576,7 +2570,7 @@ class ListDirTool:
                         "path is required but missing from your "
                         "JSON input. Re-call the tool with the "
                         'path as a JSON key, e.g. '
-                        '{"path": "C:\\Users\\22509\\Desktop\\paper.pdf"}. '
+                        '{"path": "/path/to/paper.pdf"}. '
                         "The user gave a path in their message; "
                         "pass it through verbatim."
                     ),

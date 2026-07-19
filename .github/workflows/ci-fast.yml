@@ -71,6 +71,8 @@ jobs:
         # fast CI runs only the new test files (Phase A/B/C/D +
         # A1/C3) + a small regression subset. The full suite is
         # reserved for the weekly ``ci-full`` job below.
+        # Note: test_tool_call_card.py was removed with the chat
+        # TUI; do not re-list deleted paths (pytest exit 4).
         run: |
           python -m pytest -q \
             tests/test_phase_a_safe_read.py \
@@ -81,7 +83,7 @@ jobs:
             tests/test_p1_b2_protected_dir.py \
             tests/test_p1_c1_image_forensics_oom.py \
             tests/test_p1_c2_panel_dup_progress.py \
-            tests/test_tool_call_card.py \
             tests/test_auto_discover_source_data.py \
             tests/test_direct_fs.py \
-            tests/test_phase1_p17_direct_fs_error_kinds.py
+            tests/test_phase1_p17_direct_fs_error_kinds.py \
+            tests/test_install_smoke.py

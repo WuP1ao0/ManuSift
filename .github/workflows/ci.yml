@@ -45,9 +45,9 @@ jobs:
           pip install pip-audit
           pip install -e ".[dev]"
       - name: Vulnerability scan
-        # ``--strict`` makes the run non-zero when there
-        # are any known-vulnerable deps in the install
-        # set. ``--no-deps`` would skip transitive deps
-        # and is intentionally not used.
+        # ``--strict`` fails on any known-vulnerable dep.
+        # ``--skip-editable`` skips the local manusift
+        # package itself (not on PyPI; editable install
+        # would otherwise make pip-audit exit 1).
         run: |
-          pip-audit --strict
+          pip-audit --strict --skip-editable

@@ -36,6 +36,10 @@ dependencies = [
     "pydantic-settings>=2.2",
     "PyMuPDF>=1.24",
     "pdfplumber>=0.10",
+    # PDF catalog / XMP / embedded-file detectors (pdf_metadata,
+    # supplementary, ai_generated_figure). Lazy-imported at runtime;
+    # tests import it at collection time so it must be a base dep.
+    "pikepdf>=9.0",
     "Pillow>=10.0",
     "python-multipart>=0.0.9",
     "httpx>=0.27",

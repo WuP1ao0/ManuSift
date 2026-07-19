@@ -1,7 +1,7 @@
 # ManuSift
 
 <p align="center">
-  <img src="docs/assets/manusift.png" alt="ManuSift" width="560" />
+  <img src="docs/assets/manusift.png" alt="ManuSift" width="920" />
 </p>
 
 Screen scholarly **PDFs** and Source Data for research-**integrity** red flags—

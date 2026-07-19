@@ -1,0 +1,11 @@
+{
+  "name": "chatbot_text",
+  "fixture": "chatbot_text.pdf",
+  "description": "Body text contains 'as an AI language model', 'I cannot provide', 'Certainly!'. TextPatternDetector should raise chatbot_disclaimer findings.",
+  "expect": {
+    "min_findings": 1,
+    "must_contain": [
+      {"detector": "text_patterns", "check": "chatbot_disclaimer", "min_count": 1}
+    ]
+  }
+}

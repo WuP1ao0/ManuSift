@@ -1,0 +1,11 @@
+{
+  "name": "e2e_duplicate_image",
+  "fixture": "duplicate_image.pdf",
+  "description": "End-to-end: upload a PDF with the same image embedded twice; report must show an image_dup finding.",
+  "expect": {
+    "min_findings": 1,
+    "must_contain": [
+      {"detector": "image_dup", "min_count": 1}
+    ]
+  }
+}

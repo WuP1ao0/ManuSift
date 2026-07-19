@@ -42,7 +42,6 @@ docs/s41565-025-02082-0/
 docs/superpowers/
 docs/audits/
 manusift_benchmarks/
-evals/
 case005.txt
 check_env.py
 diag_env.py

@@ -1,0 +1,11 @@
+{
+  "name": "duplicate_image",
+  "fixture": "duplicate_image.pdf",
+  "description": "The same small image embedded twice on a page. ImageDuplicateDetector should fire at least once.",
+  "expect": {
+    "min_findings": 1,
+    "must_contain": [
+      {"detector": "image_dup", "min_count": 1}
+    ]
+  }
+}

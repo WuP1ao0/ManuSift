@@ -1,0 +1,11 @@
+{
+  "name": "e2e_duplicate_paragraph",
+  "fixture": "duplicate_paragraph.pdf",
+  "description": "End-to-end: upload a PDF with a copy-paste loop; report must show an intra_block duplicate_passage finding.",
+  "expect": {
+    "min_findings": 1,
+    "must_contain": [
+      {"detector": "text_patterns", "check": "duplicate_passage", "raw_kind": "intra_block", "min_count": 1}
+    ]
+  }
+}

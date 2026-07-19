@@ -1,0 +1,12 @@
+{
+  "name": "clean_academic_paper",
+  "fixture": "clean_academic.pdf",
+  "description": "A well-written academic intro with no suspect patterns. Should produce no medium/high findings (informational low notes like a missing byline email are tolerated).",
+  "expect": {
+    "max_findings": 5,
+    "must_not_contain": [
+      {"severity": "high"},
+      {"severity": "medium"}
+    ]
+  }
+}

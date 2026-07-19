@@ -1,0 +1,11 @@
+{
+  "name": "e2e_chatbot_text",
+  "fixture": "chatbot_text.pdf",
+  "description": "End-to-end: upload a PDF whose body text was clearly written by an LLM; report must show a chatbot_disclaimer finding.",
+  "expect": {
+    "min_findings": 1,
+    "must_contain": [
+      {"detector": "text_patterns", "check": "chatbot_disclaimer", "min_count": 1}
+    ]
+  }
+}

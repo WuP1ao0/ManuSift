@@ -1,0 +1,11 @@
+{
+  "name": "e2e_composite_image",
+  "fixture": "composite_image.pdf",
+  "description": "End-to-end: upload a composite-image PDF; report must include an ELA finding.",
+  "expect": {
+    "min_findings": 1,
+    "must_contain": [
+      {"detector": "image_forensics", "raw_kind": "ela", "min_count": 1}
+    ]
+  }
+}

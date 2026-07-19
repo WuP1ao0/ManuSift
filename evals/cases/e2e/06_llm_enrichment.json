@@ -1,0 +1,11 @@
+{
+  "name": "e2e_llm_enrichment",
+  "fixture": "chatbot_text.pdf",
+  "description": "End-to-end: upload a chatbot-flavored PDF and confirm the resulting report references chatbot findings. The case passes whether the LLM enrichment is mock or real — we only check that the underlying finding was raised. LLM-specific verdict assertions live in the pipeline-level runner.",
+  "expect": {
+    "min_findings": 1,
+    "must_contain": [
+      {"detector": "text_patterns", "check": "chatbot_disclaimer", "min_count": 1}
+    ]
+  }
+}

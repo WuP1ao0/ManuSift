@@ -1,0 +1,13 @@
+{
+  "name": "llm_enrichment_with_real_call",
+  "fixture": "chatbot_text.pdf",
+  "description": "Drives the chatbot fixture through the pipeline with a stubbed LLM client. Verifies that the chatbot finding is enriched with a real-looking verdict (not just llm_skipped). This case is LLM-dependent and runs only when MANUSIFT_LLM_EVALS=1 is set; otherwise the runner auto-skips it.",
+  "expect": {
+    "min_findings": 1,
+    "must_contain": [
+      {"detector": "text_patterns", "check": "chatbot_disclaimer", "min_count": 1}
+    ]
+  },
+  "requires_llm_eval_env": "MANUSIFT_LLM_EVALS",
+  "skip_unless_env": "MANUSIFT_LLM_EVALS"
+}

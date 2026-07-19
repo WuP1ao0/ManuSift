@@ -1,0 +1,11 @@
+{
+  "name": "duplicate_paragraph",
+  "fixture": "duplicate_paragraph.pdf",
+  "description": "A single sentence pasted 3 times into a single text block. TextPatternDetector's intra-block detection should fire.",
+  "expect": {
+    "min_findings": 1,
+    "must_contain": [
+      {"detector": "text_patterns", "check": "duplicate_passage", "raw_kind": "intra_block", "min_count": 1}
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "composite_image",
+  "fixture": "composite_image.pdf",
+  "description": "High-quality base JPEG with a low-quality patch pasted on top. ImageForensicsDetector should flag the ELA anomaly.",
+  "expect": {
+    "min_findings": 1,
+    "must_contain": [
+      {"detector": "image_forensics", "raw_kind": "ela", "min_count": 1}
+    ]
+  }
+}

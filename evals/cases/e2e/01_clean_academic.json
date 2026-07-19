@@ -1,0 +1,13 @@
+{
+  "name": "e2e_clean_academic_paper",
+  "fixture": "clean_academic.pdf",
+  "description": "End-to-end: upload a clean academic PDF through the HTTP API and confirm the report has no medium/high findings (informational low notes are tolerated).",
+  "expect": {
+    "max_findings": 5,
+    "must_contain": [],
+    "must_not_contain": [
+      {"severity": "high"},
+      {"severity": "medium"}
+    ]
+  }
+}

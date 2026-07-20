@@ -113,6 +113,44 @@ LLM enrichment is **off by default**. To enable later: copy `.env.example` → `
 set `MANUSIFT_ANTHROPIC_API_KEY` / `MANUSIFT_OPENAI_API_KEY` (see `manusift/config.py`).
 **Never commit `.env`.**
 
+### Enabling LLM enrichment (optional)
+
+LLM enrichment adds narrative summaries and adjudication to high/medium findings.
+To enable:
+
+**1. Create `.env` from the template:**
+
+```bash
+cp .env.example .env   # Linux/macOS
+copy .env.example .env # Windows
+```
+
+**2. Edit `.env` and uncomment + fill your key:**
+
+```bash
+# Option A: OpenAI-compatible (GPT-4o, DeepSeek, local proxy, etc.)
+MANUSIFT_DEFAULT_LLM_PROVIDER=openai
+MANUSIFT_OPENAI_API_KEY=sk-...
+MANUSIFT_OPENAI_BASE_URL=https://api.openai.com/v1
+MANUSIFT_OPENAI_MODEL=gpt-4o-mini
+
+# Option B: Anthropic (Claude)
+MANUSIFT_DEFAULT_LLM_PROVIDER=anthropic
+MANUSIFT_ANTHROPIC_API_KEY=sk-ant-...
+MANUSIFT_ANTHROPIC_MODEL=claude-3-5-sonnet-latest
+```
+
+**3. Run without `--no-llm`:**
+
+```bash
+manusift screen paper.pdf --workspace ./my_jobs
+# LLM enrichment runs automatically when keys are configured
+```
+
+> **Note:** Without `--no-llm` but also without API keys, the pipeline still
+> completes — LLM calls are skipped gracefully and `llm_report.*` files will
+> be empty shells. **Never commit `.env`** (it is in `.gitignore`).
+
 ### Report language
 
 Reports default to **Chinese**. Switch to English with `--lang en`:

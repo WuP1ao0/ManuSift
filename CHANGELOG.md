@@ -21,10 +21,26 @@ is the in-repo history for contributors and clone-from-source users.
   loopback-only, not a hosted ManuSift cloud.
 - MCP example configs: portable `manusift-mcp` / `./data/jobs` instead of
   machine-specific absolute paths.
-- Public comment hygiene: drop “leaked Claude Code” attributions and
+- Public comment hygiene: drop "leaked Claude Code" attributions and
   personal path residue from source notes.
+- `pipeline.py`: eliminate double detector instantiation (`cls().name` →
+  `cls.name`); remove redundant `import os as _os`; issues.json written
+  once after aggregation + adjudication (was twice).
+- `image_forensics.py`: precompute file sizes and SHA1 hashes before the
+  O(n²) cross-image SIFT pair loop (N² stat/hash calls reduced to N).
 
 ### Fixed
+
+- **`stats_algo.chi2_sf_approx`**: was returning the *lower-tail* CDF with
+  the wrong argument (`x` instead of `x/2`), inverting all p-values for
+  Benford, last-digit uniformity, and statcheck χ² tests. Rewritten with
+  correct Q(df/2, x/2) using series + Lentz continued fraction.
+- **`table_stats._chi2_sf`**: same bug in the legacy Benford path; now
+  delegates to the verified `_chi2_sf_exact` implementation.
+- `pipeline.py`: restore `llm_skipped=True` marking for high/medium
+  findings when `llm_max_concurrency=0` (frozen dataclass via
+  `object.__setattr__`).
+- `test_screen_verdict.py`: MCP curated tool count assertion 40 → 45.
 
 ### Removed
 

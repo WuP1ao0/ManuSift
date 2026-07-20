@@ -30,3 +30,7 @@ suggested fix. You should receive an acknowledgement within a few days.
 ManuSift processes user-supplied PDFs and may write job artifacts under
 `data/jobs/` (or `MANUSIFT_WORKSPACE_DIR`). Treat those paths as sensitive on
 shared machines.
+
+The optional FastAPI upload server (`python -m uvicorn manusift.web.app:app`)
+is for **local** use. Default docs bind `127.0.0.1`; do not expose it to the
+public internet without authentication, TLS, and a threat review.

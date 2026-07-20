@@ -3,6 +3,19 @@
 > 2026-07 redundancy pass (P0/P1). Single source of truth for **where** a
 > detector runs and **which** module owns a capability.
 
+## Counts (do not conflate)
+
+| Layer | Typical count | Notes |
+|-------|--------------:|-------|
+| Registered detectors | **52** | `_DETECTOR_SPECS` / package registry |
+| Offline pipeline | **44** | Batch `manusift screen` / MCP `submit_screen` & `screen_verdict` |
+| Pipeline-excluded | **8** | Still registered; agent/MCP on demand only |
+| MCP tools (default) | **~83** | Detectors-as-tools **plus** helpers (ingest, screen jobs, FS, vault, …) |
+| MCP tools (`--curated`) | **~45** | `manusift.mcp.surface.MCP_DEFAULT_TOOLS` |
+
+**52 ≠ 83.** Detector count is not the MCP tool count. See `docs/mcp/README.md`
+and the README **Capabilities** table.
+
 ## Three surfaces
 
 | Surface | What runs | Entry |

@@ -1,7 +1,25 @@
 # ManuSift MCP — external agent tool surface
 
-Exposes **Domain Kernel tools only** (detectors, ingest, inspection, render).  
-No agent loop is started inside MCP; the host LLM (Claude Desktop, Cursor, …) decides which tools to call.
+Exposes **Domain Kernel tools only** (detectors, ingest, inspection, render,
+screen jobs). No agent loop is started inside MCP; the host LLM (Claude Desktop,
+Cursor, …) decides which tools to call.
+
+Product **C** of B+C (batch CLI + MCP). This is **not** the optional local
+HTTP upload API (`uvicorn` on `127.0.0.1`) — that loopback server is separate
+and is not a hosted cloud service.
+
+## Counts
+
+| Surface | Count | How to see |
+|---------|------:|------------|
+| MCP tools (default) | **~83** | `manusift mcp --list-tools` |
+| MCP tools (`--curated`) | **~45** | `manusift mcp --curated --list-tools` |
+| Registered detectors | 52 | Package registry (subset of MCP tools) |
+| Offline pipeline | 44 | Batch `manusift screen` |
+
+Detectors and MCP tools are different: MCP adds helpers such as
+`screen_verdict`, `submit_screen`, `ingest_from_path`, `render_report`,
+FS/vault tools, etc. Layering detail: [`docs/DETECTOR_LAYERS.md`](../DETECTOR_LAYERS.md).
 
 ## Quick check
 
@@ -10,11 +28,13 @@ No agent loop is started inside MCP; the host LLM (Claude Desktop, Cursor, …) 
 manusift-mcp --list-tools
 # or
 python -m manusift.mcp --list-tools
+# optional smaller surface:
+manusift mcp --curated --list-tools
 ```
 
 By default, expect the **full** registered tool list (~83: detectors,
 screen jobs, agent utilities). Optional ``--curated`` restricts to the
-smaller kernel allow-list in ``manusift.mcp.surface.MCP_DEFAULT_TOOLS``.
+smaller kernel allow-list in ``manusift.mcp.surface.MCP_DEFAULT_TOOLS`` (~45).
 
 ## Three-minute quickstart: `screen_verdict`
 
@@ -173,10 +193,19 @@ GBK), set `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8` in the server
 | Flag | Meaning |
 |------|---------|
 | `--list-tools` | Print JSON tool list and exit (no stdio session) |
+| `--curated` | Serve only `MCP_DEFAULT_TOOLS` (~45) instead of the full ~83 |
+| `--all-tools` | No-op alias for the default full registry |
 | `--tools name1,name2` | Allow-list only these tools |
 | `--trace-id ID` | Default job / workspace key for tool calls |
 
 Per-call `trace_id` may also be passed in tool arguments; that overrides the server default.
+
+## Workspace paths
+
+Example configs in this directory use portable commands (`manusift-mcp` or
+`python -m manusift.mcp`) and `MANUSIFT_WORKSPACE_DIR=./data/jobs`. Point
+`MANUSIFT_WORKSPACE_DIR` at a directory **you** control; do not copy
+machine-specific absolute paths from old screenshots.
 
 ## Notes
 

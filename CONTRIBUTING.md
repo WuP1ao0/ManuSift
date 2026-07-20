@@ -2,6 +2,11 @@
 
 Thanks for helping improve offline paper-integrity screening.
 
+**Product shape:** batch CLI (`manusift screen`) + MCP Domain Kernel
+(`manusift mcp`) — no conversational chat product. Counts live in the
+README **Capabilities** table and [`docs/DETECTOR_LAYERS.md`](docs/DETECTOR_LAYERS.md)
+(~83 MCP tools default ≠ 52 detectors).
+
 ## Development setup
 
 ```bash

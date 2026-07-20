@@ -13,9 +13,23 @@ is the in-repo history for contributors and clone-from-source users.
 
 ### Changed
 
+- README / docs: spell out **MCP tools (~83 default, ~45 curated)** vs
+  **detectors (52 registered / 44 offline pipeline / 8 excluded)** so the
+  counts are not conflated; align `docs/mcp/README.md` and
+  `docs/DETECTOR_LAYERS.md`.
+- README: clarify optional local HTTP API (`uvicorn` on `127.0.0.1`) is
+  loopback-only, not a hosted ManuSift cloud.
+- MCP example configs: portable `manusift-mcp` / `./data/jobs` instead of
+  machine-specific absolute paths.
+- Public comment hygiene: drop “leaked Claude Code” attributions and
+  personal path residue from source notes.
+
 ### Fixed
 
 ### Removed
+
+- README: Related work table; one-line benchmark snapshot claim
+  (negative-control / core-recall marketing sentence).
 
 ## [0.1.0b1] - 2026-07
 

@@ -113,6 +113,16 @@ LLM enrichment is **off by default**. To enable later: copy `.env.example` → `
 set `MANUSIFT_ANTHROPIC_API_KEY` / `MANUSIFT_OPENAI_API_KEY` (see `manusift/config.py`).
 **Never commit `.env`.**
 
+### Report language
+
+Reports default to **Chinese**. Switch to English with `--lang en`:
+
+```bash
+manusift screen paper.pdf --no-llm --lang en --workspace ./my_jobs
+# or via environment variable
+MANUSIFT_REPORT_LANGUAGE=en manusift screen paper.pdf --no-llm --workspace ./my_jobs
+```
+
 ---
 
 ## What you get
@@ -244,6 +254,7 @@ All settings use the `MANUSIFT_` prefix. Full list: `manusift/config.py`.
 | `MANUSIFT_ANTHROPIC_API_KEY` | _(unset)_ | Anthropic key |
 | `MANUSIFT_DEFAULT_LLM_PROVIDER` | `openai` | `openai` or `anthropic` |
 | `MANUSIFT_LLM_MAX_CONCURRENCY` | `4` | Parallel LLM calls (`0` with `--no-llm`) |
+| `MANUSIFT_REPORT_LANGUAGE` | `zh` | Report language: `zh` (Chinese) or `en` (English) |
 | `MANUSIFT_LOG_LEVEL` | `INFO` | Log level |
 
 Without API keys, screening still runs; LLM enrichment stays off / mock.

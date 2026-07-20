@@ -964,7 +964,7 @@ def run_pipeline(
         try:
             from .report.llm_report import write_llm_reports
 
-            lang = getattr(settings, "report_language", None) or "zh"
+            lang = settings.report_language or "zh"
             write_llm_reports(
                 root_dir=paths.output_dir,
                 trace_id=job_state.trace_id,

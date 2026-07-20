@@ -171,6 +171,11 @@ class Settings(BaseSettings):
     # remaining findings are marked llm_skipped.
     llm_enrichment_budget_seconds: float = 30.0
 
+    # Report language: "zh" (Chinese, default) or "en" (English).
+    # Controls the investigation_pairs / llm_report narrative language.
+    # CLI ``--lang en`` sets MANUSIFT_REPORT_LANGUAGE=en.
+    report_language: str = "zh"
+
     # R-audit (2026-06-10):
     # allow the LLM to use
     # ``read_file`` /

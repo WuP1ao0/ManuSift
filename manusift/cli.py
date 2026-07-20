@@ -172,6 +172,8 @@ def cmd_screen(args: argparse.Namespace) -> int:
         os.environ["MANUSIFT_WORKSPACE_DIR"] = str(ws.resolve())
     if args.no_llm:
         os.environ["MANUSIFT_LLM_MAX_CONCURRENCY"] = "0"
+    if getattr(args, "lang", None):
+        os.environ["MANUSIFT_REPORT_LANGUAGE"] = args.lang
 
     # --deep forces full pipeline regardless of --suites
     suite = (getattr(args, "suites", None) or "deep").lower().strip()

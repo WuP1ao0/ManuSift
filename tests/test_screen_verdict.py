@@ -469,7 +469,7 @@ def test_screen_tools_on_default_mcp_surface() -> None:
         "get_job_status",
         "get_job_result",
     ]
-    assert len(MCP_DEFAULT_TOOLS) == 40
+    assert len(MCP_DEFAULT_TOOLS) == 45
 
 
 # ---------------------------------------------------------------------------

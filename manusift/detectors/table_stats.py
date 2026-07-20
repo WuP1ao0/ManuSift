@@ -498,49 +498,15 @@ def _leading_digit_counts(values: list[float]) -> Counter:
 
 
 def _chi2_sf(x: float, k: int) -> float:
-    """Survival function of the
-    chi-squared distribution
-    with ``k`` degrees of
-    freedom. Uses the regularized
-    upper incomplete gamma
-    function; we use a
-    series expansion good for
-    ``x >= k`` and a continued
-    fraction otherwise. The
-    implementation is short on
-    purpose -- we only need a
-    rough p-value to decide
-    between "fabrication" and
-    "looks fine"."""
-    if x <= 0:
-        return 1.0
-    # Use the regularized
-    # lower incomplete gamma
-    # function and take the
-    # complement. A common
-    # series expansion is:
-    #   P(a, x) = e^-x x^a / Gamma(a+1) * sum
-    # but we instead use a
-    # numerical approximation
-    # borrowed from the public-
-    # domain Cephes library.
-    a = k / 2.0
-    # For x close to k, use the
-    # continued fraction
-    # expansion.
-    if x > k + 30:
-        return 0.0
-    # Series expansion.
-    term = 1.0 / a
-    total = term
-    for n in range(1, 200):
-        term *= x / (a + n)
-        total += term
-        if abs(term) < 1e-12 * abs(total):
-            break
-    return math.exp(
-        -x + a * math.log(x) - math.lgamma(a + 1)
-    ) * total
+    """Survival function P(chi2_k > x).
+
+    Delegates to ``_chi2_sf_exact`` (correct upper-tail
+    implementation using series + Lentz CF).  The previous
+    inline series returned the *lower* tail CDF with the
+    wrong argument (x instead of x/2), inverting p-values.
+    Kept as a thin alias so legacy callers (_benford_chi2)
+    remain source-compatible."""
+    return _chi2_sf_exact(x, k)
 
 
 # ---------- shared tail probabilities / multiple testing ----------

@@ -58,7 +58,7 @@ def _detector_worker_count() -> int:
 
 def _run_detector_body(cls: Type[Any], doc: ParsedDoc) -> DetectorResult:
     """Execute one detector; isolate crashes. Thread-safe if ``doc`` is R/O."""
-    name = cls().name
+    name = cls.name
     t0 = time.time()
     try:
         res = cls().run(doc)
@@ -110,13 +110,19 @@ def _enrich_with_llm(findings: list[Finding]) -> int:
     Returns number of LLM API units (batches or 1:1 calls). Mock client
     short-circuits with 0. ``llm_max_concurrency=0`` (CLI ``--no-llm``)
     skips client construction entirely so third-party installs without
-    API keys never touch the LLM factory.
+    API keys never touch the LLM factory. Eligible findings (high/medium)
+    are marked ``llm_skipped=True`` so downstream consumers know the
+    enrichment was intentionally omitted.
     """
     from .llm.enrichment import enrich_findings
 
     settings = get_settings()
     max_concurrency = int(settings.llm_max_concurrency)
     if max_concurrency <= 0:
+        # Mark eligible findings as skipped (no LLM call made).
+        for f in findings:
+            if f.severity in ("high", "medium"):
+                object.__setattr__(f, "llm_skipped", True)
         return 0
     client = get_llm_client()
     return enrich_findings(
@@ -665,7 +671,7 @@ def run_pipeline(
                     )
 
         for idx, cls in enumerate(_detector_classes):
-            name = cls().name
+            name = cls.name
             step_file = paths.step_path(idx, name)
             _is_builtin = cls.__name__ in _BUILTIN_DETECTOR_CLASS_NAMES
             skip_it, skip_reason = should_skip_detector(
@@ -794,9 +800,7 @@ def run_pipeline(
         # P6.3: append this paper's figure pHashes to the local index
         # so later screens can detect cross-paper reuse.
         try:
-            import os as _os
-
-            if (_os.environ.get("MANUSIFT_FINGERPRINT_AUTO_INDEX") or "1").strip().lower() not in {
+            if (os.environ.get("MANUSIFT_FINGERPRINT_AUTO_INDEX") or "1").strip().lower() not in {
                 "0",
                 "false",
                 "off",
@@ -876,20 +880,6 @@ def run_pipeline(
             from .report.finding_aggregation import aggregate_findings
 
             issues = aggregate_findings(findings)
-            paths.issues_json.write_text(
-                json.dumps(
-                    {
-                        "trace_id": job_state.trace_id,
-                        "schema": "manusift.issues.v1",
-                        "issue_count": len(issues),
-                        "finding_count": len(findings),
-                        "issues": [i.to_dict() for i in issues],
-                    },
-                    ensure_ascii=False,
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
             log.info(
                 "finding aggregation",
                 extra={"issues": len(issues), "findings": len(findings)},
@@ -902,10 +892,8 @@ def run_pipeline(
 
         # P1.2: LLM adjudication — second-pass verdicts on high issues,
         # between aggregation and enrichment. ``explainable`` issues are
-        # demoted high→medium (never dropped) and issues.json is rewritten
-        # so downstream enrichment/report/findings.json all see the
-        # adjudicated severities. Off by default; failures must never
-        # break the pipeline.
+        # demoted high→medium (never dropped). Off by default; failures
+        # must never break the pipeline.
         try:
             from .llm.adjudication import adjudicate_issues
 
@@ -913,6 +901,20 @@ def run_pipeline(
             if adj_findings is not findings:
                 findings = adj_findings
                 issues = adj_issues
+                log.info(
+                    "llm adjudication applied",
+                    extra={"issues": len(issues), "findings": len(findings)},
+                )
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "llm adjudication failed",
+                extra={"err": str(exc)},
+            )
+
+        # Persist issues.json once (after aggregation + adjudication)
+        # to avoid redundant serialization when adjudication rewrites.
+        if issues:
+            try:
                 paths.issues_json.write_text(
                     json.dumps(
                         {
@@ -927,15 +929,11 @@ def run_pipeline(
                     ),
                     encoding="utf-8",
                 )
-                log.info(
-                    "llm adjudication applied",
-                    extra={"issues": len(issues), "findings": len(findings)},
+            except Exception as exc:  # noqa: BLE001
+                log.warning(
+                    "issues.json write failed",
+                    extra={"err": str(exc)},
                 )
-        except Exception as exc:  # noqa: BLE001
-            log.warning(
-                "llm adjudication failed",
-                extra={"err": str(exc)},
-            )
 
         llm_calls = _enrich_with_llm(findings)
 

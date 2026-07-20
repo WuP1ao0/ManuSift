@@ -951,6 +951,18 @@ def _cross_image_sift_findings(doc: ParsedDoc) -> list[Finding]:
         if len(candidates) >= _CROSS_SIFT_MAX_IMAGES:
             break
 
+    # Precompute file sizes and SHA1 hashes once per image to avoid
+    # redundant stat()/hash calls inside the O(n²) pair loop.
+    _sizes: dict[str, int] = {}
+    _sha1s: dict[str, str | None] = {}
+    for img in candidates:
+        p = Path(img.image_path)
+        try:
+            _sizes[img.image_path] = p.stat().st_size
+        except OSError:
+            _sizes[img.image_path] = -1
+        _sha1s[img.image_path] = _file_sha1(p)
+
     findings: list[Finding] = []
     for i in range(len(candidates)):
         for j in range(i + 1, len(candidates)):
@@ -958,16 +970,11 @@ def _cross_image_sift_findings(doc: ParsedDoc) -> list[Finding]:
             if (a.page, a.index) == (b.page, b.index):
                 continue
             # Skip obvious same-byte pairs (handled by full_image_duplicate)
-            try:
-                if Path(a.image_path).stat().st_size == Path(
-                    b.image_path
-                ).stat().st_size:
-                    ha = _file_sha1(Path(a.image_path))
-                    hb = _file_sha1(Path(b.image_path))
-                    if ha and hb and ha == hb:
-                        continue
-            except Exception:  # noqa: BLE001
-                pass
+            if _sizes.get(a.image_path, -1) == _sizes.get(b.image_path, -2):
+                ha = _sha1s.get(a.image_path)
+                hb = _sha1s.get(b.image_path)
+                if ha and hb and ha == hb:
+                    continue
 
             result = match_two_images(a.image_path, b.image_path)
             if not result.ok or not result.flagged:

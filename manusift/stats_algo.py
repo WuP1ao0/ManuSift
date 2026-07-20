@@ -289,23 +289,57 @@ def leading_digit_counts(values: Iterable[float]) -> list[int]:
 
 
 def chi2_sf_approx(x: float, df: int) -> float:
-    """Rough upper-tail P(chi2_df > x) via incomplete gamma series."""
+    """Upper-tail P(chi2_df > x) via regularized incomplete gamma.
+
+    Computes Q(df/2, x/2) = 1 - P(df/2, x/2) using a series
+    expansion below the mode and a Lentz continued fraction above
+    it (Numerical Recipes ``gammq`` approach).  Replaces the
+    previous implementation that erroneously returned the *lower*
+    tail CDF with the wrong argument (x instead of x/2).
+    """
     if x <= 0:
         return 1.0
-    if x > df + 40:
-        return 0.0
     a = df / 2.0
-    term = 1.0 / a
-    total = term
-    for n in range(1, 200):
-        term *= x / (a + n)
-        total += term
-        if abs(term) < 1e-12 * abs(total):
+    z = x / 2.0
+    if z < a + 1.0:
+        # Series expansion for P(a, z), then Q = 1 - P.
+        term = 1.0 / a
+        total = term
+        for n in range(1, 300):
+            term *= z / (a + n)
+            total += term
+            if abs(term) < 1e-14 * abs(total):
+                break
+        try:
+            p = math.exp(-z + a * math.log(z) - math.lgamma(a)) * total
+        except (ValueError, OverflowError):
+            return 0.0
+        return max(0.0, min(1.0, 1.0 - p))
+    # Continued fraction (Lentz) for Q(a, z) directly.
+    tiny = 1e-300
+    b = z + 1.0 - a
+    c = 1.0 / tiny
+    d = 1.0 / b
+    h = d
+    for i in range(1, 300):
+        an = -i * (i - a)
+        b += 2.0
+        d = an * d + b
+        if abs(d) < tiny:
+            d = tiny
+        c = b + an / c
+        if abs(c) < tiny:
+            c = tiny
+        d = 1.0 / d
+        delta = d * c
+        h *= delta
+        if abs(delta - 1.0) < 1e-14:
             break
     try:
-        return math.exp(-x + a * math.log(x) - math.lgamma(a + 1)) * total
+        q = math.exp(-z + a * math.log(z) - math.lgamma(a)) * h
     except (ValueError, OverflowError):
         return 0.0
+    return max(0.0, min(1.0, q))
 
 
 def benford_analyze(

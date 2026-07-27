@@ -82,7 +82,7 @@ def check_cli_help() -> list[str]:
     cmds = [
         [sys.executable, "-m", "manusift", "--help"],
         [sys.executable, "-m", "manusift", "suites"],
-        [sys.executable, "-m", "manusift", "mcp", "--list-tools"],
+        [sys.executable, "-m", "manusift", "toolserver", "--list-tools"],
     ]
     out_lines: list[str] = []
     for cmd in cmds:

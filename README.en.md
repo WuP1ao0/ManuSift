@@ -17,33 +17,32 @@
   <a href="docs/pi-agent.md"><img alt="pi agent" src="https://img.shields.io/badge/pi-agent-purple.svg"></a>
 </p>
 
-## What is this?
+## Overview
 
-ManuSift is an **academic-integrity screening agent**. Feed it a paper PDF
-(plus Source Data spreadsheets if you have them) and it runs 52 detectors over
-it — image reuse, fabricated-table fingerprints, stats that don't add up,
-tortured phrases, citation weirdness — then hands you a report with evidence.
+ManuSift screens paper PDFs and companion Source Data spreadsheets for
+research-integrity signals: 52 detectors covering image reuse, fabricated-table
+fingerprints, statistical inconsistencies, tortured phrases, and citation
+anomalies, producing evidence-anchored findings / issues / HTML reports.
 
-Two ways to use it:
+Two product surfaces:
 
-| Mode | In one line |
-|------|-------------|
-| **Interactive agent** (recommended) | Type `manusift` for the branded TUI and screen papers conversationally; `/screen <pdf>` fires the whole pipeline |
-| **Batch CLI** | `manusift screen paper.pdf --no-llm` — fully offline, zero API keys, great for scripts |
+| Entry | Description |
+|-------|-------------|
+| **Interactive agent** | `manusift` launches a standalone TUI; conversational screening, `/screen <pdf>` triggers the full pipeline |
+| **Batch CLI** | `manusift screen paper.pdf --no-llm`; fully offline, no API keys, suited to scripts and bulk runs |
 
-Architecturally it's an "oh-my-pi style" standalone agent: the interactive
-layer is built on the [pi](https://github.com/earendil-works/pi) SDK (no
-fork), the detection kernel stays in Python, and a JSON-lines stdio bridge
-(`manusift toolserver`) feeds all **~82 domain tools** to the agent.
+Architecture: the interactive layer is a standalone agent built on the
+[pi](https://github.com/earendil-works/pi) SDK (not a fork); the detection
+kernel remains Python. The two connect over a JSON-lines stdio bridge
+(`manusift toolserver`) exposing all **~82 domain tools** to the agent.
 
-> **Up front:** ManuSift produces *screening signals*, not misconduct
-> verdicts. Humans make the call.
+> ManuSift emits screening signals, not misconduct determinations.
 
 ---
 
-## Quickstart
+## Install & run
 
-Python ≥ 3.10 (3.11 recommended). Windows / Linux / macOS all fine.
+Requires Python ≥ 3.10 (3.11 recommended); Windows / Linux / macOS.
 
 ```bash
 git clone https://github.com/WuP1ao0/ManuSift.git
@@ -54,103 +53,101 @@ python -m venv .venv
 # Linux/macOS:  source .venv/bin/activate
 pip install -e .
 
-# smoke test the install
-python scripts/install_smoke.py
+python scripts/install_smoke.py    # install self-check
 
-# screen a paper offline (no keys needed)
+# offline batch run (no keys)
 manusift screen evals/fixtures/clean_academic.pdf --no-llm --suites fast --workspace ./my_jobs
 ```
 
-### Interactive agent (needs Node.js ≥ 20 + an LLM key)
+### Interactive agent
+
+Requires Node.js ≥ 20 and an LLM provider key (via pi's auth flow on first
+launch, or `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`; batch mode does not need
+any of this).
 
 ```bash
 cd agent && npm install --ignore-scripts && cd ..   # one-time
-manusift                                            # branded TUI, just chat
+manusift                                            # interactive TUI
+manusift agent -p "screen path/to/paper.pdf"        # one-shot print mode
 ```
 
-Inside the TUI:
+In the TUI:
 
-- Talk normally: `screen C:\papers\paper.pdf for integrity issues`,
+- Natural-language commands: `screen C:\papers\paper.pdf`,
   `is figure 3 duplicated?`
-- `/screen <pdf>` — runs the full pipeline in the background (progress in the
-  footer) and summarizes the verdict when done
-- `/manusift status` / `restart` — check or restart the Python tool bridge
-- One-shot mode: `manusift agent -p "screen path/to/paper.pdf"`
+- `/screen <pdf>`: runs the full pipeline asynchronously (progress in the
+  footer), then reports the verdict in a fixed 5-section shape
+- `/manusift status | restart`: bridge management
+- Read-only built-in tool surface by default (no bash/edit/write);
+  `--dev` lifts the restriction
 
-The agent's LLM key goes through pi's auth (first launch walks you through
-login, or set `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`). **Batch mode needs
-none of this.**
-
-### Where results land
+### Output layout
 
 ```text
 <workspace>/<trace_id>/
-├── inputs/       # original PDF (+ companion data)
+├── inputs/       # original PDF + companion data
 ├── steps/        # per-detector checkpoints
 └── output/
-    ├── findings.json            # calibrated raw findings
-    ├── issues.json              # aggregated review items (fewer, readable)
+    ├── findings.json            # calibrated findings
+    ├── issues.json              # aggregated review items
     ├── report.html              # HTML summary
-    └── investigation_pairs.*    # primary investigation view (open this first)
+    └── investigation_pairs.*    # primary investigation view
 ```
 
-Always pass `--workspace`, otherwise results land in `data/jobs/` and get
-easy to lose.
+Specify `--workspace` explicitly; the default location is
+`data/jobs/<trace_id>/`.
 
 ### Optional extras
 
 ```bash
-pip install -e ".[dev]"   # pytest + ruff (contributors)
-pip install -e ".[ocr]"   # EasyOCR + torch (~2GB): unlocks in-figure table OCR detectors
+pip install -e ".[dev]"   # pytest + ruff
+pip install -e ".[ocr]"   # EasyOCR + torch (~2GB): in-figure table OCR detectors
 ```
 
-Want LLM-polished batch reports? Copy `.env.example` → `.env`, set
-`MANUSIFT_OPENAI_API_KEY` or `MANUSIFT_ANTHROPIC_API_KEY`, and drop
-`--no-llm`. Without keys everything still runs; `llm_report.*` just stays an
-empty shell. Reports default to Chinese; `--lang en` switches to English.
+Batch-mode LLM enrichment: copy `.env.example` → `.env`, set
+`MANUSIFT_OPENAI_API_KEY` or `MANUSIFT_ANTHROPIC_API_KEY`, and omit
+`--no-llm`. Without keys the pipeline still completes; `llm_report.*` stays
+empty. Reports default to Chinese; use `--lang en` for English.
 
 ---
 
-## What it checks
+## Detection coverage
 
-| Area | The actual checks |
-|------|-------------------|
+| Area | Checks |
+|------|--------|
 | **Image forensics** | Multi-hash reuse (pHash/aHash/dHash), SIFT copy-move, flip/rotate matching, gel seams, panel + SSIM, page-raster tiles, noise/ELA, AI-generated-figure probes |
 | **Tables & statistics** | Benford, duplicate/near-duplicate rows, cross-sheet copies, fixed offsets/ratios, decimal-tail bias, GRIM/GRIMMER, DEBIT, statcheck-style t/F/χ²/z/r vs p recomputation |
-| **Figure ↔ text** | Bar-chart geometry vs reported numbers, forest-plot CI rules |
+| **Figure ↔ text** | Bar-chart geometry vs reported values, forest-plot CI rules |
 | **Text & metadata** | Tortured phrases (5,802-entry dictionary), paper-mill signals, PDF metadata, reference duplicates/conflicts |
-| **External checks** (opt-in) | Crossref / OpenAlex retraction lookups / data-availability link checks (cached; offline replay for CI) |
-| **Triage** | Calibration + issue aggregation into high/medium/low — deliberately conservative |
+| **External checks** (opt-in) | Crossref / OpenAlex retraction lookups, data-availability link resolution (cached; offline replay for CI) |
+| **Triage** | Calibration + issue aggregation into high/medium/low with strict false-positive control |
 
-Numbers, so nobody gets confused: **52** detectors registered, **44** run in
-the offline pipeline (8 are agent-on-demand); the agent tool surface is
-**~82** tools = detectors-as-tools + ingest/report/job helpers. Count them
-yourself with `manusift toolserver --list-tools`.
+Counting conventions: **52** registered detectors, **44** in the offline
+pipeline (8 agent-on-demand); the agent tool surface is **~82** =
+detectors-as-tools + ingest / report / job helpers. Verify with
+`manusift toolserver --list-tools`.
 
 ---
 
-## How it's wired
+## Architecture
 
 ```text
-you ──> manusift  (branded TUI, pi SDK, agent/bin/manusift-agent.mjs)
-          │  ships the integrity-screening system prompt;
-          │  read-only tool surface by default (--dev opens bash/edit/write)
-          ▼
-        .pi/extensions/manusift/   bridge extension (/screen, dedup gate, 82 tools)
-          ▼
-        python -m manusift.toolserver   JSON-lines stdio bridge
-          ▼
-        Python detection kernel: ingest → 44 detectors in parallel → calibrate/aggregate → reports
+manusift  (standalone TUI, pi SDK, agent/bin/manusift-agent.mjs)
+   │  custom system prompt; read-only tool surface by default (--dev opens bash/edit/write)
+   ▼
+.pi/extensions/manusift/          bridge extension: /screen, dedup gate, ~82 tool registrations
+   ▼
+python -m manusift.toolserver     JSON-lines stdio bridge
+   ▼
+Python detection kernel: ingest → 44 detectors in parallel → calibration/aggregation → reports
 ```
 
-Batch `manusift screen` talks to the bottom layer directly — no agent
-involved.
+Batch `manusift screen` calls the kernel directly, bypassing the agent layer.
 
-Other entry points: `manusift-workspace` (local job browser) and
-`python -m uvicorn manusift.web.app:app` (loopback-only HTTP API — this is
-not a hosted cloud).
+Other entry points: `manusift-workspace` (local job browser),
+`python -m uvicorn manusift.web.app:app` (loopback-only local HTTP API).
 
-### Adding your own detector
+### Adding a detector
 
 ```python
 # manusift/detectors/my_detector.py
@@ -158,30 +155,31 @@ from .base import DetectorResult
 from ..contracts import ParsedDoc
 
 class MyDetector:
-    """One-liner (also shows up in the agent tool list)."""
+    """One-line description (also used in the agent tool list)."""
     name = "my_detector"
 
     def run(self, doc: ParsedDoc) -> DetectorResult:
         return DetectorResult(detector=self.name, ok=True, findings=[], duration_ms=1)
 ```
 
-Register it in `manusift/detectors/__init__.py`, or ship it as a third-party
-plugin via entry_points — it becomes an agent tool automatically.
+Register in `manusift/detectors/__init__.py`, or publish as a third-party
+plugin via entry_points; registered detectors join the agent tool surface
+automatically.
 
 ---
 
-## Common configuration
+## Configuration
 
-Everything is prefixed `MANUSIFT_`; full list in `manusift/config.py`.
+All settings use the `MANUSIFT_` prefix; full list in `manusift/config.py`.
 
-| Variable | Default | What it does |
-|----------|---------|--------------|
+| Variable | Default | Purpose |
+|----------|---------|---------|
 | `MANUSIFT_WORKSPACE_DIR` | `./data/jobs` | Job root (same as `--workspace`) |
 | `MANUSIFT_DETECTOR_WORKERS` | `4` | Detector parallelism (`1` = serial) |
 | `MANUSIFT_REPORT_LANGUAGE` | `zh` | Report language `zh` / `en` |
 | `MANUSIFT_OPENAI_API_KEY` etc. | unset | Batch LLM enrichment (optional) |
-| `MANUSIFT_PYTHON` | auto-detect `.venv` | Which Python the agent bridge uses |
-| `MANUSIFT_PI` | unset | Force plain pi instead of the standalone agent |
+| `MANUSIFT_PYTHON` | auto-detect `.venv` | Python interpreter for the agent bridge |
+| `MANUSIFT_PI` | unset | Force plain-pi launch (skip the standalone agent) |
 
 ---
 
@@ -201,26 +199,26 @@ Everything is prefixed `MANUSIFT_`; full list in `manusift/config.py`.
 
 ```bash
 pip install -e ".[dev]"
-python -m pytest -q          # full suite
+python -m pytest -q
 python -m ruff check manusift tests
 
 python scripts/ci_benchmark_gate.py --skip-run   # benchmark gate (persisted artifacts)
 ```
 
-Benchmarks live in `benchmarks/`: real retraction cases hold recall at 1.0
-and negative controls at zero high-severity false positives. Read
-`docs/DETECTOR_LAYERS.md` before touching detectors, run the gate after.
+Benchmarks live in `benchmarks/`: core recall on real retraction cases holds
+at 1.0 with zero high-severity false positives on negative controls. Read
+`docs/DETECTOR_LAYERS.md` before modifying detectors; run the gate afterwards.
 
 ---
 
 ## License & community
 
-MIT ([LICENSE](LICENSE)) · [Contributing](CONTRIBUTING.md) ·
-[Code of Conduct](CODE_OF_CONDUCT.md) · [Security](SECURITY.md) ·
-[Changelog](CHANGELOG.md) · [Cite](CITATION.cff)
+MIT ([LICENSE](LICENSE)) · [CONTRIBUTING](CONTRIBUTING.md) ·
+[CODE_OF_CONDUCT](CODE_OF_CONDUCT.md) · [SECURITY](SECURITY.md) ·
+[CHANGELOG](CHANGELOG.md) · [CITATION](CITATION.cff)
 
 ## Disclaimer
 
-ManuSift is a **screening aid**. It surfaces signals worth a human look — it
-is not a legal or institutional determination of research misconduct, and it
-does not replace review by editors, institutions, or domain experts.
+ManuSift is a screening aid. Its output is a set of signals for human
+review — not a legal or institutional determination of research misconduct,
+and no substitute for review by editors, institutions, or domain experts.

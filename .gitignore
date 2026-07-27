@@ -86,3 +86,7 @@ ROADMAP.md
 benchmarks/
 real_eval_fraud_cases*/
 docs/AGENT_RUNTIME_MIGRATION.md
+
+# pi agent (node)
+node_modules/
+pi-0.82.1/

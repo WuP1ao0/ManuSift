@@ -6,11 +6,11 @@
 
 Screen scholarly **PDFs** and Source Data for research-**integrity** red flags—
 image reuse, table anomalies, metadata—then write findings and HTML reports.
-Runs **offline** by default (`--no-llm`; no API key). Batch CLI + **MCP** for
-other agents; conversational chat is **not part of the product**.
+Runs **offline** by default (`--no-llm`; no API key). Batch CLI for scripted
+runs + an interactive agent on the [pi agent harness](https://github.com/earendil-works/pi).
 
 <p align="center">
-  <strong>Offline integrity screening · CLI for humans · MCP Domain Kernel for agents</strong>
+  <strong>Offline integrity screening · Batch CLI · pi-agent orchestration</strong>
 </p>
 
 <p align="center">
@@ -18,16 +18,16 @@ other agents; conversational chat is **not part of the product**.
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-blue.svg"></a>
   <a href="https://www.python.org/downloads/"><img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-blue.svg"></a>
   <a href="CHANGELOG.md"><img alt="Status" src="https://img.shields.io/badge/status-beta-yellow.svg"></a>
-  <a href="docs/mcp/README.md"><img alt="MCP" src="https://img.shields.io/badge/MCP-Domain%20Kernel-purple.svg"></a>
+  <a href="docs/pi-agent.md"><img alt="pi agent" src="https://img.shields.io/badge/pi-agent-purple.svg"></a>
 </p>
 
-Signals only—not a misconduct verdict. Humans use **batch CLI**; other agents use
-**MCP**. Pin **`--workspace`** so job outputs are easy to find.
+Signals only—not a misconduct verdict. Use the **batch CLI** for scripted runs
+and **pi** for interactive screening. Pin **`--workspace`** so job outputs are easy to find.
 
 | Surface | What it is |
 |---------|------------|
-| **B — Batch CLI** | Strong offline `manusift screen` (primary human path) |
-| **C — MCP** | Domain Kernel for Claude Desktop / Cursor / other agents |
+| **Batch CLI** | Strong offline `manusift screen` (scripted path) |
+| **pi agent** | Interactive integrity-screening agent on the pi harness (`pi` from the repo root) |
 
 ---
 
@@ -57,7 +57,7 @@ without wiring up a chat bot or a cloud key.
 |---------------|---------|
 | Offline-first | Detectors run with `--no-llm`; network only if you opt in |
 | Signals, not judgments | Findings + triage *issues*; humans decide |
-| B + C product | CLI for people, MCP for other agents—no chat product |
+| CLI + pi agent | Batch CLI for scripts, pi harness for interactive screening |
 | Fixed workspace | Pin `--workspace` so reports are easy to find after the run |
 | Open benchmarks | Negative controls + fraud suites under `benchmarks/` |
 
@@ -185,15 +185,14 @@ Open `investigation_pairs.html` or `report.html` in a browser. Optional LLM pack
 
 ## Capabilities
 
-**Status (beta).** Detectors and MCP tools are **different counts**:
+**Status (beta).** Detectors and agent tools are **different counts**:
 
 | Layer | Count | Meaning |
 |-------|------:|---------|
-| **MCP tools (default)** | **~83** | Full Domain Kernel for other agents (`manusift mcp --list-tools`). Includes detector tools **plus** helpers (`ingest_from_path`, `screen_verdict`, `render_report`, vault/FS tools, …) |
-| MCP tools (`--curated`) | ~45 | Optional smaller allow-list (`MCP_DEFAULT_TOOLS`) |
+| **pi agent tools** | **~82** | Full Domain Kernel exposed to the pi agent (`manusift toolserver --list-tools`). Includes detector tools **plus** helpers (`ingest_from_path`, `screen_verdict`, `render_report`, vault/FS tools, …) |
 | Registered detectors | 52 | All detector classes in the package registry |
 | Offline pipeline (`manusift screen`) | **44** | Detectors that run in the default batch screen |
-| Pipeline-excluded (agent-only) | 8 | Still registered / callable via MCP; skipped offline to avoid double-count or heavy OCR cost |
+| Pipeline-excluded (agent-only) | 8 | Still registered / callable via the pi agent; skipped offline to avoid double-count or heavy OCR cost |
 
 Also: 6 + 6 eval cases · 9 console scripts · CI runs a reproducible subset (not the full pytest tree).
 
@@ -222,30 +221,28 @@ manusift suites          # core | deep | fast | full | image | table
 python -m manusift screen paper.pdf --no-llm --workspace ./my_jobs
 ```
 
-### MCP for other agents (C)
+### ManuSift agent (interactive, standalone)
+
+ManuSift ships a **standalone academic-integrity agent** built on the
+[pi](https://github.com/earendil-works/pi) SDK (oh-my-pi style, no fork):
+own branding, custom system prompt, `/screen` full-pipeline command, and a
+read-only built-in tool surface by default. The bridge extension spawns the
+Python toolserver and registers every domain tool:
 
 ```bash
-manusift mcp --list-tools          # full registry (~83 tools); default
-manusift mcp --curated             # smaller kernel allow-list (~45)
-manusift-mcp --list-tools
-python -m manusift mcp --list-tools
+cd agent && npm install --ignore-scripts   # one-time
+manusift                                   # branded TUI (needs an LLM provider key)
+manusift agent -p "对论文做诚信筛查: C:/papers/paper.pdf"
+
+manusift toolserver --list-tools           # inspect the bridged tool surface
 ```
 
-Cursor / Claude Desktop (stdio sketch):
-
-```json
-{
-  "command": "manusift-mcp",
-  "args": [],
-  "env": { "MANUSIFT_WORKSPACE_DIR": "/path/to/jobs" }
-}
-```
-
-Full client configs: [`docs/mcp/README.md`](docs/mcp/README.md).
+Setup, `/screen`, `/manusift status|restart`, and troubleshooting:
+[`docs/pi-agent.md`](docs/pi-agent.md).
 
 ### Optional local helpers
 
-These are **not** a hosted ManuSift cloud. Primary product remains **batch CLI + MCP**.
+These are **not** a hosted ManuSift cloud. Primary product remains **batch CLI + pi agent**.
 
 ```bash
 # Job browser for finished jobs on disk (not a chat agent)
@@ -305,7 +302,7 @@ Without API keys, screening still runs; LLM enrichment stays off / mock.
 |-----|--------|
 | [`docs/DETECTOR_LAYERS.md`](docs/DETECTOR_LAYERS.md) | Pipeline vs agent-only vs EXCLUDED ownership |
 | [`docs/REPORT_PATH.md`](docs/REPORT_PATH.md) | Primary report path (`investigation_pairs`) |
-| [`docs/mcp/README.md`](docs/mcp/README.md) | MCP clients & tool surface |
+| [`docs/pi-agent.md`](docs/pi-agent.md) | pi agent setup & tool bridge |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Dependency / ops security notes |
 
 **PubPeer-derived pattern maps** (screening signals only—not misconduct determinations):
@@ -334,13 +331,13 @@ PDF (+ optional Source Data)
         ├── LLM enrich / adjudicate   (optional, off by default)
         └── reports + findings.json + steps/<idx>.json
 
-MCP Domain Kernel (separate surface): ~83 tools by default
+pi agent tool bridge (separate surface): ~82 tools
   = registered detectors-as-tools + screen/job helpers + FS/vault tools
 ```
 
-Detectors implement a pipeline `Detector` protocol and are also exposed as MCP
+Detectors implement a pipeline `Detector` protocol and are also exposed as agent
 `Tool`s (`name` / `description` / `input_schema` / `execute`) via a thin adapter,
-alongside non-detector helpers in the full MCP registry.
+alongside non-detector helpers in the full tool registry.
 
 ### Adding a detector
 
@@ -350,7 +347,7 @@ from .base import DetectorResult
 from ..contracts import ParsedDoc
 
 class MyDetector:
-    """One-line description (also surfaces in MCP tool lists)."""
+    """One-line description (also surfaces in agent tool lists)."""
     name = "my_detector"
 
     def run(self, doc: ParsedDoc) -> DetectorResult:
@@ -394,7 +391,7 @@ python scripts/ci_benchmark_gate.py --only fraud_web_v1
 
 Workflow: [`.github/workflows/benchmark_gate.yml`](.github/workflows/benchmark_gate.yml).
 
-**Roadmap status:** 2026-07 P1–P5 (triage, external checks, MCP surface, figure–text,
+**Roadmap status:** 2026-07 P1–P5 (triage, external checks, agent tool surface, figure–text,
 eval + CI gate) is complete. Follow-ups: cross-paper corpora, chart cross-validation,
 adversarial “whitewashed” cases.
 

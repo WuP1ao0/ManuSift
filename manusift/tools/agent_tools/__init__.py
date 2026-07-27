@@ -42,36 +42,6 @@ are unaffected.
 """
 from __future__ import annotations
 
-from .web_search import (
-    WebSearchTool,
-    _search_duckduckgo,
-    _search_tavily,
-    _search_brave,
-)
-from .web_fetch import WebFetchTool
-from .bash import (
-    BashTool,
-    _shell_command_args,
-    SHELL_MODES,
-)
-from .grep_glob import GrepTool, GlobTool
-from .task import (
-    TaskTool,
-    _filter_tools_by_role,
-)
-from .todo_write import TodoWriteTool
-# R-2026-06-19 (P2-B5):
-# ``DiffTool`` is the
-# read-only
-# ``diff``
-# viewer.  It's a
-# 9th
-# general-purpose
-# agent tool.  See
-# ``diff.py``
-# for the
-# contract.
-from .diff import DiffTool
 # R-2026-06-15 (Phase 4 + P4-1):
 # ``Tool`` lives in
 # ``manusift/tools/tool.py``
@@ -84,6 +54,33 @@ from .diff import DiffTool
 # level up, then
 # ``tool.py``).
 from ..tool import Tool
+from .bash import (
+    SHELL_MODES,
+    BashTool,
+    _shell_command_args,
+)
+
+# R-2026-06-19 (P2-B5):
+# ``DiffTool`` is the
+# read-only
+# ``diff``
+# viewer.  It's a
+# 9th
+# general-purpose
+# agent tool.  See
+# ``diff.py``
+# for the
+# contract.
+from .diff import DiffTool
+from .grep_glob import GlobTool, GrepTool
+from .todo_write import TodoWriteTool
+from .web_fetch import WebFetchTool
+from .web_search import (
+    WebSearchTool,
+    _search_brave,
+    _search_duckduckgo,
+    _search_tavily,
+)
 
 __all__ = [
     "WebSearchTool",
@@ -91,7 +88,6 @@ __all__ = [
     "BashTool",
     "GrepTool",
     "GlobTool",
-    "TaskTool",
     "TodoWriteTool",
     "DiffTool",
     "register_agent_tools",
@@ -130,7 +126,6 @@ def register_agent_tools() -> list[Tool]:
         BashTool(),
         GrepTool(),
         GlobTool(),
-        TaskTool(),
         TodoWriteTool(),
         SourceDataAuditTool(),
         PythonExecTool(),

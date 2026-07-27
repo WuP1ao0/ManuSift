@@ -60,8 +60,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
-
 AGENT_INIT = (
     Path(__file__).parent.parent
     / "manusift"
@@ -71,28 +69,23 @@ AGENT_INIT = (
 
 
 def _extract_default_system_prompt() -> str:
-    """Read the default system
-    prompt. The prompt used to
-    be an inline triple-quoted
-    string in
-    ``manusift/agent/__init__.py``;
-    the agent restructure moved
-    it to
-    ``manusift/agent/system_prompt.py``
-    as ``DEFAULT_SYSTEM_PROMPT``
-    (exported via
-    ``manusift.agent``).
-    """
-    from manusift.agent.system_prompt import (
-        DEFAULT_SYSTEM_PROMPT,
-    )
+    """Read the ManuSift system prompt.
 
-    assert DEFAULT_SYSTEM_PROMPT, (
-        "DEFAULT_SYSTEM_PROMPT is empty in "
-        "manusift/agent/system_prompt.py; "
-        "the prompt structure may have changed"
+    The prompt moved from
+    ``manusift/agent/system_prompt.py`` to the pi extension at
+    ``agent/src/system-prompt.mjs`` (standalone pi-SDK agent);
+    the guard contract is unchanged.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    src = (
+        root / "agent" / "src" / "system-prompt.mjs"
+    ).read_text(encoding="utf-8")
+    assert src, (
+        "system-prompt.mjs is empty; the prompt structure may have changed"
     )
-    return DEFAULT_SYSTEM_PROMPT
+    return src
 
 
 def test_p213_system_prompt_has_prompt_injection_guard() -> None:
@@ -215,34 +208,4 @@ def test_p213_guard_5_rules() -> None:
         f"Prompt-Injection Guard has "
         f"only {max(numbers)} rules; "
         f"expected >=5"
-    )
-
-
-def test_p213_user_supplied_prompt_overrides_default() -> None:
-    """A user-supplied
-    ``system_prompt``
-    overrides the default
-    (so a power user can
-    opt out of the guard
-    if they want; the
-    default is the safe
-    choice).
-    """
-    from manusift.agent import AgentLoop
-    from manusift.tools.tool import ToolContext
-
-    custom = "You are a custom agent. Be terse."
-    loop = AgentLoop(
-        client=None,  # type: ignore[arg-type]
-        tools=[],
-        ctx=ToolContext(trace_id="t-p213"),
-        system_prompt=custom,
-    )
-    assert loop._system_prompt == custom
-    # The custom prompt
-    # does NOT contain the
-    # guard (the user
-    # explicitly opted out).
-    assert "Prompt-Injection Guard" not in (
-        loop._system_prompt
     )

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -48,46 +47,6 @@ def test_investigation_pairs_is_primary_module() -> None:
     assert hasattr(investigation_pairs, "build_investigation_pairs_payload")
     head = Path(investigation_pairs.__file__).read_text(encoding="utf-8")[:400]
     assert "PRIMARY" in head or "primary" in head.lower()
-
-
-def test_create_agent_loop_default_is_pydantic_or_legacy_fallback() -> None:
-    from manusift.agent.factory import create_agent_loop, resolve_agent_runtime
-    from manusift.tools import ToolContext
-
-    # Default resolution prefers pydantic when package present.
-    runtime = resolve_agent_runtime(None)
-    assert runtime in ("pydantic_ai", "legacy")
-
-    class _Client:
-        name = "mock"
-
-        def chat(self, messages, tools=None, max_tokens=4096):
-            from manusift.llm.chat import ChatResponse
-
-            return ChatResponse(text="ok", tool_calls=[], finish_reason="end_turn")
-
-    ctx = ToolContext(trace_id="t")
-    loop = create_agent_loop(_Client(), tools=[], ctx=ctx, runtime="pydantic_ai")
-    # Must not force callers to import legacy module for the default type
-    assert loop.__class__.__module__.endswith("pydantic_loop") or loop.__class__.__name__ == "PydanticAgentLoop"
-
-
-def test_factory_legacy_flag_still_constructs() -> None:
-    from manusift.agent.factory import create_agent_loop
-    from manusift.tools import ToolContext
-
-    class _Client:
-        name = "mock"
-
-        def chat(self, messages, tools=None, max_tokens=4096):
-            from manusift.llm.chat import ChatResponse
-
-            return ChatResponse(text="ok", tool_calls=[], finish_reason="end_turn")
-
-    ctx = ToolContext(trace_id="t")
-    loop = create_agent_loop(_Client(), tools=[], ctx=ctx, runtime="legacy")
-    assert loop.__class__.__name__ == "AgentLoop"
-    assert "legacy_loop" in loop.__class__.__module__
 
 
 def test_sift_pipeline_still_registered() -> None:

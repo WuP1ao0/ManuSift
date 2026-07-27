@@ -48,7 +48,7 @@ def test_cli_help_mentions_screen_twice() -> None:
         assert proc.returncode == 0, proc.stderr
         blob = (proc.stdout or "") + (proc.stderr or "")
         assert "screen" in blob.lower()
-        assert "mcp" in blob.lower()
+        assert "toolserver" in blob.lower()
 
 
 def test_suites_lists_known_names() -> None:
@@ -66,9 +66,9 @@ def test_suites_lists_known_names() -> None:
     assert "fast" in blob or "core" in blob or "deep" in blob
 
 
-def test_mcp_list_tools_nonempty() -> None:
+def test_toolserver_list_tools_nonempty() -> None:
     proc = subprocess.run(
-        [sys.executable, "-m", "manusift", "mcp", "--list-tools"],
+        [sys.executable, "-m", "manusift", "toolserver", "--list-tools"],
         capture_output=True,
         text=True,
         encoding="utf-8",

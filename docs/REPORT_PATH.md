@@ -5,7 +5,7 @@
 > modules; keep secondary formats callable without implying dual
 > maintenance).
 
-## Primary path (batch CLI / MCP screen)
+## Primary path (batch CLI / agent screen)
 
 ```text
 findings.json
@@ -19,7 +19,7 @@ Entry points that use this path:
 
 - `manusift.report.from_findings` (CLI regenerate)
 - `manusift.report.llm_report.write_llm_reports` (pipeline tail when LLM on)
-- `manusift.mcp.screen` (reads findings / pairs helpers)
+- `manusift.screen_jobs` (reads findings / pairs helpers)
 - Job workspace paths: `JobPaths.investigation_pairs_*`
 
 ## Evidence report bundle (secondary, explicit)
@@ -48,7 +48,7 @@ Also: `python -m manusift.report.evidence_cli`.
 
 ## Guidance
 
-1. New batch/MCP features should write or extend **investigation_pairs**.
+1. New batch/agent features should write or extend **investigation_pairs**.
 2. Do not add parallel “main HTML report” paths under `builder.py`.
 3. Evidence orchestrator stays for deep forensic packs, not every screen.
 

@@ -1,0 +1,13 @@
+{
+  "name": "manusift-agent",
+  "version": "0.2.0",
+  "description": "ManuSift — standalone academic-integrity screening agent on the pi harness",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "manusift-agent": "bin/manusift-agent.mjs"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.82.1"
+  }
+}

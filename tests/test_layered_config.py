@@ -236,7 +236,7 @@ def test_merged_dict_feeds_back_to_settings(
         user,
         {
             "anthropic_api_key": "sk-from-user",
-            "subagent_timeout_seconds": 99.0,
+            "llm_stream_timeout_seconds": 99.0,
         },
     )
     monkeypatch.setenv(
@@ -254,4 +254,4 @@ def test_merged_dict_feeds_back_to_settings(
         == "sk-from-user"
     )
     # Float field is set.
-    assert s.subagent_timeout_seconds == 99.0
+    assert s.llm_stream_timeout_seconds == 99.0

@@ -22,17 +22,21 @@ Run with:
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
-import json
-import sys
 
 import pytest
-
 
 REPO = Path(__file__).resolve().parents[1]
 SCRIPTS = REPO / "real_eval_fraud_cases_v2" / "scripts"
 BASE = REPO / "real_eval_fraud_cases_v2" / "cases"
+
+# The v2 case set is user-local material (not committed); skip when absent.
+pytestmark = pytest.mark.skipif(
+    not (SCRIPTS / "build_alignment.py").exists(),
+    reason="real_eval_fraud_cases_v2/scripts/build_alignment.py not present",
+)
 
 
 @pytest.fixture(scope="module")

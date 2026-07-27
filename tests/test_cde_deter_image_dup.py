@@ -168,6 +168,12 @@ PDF_PATH = Path(
     "case_001_plos_plasmonic_nanobubbles/paper.pdf"
 )
 
+# The case PDF is user-local material (not committed); skip when absent.
+pytestmark = pytest.mark.skipif(
+    not PDF_PATH.exists(),
+    reason=f"{PDF_PATH} not present",
+)
+
 
 def _run_detector() -> list[dict]:
     """Run the detector on case_001 and return

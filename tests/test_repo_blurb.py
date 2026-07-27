@@ -17,15 +17,15 @@ def test_pyproject_description_is_offline_integrity_blurb() -> None:
     assert "chat TUI" not in text
 
 
-def test_readme_lead_matches_product_bc() -> None:
+def test_readme_lead_matches_product() -> None:
     head = (ROOT / "README.md").read_text(encoding="utf-8")[:900]
     assert "integrity" in head.lower() or "red flags" in head.lower()
     assert "PDF" in head or "pdf" in head
-    assert "MCP" in head or "mcp" in head
+    # pi is the interactive agent surface (MCP removed in the pi migration)
+    assert "pi" in head.lower()
     assert "offline" in head.lower() or "no-llm" in head.lower() or "No API key" in head
     # Chat is not the product
     assert "manusift-chat" not in head
-    assert "not part of the product" in head or "Removed" in head or "not part" in head.lower()
 
 
 def test_github_oriented_blurb_length_is_short() -> None:

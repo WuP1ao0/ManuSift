@@ -19,7 +19,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # path. Pydantic resolves it against
 # the current working directory, so
 # running any CLI (``manusift screen``,
-# ``manusift-mcp``, …) from outside the
+# ``manusift-toolserver``, …) from outside the
 # project root would silently miss the
 # project's ``.env`` and fall back to
 # ``MockLLM``. We resolve to the repo
@@ -473,41 +473,6 @@ class Settings(BaseSettings):
     # ``MANUSIFT_PROMPT_CACHE_TTL``.
     prompt_cache_ttl: str = "ephemeral"
 
-    # Hard timeout for the
-    # TaskTool sub-agent.
-    # ``0`` means "no
-    # timeout" (not
-    # recommended -- the
-    # parent TUI will hang).
-    # Env: ``MANUSIFT_SUBAGENT_TIMEOUT_SECONDS``.
-    subagent_timeout_seconds: float = 120.0
-    # R-2026-06-15 (Phase 3 + P3-4):
-    # the maximum depth of
-    # subagent nesting.
-    # ``0`` is the top-
-    # level agent (no
-    # parent).  ``1`` is
-    # a child of the top-
-    # level.  ``MAX`` is
-    # the deepest allowed
-    # child (i.e. depth
-    # ``MAX + 1`` is
-    # rejected by
-    # ``TaskTool``).
-    # Default ``3`` means:
-    # top -> child ->
-    # grandchild -> great-
-    # grandchild (allowed)
-    # ; any deeper is
-    # rejected.  This
-    # matches the
-    # ``delegation`` chain
-    # limit recommended
-    # in the 4-round audit
-    # (P3-4).
-    subagent_max_nesting: int = 3
-    # Env: ``MANUSIFT_SUBAGENT_MAX_NESTING``.
-
     # R-audit (2026-06-14):
     # Python interpreter
     # the ``python_exec``
@@ -522,14 +487,6 @@ class Settings(BaseSettings):
     # the parent process.
     # Env: ``MANUSIFT_PYTHON_EXECUTABLE``.
     python_executable: str = ""
-
-    # Agent runtime driver. ``pydantic_ai`` (default)
-    # uses the PydanticAI-backed loop with ManuSift
-    # tools adapted via tool_bridge; Domain Kernel
-    # tools/detectors are unchanged. ``legacy`` keeps
-    # the hand-rolled AgentLoop in
-    # ``manusift.agent``. Env: ``MANUSIFT_AGENT_RUNTIME``.
-    agent_runtime: str = "pydantic_ai"
 
     def model_post_init(self, __context: Any) -> None:
         """Default ``python_executable`` to
@@ -564,7 +521,7 @@ class Settings(BaseSettings):
     benchmark_skip_detectors: str = ""
 
     # P3.1 (MCP product surface): ``screen_verdict`` triage knobs.
-    # Verdict rule (implemented once in manusift/mcp/screen.py and
+    # Verdict rule (implemented once in manusift/screen_jobs.py and
     # mirrored in the tool description + docs/mcp/README.md):
     # >=1 high-severity issue -> "flagged"; no high but at least
     # ``screen_suspect_medium_issue_threshold`` medium-severity
@@ -719,9 +676,6 @@ class Settings(BaseSettings):
     # confirmation prompt (agent hosts).
     # Env: ``MANUSIFT_AUTO_ACCEPT=1``.
     auto_accept: bool = False
-    skills_dir: Path = Field(
-        default_factory=lambda: Path("./data/skills")
-    )
 
     # E-audit (2026-06) — Obsidian /
     # knowledge-base
@@ -907,7 +861,6 @@ def get_settings() -> Settings:
 _YAML_KEY_MAP: dict[str, str] = {
     "bash.default_cwd": "bash_cwd",
     # Future:
-    # ``agent.subagent_timeout_seconds``,
     # ``detectors.enabled``,
     # etc.
 }

@@ -76,10 +76,8 @@ WORKFLOW_TOOLS_NAMES = frozenset({
     "render_report",
 })
 
-from typing import Any
 
 import pytest
-
 
 # ---------- 1. Coverage ----------
 
@@ -216,14 +214,16 @@ def test_total_tool_count() -> None:
     # web_search,
     # web_fetch,
     # bash, grep, glob,
-    # task, todo_write,
+    # todo_write,
     # screen x4 -- 2026-07-18 P3:
     # screen_verdict, submit_screen,
     # get_job_status, get_job_result;
     # +1 detector 2026-07-18 P2.2:
     # cited_retraction).
-    assert len(tools) == 83, (
-        f"expected 83 tools (52 detectors + 31 helpers), "
+    # 2026-07-27 pi migration: the ``task`` subagent tool was
+    # removed with the Python agent loop (83 -> 82).
+    assert len(tools) == 82, (
+        f"expected 82 tools (52 detectors + 30 helpers), "
         f"got {len(tools)}"
     )
 
@@ -369,41 +369,18 @@ def _detector_tool_names() -> set[str]:
 # ---------- 3. System prompt wiring ----------
 
 
-def test_default_system_prompt_names_workflow_tools(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """R-2026-06-14: the system prompt does NOT list
-    every registered tool in a cheat sheet any more
-    (that bloats first-turn latency and duplicates
-    the registry's auto-injected schema). The
-    prompt DOES name the workflow-defining tools
-    that anchor the user contract. Detectors and
-    other non-workflow tools are discovered via
-    the SDK's auto-injected ``tools=`` schema.
+def test_default_system_prompt_names_workflow_tools() -> None:
+    """The ManuSift system prompt (``agent/src/system-prompt.mjs``)
+    names the workflow-defining tools that anchor the user contract.
+    Detectors and other non-workflow tools are discovered via the
+    registered tool schemas.
     """
-    monkeypatch.setenv(
-        "MANUSIFT_ANTHROPIC_API_KEY", "fake-key-for-test"
-    )
-    monkeypatch.setenv(
-        "MANUSIFT_DEFAULT_LLM_PROVIDER", "mock"
-    )
-    from manusift.agent import AgentLoop
-    from manusift.llm.client import _reset_for_tests
+    from pathlib import Path
 
-    _reset_for_tests()
-    from manusift.tools import iter_registered_tools
-
-    tools = list(iter_registered_tools())
-    from manusift.llm.client import AnthropicLLM
-    from manusift.config import get_settings
-
-    if hasattr(get_settings, "cache_clear"):
-        get_settings.cache_clear()
-    s = get_settings()
-    llm = AnthropicLLM(s)
-    loop = AgentLoop(client=llm, tools=tools, ctx=None)
-    prompt = loop._system_prompt
-    # Workflow tools must be named.
+    root = Path(__file__).resolve().parents[1]
+    prompt = (
+        root / "agent" / "src" / "system-prompt.mjs"
+    ).read_text(encoding="utf-8")
     missing = [
         name for name in WORKFLOW_TOOLS_NAMES
         if name not in prompt
@@ -436,11 +413,11 @@ def test_new_detector_is_auto_registered(
     ``run`` returns an
     empty DetectorResult.
     """
+    from manusift.detectors.base import DetectorResult
     from manusift.tools.detector_catalog import (
         CategorisedDetectorTool,
         register_all_detectors,
     )
-    from manusift.detectors.base import DetectorResult
 
     class _FakeDetector:
         name = "_fake_detector_for_test"
@@ -532,11 +509,10 @@ def test_register_all_detectors_skips_failing_wrap(
     try/except, tested
     separately below.
     """
+    from manusift import detectors as det_mod
     from manusift.tools.detector_catalog import (
         register_all_detectors,
     )
-    from manusift import detectors as det_mod
-    from manusift.detectors.base import DetectorResult
 
     class _BadDetector:
         name = "_bad_detector_for_test"

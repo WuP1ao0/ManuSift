@@ -1,6 +1,6 @@
 """Unit tests for the P3 MCP product surface (screen verdict + async jobs).
 
-Covers ``manusift/mcp/screen.py`` (verdict rules, score, artifact
+Covers ``manusift/screen_jobs.py`` (verdict rules, score, artifact
 reuse, the ScreenJobManager state machine / persistence / restart
 recovery) and the four tools in ``manusift/tools/screen_tools.py``.
 The pipeline itself is faked — no real PDF parsing, no network.
@@ -14,8 +14,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from manusift.mcp import screen
-from manusift.mcp.screen import ScreenJobManager, compute_verdict
+from manusift import screen_jobs as screen
+from manusift.screen_jobs import ScreenJobManager, compute_verdict
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -460,16 +460,17 @@ def test_screen_tools_are_registered() -> None:
         assert get_tool(name) is not None, f"{name} not registered"
 
 
-def test_screen_tools_on_default_mcp_surface() -> None:
-    from manusift.mcp.surface import MCP_DEFAULT_TOOLS
+def test_screen_tools_on_toolserver_surface() -> None:
+    from manusift.toolserver import tool_schemas
 
-    assert MCP_DEFAULT_TOOLS[:4] == [
+    names = {s["name"] for s in tool_schemas()}
+    for name in (
         "screen_verdict",
         "submit_screen",
         "get_job_status",
         "get_job_result",
-    ]
-    assert len(MCP_DEFAULT_TOOLS) == 45
+    ):
+        assert name in names, f"{name} missing from toolserver surface"
 
 
 # ---------------------------------------------------------------------------

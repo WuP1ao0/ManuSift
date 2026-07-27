@@ -11,6 +11,40 @@ is the in-repo history for contributors and clone-from-source users.
 
 ### Added
 
+- **Standalone ManuSift agent** (`agent/`, pi SDK, oh-my-pi style without
+  forking): branded InteractiveMode TUI (`agent/bin/manusift-agent.mjs`,
+  `agent/src/branding.ts`), full system-prompt replacement
+  (`agent/src/system-prompt.mjs`, single source of truth), read-only
+  built-in tool surface by default (`--dev` re-enables bash/edit/write),
+  and a `/screen <pdf>` command that runs the whole offline pipeline as an
+  async job and injects the verdict for LLM summarization. `manusift`
+  launches it directly; plain pi + project extension remains a fallback.
+- **pi-agent orchestration layer**: the interactive agent now runs on the
+  [pi agent harness](https://github.com/earendil-works/pi). Project
+  extension `.pi/extensions/manusift/` (tool bridge + custom
+  integrity-screening system prompt + tool-call gate), project skills
+  `.pi/skills/` (analyze-paper, compare-pdfs, integrity-report,
+  summarize-findings), and docs at `docs/pi-agent.md`.
+- `manusift agent` (and bare `manusift` with no arguments): launches the
+  pi agent with the ManuSift extension and skills from any directory
+  (`MANUSIFT_PI` overrides the pi executable; extra args pass through).
+- `manusift/toolserver.py` (`manusift toolserver` /
+  `manusift-toolserver`): JSON-lines stdio bridge exposing all ~82
+  Domain Kernel tools to the pi extension (ports the MCP-era Windows
+  fixes: stdout-leak redirect, native-import preloading).
+
+### Removed
+
+- **Python agent loop** (`manusift/agent/`: PydanticAI + legacy runtimes,
+  tool/message bridges, safety nets, system prompt) — orchestration moved
+  to pi; safety-gate and system-prompt semantics ported to the extension.
+- **MCP surface** (`manusift/mcp/`, `manusift mcp`, `manusift-mcp`,
+  `docs/mcp/`) — replaced by the pi toolserver bridge. The screen job
+  manager moved to `manusift/screen_jobs.py` (screen_verdict /
+  submit_screen tools unchanged).
+- `TaskTool` subagent + `subagent_forwarder` (depended on the removed
+  Python loop); `pydantic-ai` and `mcp` dependencies.
+
 ### Changed
 
 - README / docs: spell out **MCP tools (~83 default, ~45 curated)** vs

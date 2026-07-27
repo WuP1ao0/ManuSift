@@ -16,7 +16,7 @@ keywords = [
     "image-forensics",
     "pdf",
     "academic",
-    "mcp",
+    "pi-agent",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -110,11 +110,6 @@ dependencies = [
     "python-docx>=1.1",
     "python-pptx>=0.6.21",
     "nbformat>=5.9",
-    # Agent runtime (PydanticAI) + MCP tool surface.
-    # Domain Kernel stays in manusift.*; these only
-    # drive the ReAct loop and external tool I/O.
-    "pydantic-ai>=0.0.24",
-    "mcp>=1.0",
     # Image-forensics core stack. Declared as base deps
     # (2026-07-18) because the default pipeline's image
     # detectors (image_dup / image_forensics / ssim /
@@ -166,13 +161,12 @@ ocr = [
 ]
 
 [project.scripts]
-# Product shape B+C (2026-07): batch screen CLI + MCP tools.
-# Conversational chat is NOT the default (surface A removed).
-#   manusift screen <pdf>   — offline pipeline
-#   manusift mcp            — Domain Kernel over stdio
+# Product shape (2026-07): batch screen CLI + pi agent tool bridge.
+#   manusift screen <pdf>     — offline pipeline
+#   manusift toolserver       — JSON-lines stdio bridge for the pi extension
 manusift = "manusift.cli:main"
 manusift-analyze = "manusift.cli:main"
-manusift-mcp = "manusift.mcp.server:main"
+manusift-toolserver = "manusift.toolserver:main"
 # Optional: job-workspace browser (not chat)
 manusift-workspace = "manusift.tui.app:main"
 manusift-tui = "manusift.tui.app:main"

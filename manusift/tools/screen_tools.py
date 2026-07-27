@@ -1,6 +1,6 @@
 """Product-level screen tools (P3, MCP product surface).
 
-Four tools layered on top of ``manusift.mcp.screen``:
+Four tools layered on top of ``manusift.screen_jobs``:
 
   * ``screen_verdict`` — synchronous one-shot triage. Either runs the
     full pipeline on a PDF path (small PDFs / debugging) or reduces an
@@ -11,7 +11,7 @@ Four tools layered on top of ``manusift.mcp.screen``:
   * ``get_job_status`` / ``get_job_result`` — poll a submitted job.
 
 The verdict rule and score formula are documented in
-``manusift/mcp/screen.py``'s module docstring and mirrored in the
+``manusift/screen_jobs.py``'s module docstring and mirrored in the
 ``screen_verdict`` description below (LLM-facing) and in
 ``docs/mcp/README.md``.
 """
@@ -90,7 +90,7 @@ class ScreenVerdictTool:
         }
 
     def execute(self, input: dict[str, Any], ctx: ToolContext) -> str:
-        from ..mcp import screen
+        from .. import screen_jobs as screen
 
         path_arg = input.get("path")
         use_llm = bool(input.get("use_llm"))
@@ -183,7 +183,7 @@ class SubmitScreenTool:
         }
 
     def execute(self, input: dict[str, Any], ctx: ToolContext) -> str:
-        from ..mcp.screen import get_screen_job_manager
+        from ..screen_jobs import get_screen_job_manager
 
         path_arg = input.get("path")
         if not path_arg or not isinstance(path_arg, str):
@@ -225,7 +225,7 @@ class GetJobStatusTool:
         }
 
     def execute(self, input: dict[str, Any], ctx: ToolContext) -> str:
-        from ..mcp.screen import get_screen_job_manager
+        from ..screen_jobs import get_screen_job_manager
 
         job_id = input.get("job_id")
         if not job_id or not isinstance(job_id, str):
@@ -265,7 +265,7 @@ class GetJobResultTool:
         }
 
     def execute(self, input: dict[str, Any], ctx: ToolContext) -> str:
-        from ..mcp.screen import get_screen_job_manager
+        from ..screen_jobs import get_screen_job_manager
 
         job_id = input.get("job_id")
         if not job_id or not isinstance(job_id, str):

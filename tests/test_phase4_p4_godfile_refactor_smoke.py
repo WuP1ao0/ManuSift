@@ -16,20 +16,18 @@ hold:
   1. ``manusift.tools.agent_tools``
      is a package
      containing the
-     6 submodules:
+     submodules:
      ``web_search``,
      ``web_fetch``,
      ``bash``,
      ``grep_glob``,
-     ``task``,
      ``todo_write``.
-  2. All 7 classes
+  2. All classes
      (BashTool,
      WebSearchTool,
      WebFetchTool,
      GrepTool,
      GlobTool,
-     TaskTool,
      TodoWriteTool)
      are importable
      from the
@@ -79,11 +77,6 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
-from pathlib import Path
-from typing import Any
-
-import pytest
-
 
 # ============================================================
 # 1. agent_tools package structure
@@ -121,7 +114,6 @@ def test_p4_agent_tools_submodules_exist() -> None:
         "web_fetch",
         "bash",
         "grep_glob",
-        "task",
         "todo_write",
     ]
     for mod_name in expected:
@@ -142,8 +134,8 @@ def test_p4_agent_tools_submodules_exist() -> None:
 # ============================================================
 
 
-def test_p4_all_seven_classes_re_exported() -> None:
-    """All 7 classes are
+def test_p4_all_classes_re_exported() -> None:
+    """All classes are
     importable from the
     package root, so
     the 46+ existing
@@ -156,7 +148,6 @@ def test_p4_all_seven_classes_re_exported() -> None:
         BashTool,
         GlobTool,
         GrepTool,
-        TaskTool,
         TodoWriteTool,
         WebFetchTool,
         WebSearchTool,
@@ -167,7 +158,6 @@ def test_p4_all_seven_classes_re_exported() -> None:
         BashTool,
         GlobTool,
         GrepTool,
-        TaskTool,
         TodoWriteTool,
         WebFetchTool,
         WebSearchTool,
@@ -179,7 +169,6 @@ def test_p4_all_seven_classes_re_exported() -> None:
         BashTool,
         GlobTool,
         GrepTool,
-        TaskTool,
         TodoWriteTool,
         WebFetchTool,
         WebSearchTool,
@@ -196,13 +185,11 @@ def test_p4_agent_tools_helpers_re_exported() -> None:
     importable.
     """
     from manusift.tools.agent_tools import (
-        register_agent_tools,
-        _filter_tools_by_role,
-        _shell_command_args,
         SHELL_MODES,
+        _shell_command_args,
+        register_agent_tools,
     )
     assert callable(register_agent_tools)
-    assert callable(_filter_tools_by_role)
     assert callable(_shell_command_args)
     assert SHELL_MODES == (
         "auto",
@@ -268,10 +255,10 @@ def test_p4_all_four_llm_classes_re_exported() -> None:
     root.
     """
     from manusift.llm.client import (
+        AnthropicLLM,
         LLMClient,
         MockLLM,
         OpenAILLM,
-        AnthropicLLM,
     )
     assert isinstance(LLMClient, type)
     assert isinstance(MockLLM, type)
@@ -290,8 +277,8 @@ def test_p4_llm_client_singleton_factories() -> None:
     depend on them).
     """
     from manusift.llm.client import (
-        get_llm_client,
         _reset_for_tests,
+        get_llm_client,
     )
     assert callable(get_llm_client)
     assert callable(_reset_for_tests)
@@ -309,12 +296,12 @@ def test_p4_llm_client_format_helpers_re_exported() -> None:
     the package root.
     """
     from manusift.llm.client import (
-        _format_llm_error,
         _build_prompt,
+        _format_llm_error,
+        _safe_json_loads,
         _safe_parse,
         _strip_code_fence,
         _unwrap_key,
-        _safe_json_loads,
     )
     for fn in [
         _format_llm_error,
@@ -337,7 +324,7 @@ def test_p4_register_agent_tools_returns_all_tools() -> None:
     (in
     ``agent_tools/__init__.py``)
     returns the
-    10-tool list,
+    tool list,
     including the
     3 cross-module
     tools
@@ -360,7 +347,6 @@ def test_p4_register_agent_tools_returns_all_tools() -> None:
             "diff",
             "grep",
             "glob",
-            "task",
             "todo_write",
             "source_data_audit",
             "python_exec",
@@ -396,44 +382,6 @@ def test_p4_mock_llm_is_always_available() -> None:
 # ============================================================
 
 
-def test_p4_task_tool_imports_from_manusift_subpackages() -> None:
-    """``TaskTool``
-    (in
-    ``agent_tools/task.py``)
-    uses imports like
-    ``from ...agent``
-    (3 dots =
-    ``manusift.agent``)
-    and
-    ``from ..subagent_forwarder``
-    (2 dots =
-    ``manusift.tools.subagent_forwarder``).
-    Verify both
-    resolve.
-    """
-    from manusift.tools.agent_tools.task import (
-        TaskTool,
-    )
-    from manusift.tools.agent_tools import (
-        _filter_tools_by_role,
-    )
-    # Sanity: the
-    # helper is
-    # importable
-    # from the
-    # task
-    # submodule
-    # (it is
-    # re-exported).
-    assert callable(_filter_tools_by_role)
-    # And the
-    # task
-    # class
-    # itself.
-    inst = TaskTool()
-    assert inst.name == "task"
-
-
 def test_p4_openai_provider_uses_correct_dotted_imports() -> None:
     """``OpenAILLM``
     (in
@@ -450,10 +398,10 @@ def test_p4_openai_provider_uses_correct_dotted_imports() -> None:
     resolve.
     """
     from manusift.llm.client.providers import (
-        OpenAILLM,
         AnthropicLLM,
-        _openai_create_with_retry,
+        OpenAILLM,
         _anthropic_create_with_retry,
+        _openai_create_with_retry,
     )
     # The class
     # bodies and

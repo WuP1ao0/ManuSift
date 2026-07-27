@@ -1,20 +1,19 @@
-"""ManuSift product CLI — batch screen (B) + MCP launcher (C).
+"""ManuSift product CLI — interactive pi agent + batch screen.
 
 Product shape (2026-07):
-  **B** Strong offline batch screening (no conversational agent)
-  **C** MCP server for other agents to call Domain Kernel tools
-
-Conversational chat TUI has been **removed**. Optional job browser:
-``manusift-workspace`` / ``manusift-tui``.
+  **agent** Interactive integrity-screening agent (pi harness); the
+  default when ``manusift`` is run with no arguments.
+  **screen** Strong offline batch screening.
 
 Examples::
 
+    manusift                       # launch the pi agent (interactive)
+    manusift agent -p "screen C:/papers/paper.pdf"
     manusift screen paper.pdf
     manusift screen paper.pdf --data-paths ./source_data
     manusift screen paper.pdf --suites fast          # light triage only
     manusift screen paper.pdf --no-llm --lang zh
-    manusift mcp
-    manusift mcp --list-tools
+    manusift toolserver --list-tools
 
 Default suite is **deep** (full pipeline). Use ``--suites core`` or
 ``fast`` only when you explicitly want a lighter pass.
@@ -26,9 +25,8 @@ import json
 import os
 import shutil
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
-
 
 # ---------------------------------------------------------------------------
 # Suites: named detector allow-lists for batch screen
@@ -280,26 +278,75 @@ def cmd_screen(args: argparse.Namespace) -> int:
     return 0 if summary.get("ok") else 1
 
 
-def cmd_mcp(args: argparse.Namespace) -> int:
-    """C: launch MCP server (Domain Kernel tools for other agents)."""
-    from .mcp.server import main as mcp_main
+def cmd_agent(args: argparse.Namespace) -> int:
+    """Launch the interactive pi agent with the ManuSift extension.
+
+    Runs the standalone branded agent
+    (``node agent/bin/manusift-agent.mjs``, pi SDK) when available;
+    otherwise wraps plain ``pi`` with the project extension and skills.
+    ``MANUSIFT_PI`` forces the plain-pi path.
+    """
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    extra = list(getattr(args, "pi_args", None) or [])
+
+    # Preferred: the standalone branded agent (pi SDK).
+    node_exe = shutil.which("node")
+    entry = root / "agent" / "bin" / "manusift-agent.mjs"
+    deps_ok = (root / "agent" / "node_modules").is_dir()
+    if not os.environ.get("MANUSIFT_PI") and node_exe and entry.is_file():
+        if not deps_ok:
+            print(
+                "manusift-agent dependencies missing; run:\n"
+                f"  cd {root / 'agent'} && npm install --ignore-scripts\n"
+                "Falling back to plain pi.",
+                file=sys.stderr,
+            )
+        else:
+            try:
+                return int(subprocess.call([node_exe, str(entry), *extra]))
+            except KeyboardInterrupt:
+                return 130
+
+    pi_exe = os.environ.get("MANUSIFT_PI") or shutil.which("pi")
+    if not pi_exe:
+        print(
+            "Neither the standalone agent nor pi is available.\n"
+            "Install pi with:  npm install -g @earendil-works/pi-coding-agent\n"
+            f"and the agent with:  cd {root / 'agent'} && npm install --ignore-scripts",
+            file=sys.stderr,
+        )
+        return 1
+    cmd = [pi_exe]
+    # From the repo root pi auto-discovers .pi/extensions and .pi/skills;
+    # from anywhere else, pass them explicitly.
+    if Path.cwd().resolve() != root:
+        ext_dir = root / ".pi" / "extensions" / "manusift"
+        if ext_dir.is_dir():
+            cmd += ["-e", str(ext_dir)]
+        skills_dir = root / ".pi" / "skills"
+        if skills_dir.is_dir():
+            for sk in sorted(skills_dir.iterdir()):
+                if (sk / "SKILL.md").is_file():
+                    cmd += ["--skill", str(sk)]
+    cmd += extra
+    try:
+        return int(subprocess.call(cmd))
+    except KeyboardInterrupt:
+        return 130
+
+
+def cmd_toolserver(args: argparse.Namespace) -> int:
+    """Launch the JSON-lines stdio tool bridge (pi extension backend)."""
+    from .toolserver import main as toolserver_main
 
     argv: list[str] = []
     if args.trace_id:
         argv.extend(["--trace-id", args.trace_id])
     if args.list_tools:
         argv.append("--list-tools")
-    if args.tools:
-        argv.extend(["--tools", args.tools])
-    elif getattr(args, "curated", False):
-        # Optional smaller surface (explicit opt-in)
-        from .mcp.surface import MCP_DEFAULT_TOOLS
-
-        argv.extend(["--tools", ",".join(MCP_DEFAULT_TOOLS)])
-    elif args.all_tools:
-        # Default is already full registry; flag kept for compat.
-        argv.append("--all-tools")
-    mcp_main(argv)
+    toolserver_main(argv)
     return 0
 
 
@@ -323,8 +370,9 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="manusift",
         description=(
-            "ManuSift paper-integrity screener — batch CLI (B) + MCP (C). "
-            "Conversational agent UI is not part of the default product."
+            "ManuSift paper-integrity screener — batch CLI (B) + "
+            "pi agent tool bridge (see docs/pi-agent.md). "
+            "Conversational agent UI is provided by pi, not this CLI."
         ),
     )
     sub = p.add_subparsers(dest="command", required=False)
@@ -375,26 +423,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sp.set_defaults(func=cmd_screen)
 
-    # --- mcp ---
-    mp = sub.add_parser("mcp", help="Start MCP server for other agents (stdio)")
-    mp.add_argument("--trace-id", default=None)
-    mp.add_argument("--list-tools", action="store_true")
-    mp.add_argument(
-        "--tools",
-        default=None,
-        help="Comma-separated tool allow-list (default: all registered tools)",
+    # --- agent (pi) ---
+    agp = sub.add_parser(
+        "agent",
+        help="Launch the interactive pi agent (default when no command given)",
     )
-    mp.add_argument(
-        "--all-tools",
-        action="store_true",
-        help="Expose every registered tool (default; kept for compatibility)",
+    agp.add_argument(
+        "pi_args",
+        nargs=argparse.REMAINDER,
+        help="Extra arguments passed through to pi (e.g. -p \"...\")",
     )
-    mp.add_argument(
-        "--curated",
-        action="store_true",
-        help="Restrict to smaller kernel allow-list (MCP_DEFAULT_TOOLS)",
+    agp.set_defaults(func=cmd_agent)
+
+    # --- toolserver (pi bridge) ---
+    tp = sub.add_parser(
+        "toolserver",
+        help="Start the JSON-lines stdio tool bridge (used by the pi extension)",
     )
-    mp.set_defaults(func=cmd_mcp)
+    tp.add_argument("--trace-id", default=None)
+    tp.add_argument("--list-tools", action="store_true")
+    tp.set_defaults(func=cmd_toolserver)
 
     # --- suites ---
     lp = sub.add_parser("suites", help="List detector suites for screen")
@@ -437,7 +485,8 @@ def main(argv: list[str] | None = None) -> int:
             raw = ["screen", *raw]
         elif cmd not in (
             "screen",
-            "mcp",
+            "agent",
+            "toolserver",
             "suites",
             "analyze",
             "help",
@@ -446,12 +495,12 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = build_parser()
     if not raw:
-        parser.print_help()
-        print(
-            "\n# Product shape: B (screen) + C (mcp). "
-            "Example: manusift screen paper.pdf --with-sidecar"
-        )
-        return 0
+        # Bare ``manusift`` launches the interactive pi agent.
+        raw = ["agent"]
+    if raw[0] == "agent":
+        # Bypass argparse: everything after ``agent`` goes to pi verbatim
+        # (argparse REMAINDER would reject leading options like ``-p``).
+        return int(cmd_agent(argparse.Namespace(pi_args=raw[1:])))
 
     args = parser.parse_args(raw)
     if not getattr(args, "command", None) and not hasattr(args, "func"):

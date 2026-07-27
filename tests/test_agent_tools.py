@@ -721,69 +721,13 @@ def test_todo_write_rejects_missing_content() -> None:
     assert out["ok"] is False
 
 
-# ---------- 7. task (subagent delegation) ----------
+# ---------- 8. General agent tools are registered ----------
 
 
-def test_task_delegates_to_subagent() -> None:
-    """``task`` spawns a
-    sub-agent and returns
-    its final answer.
-    Uses ``MockLLM`` so the
-    test is offline."""
-    from dotenv import load_dotenv
-    load_dotenv()
-    from manusift.config import get_settings
-    if hasattr(get_settings, "cache_clear"):
-        get_settings.cache_clear()
-    from manusift.llm import MockLLM
-    from manusift.tools import iter_registered_tools
-    from manusift.tools.tool import ToolContext
-    from manusift.tools.agent_tools import TaskTool
-
-    # Override
-    # the
-    # LLM
-    # client
-    # to
-    # MockLLM
-    # for
-    # the
-    # duration
-    # of
-    # the
-    # test.
-    from manusift import llm
-    original_get_client = llm.get_llm_client
-    llm.get_llm_client = lambda *a, **k: MockLLM()
-    try:
-        tool = TaskTool()
-        out = json.loads(
-            tool.execute(
-                {
-                    "subagent_prompt": "say hello",
-                    "isolated_context": True,
-                },
-                ToolContext(trace_id="t"),
-            )
-        )
-        assert out["ok"] is True
-        # MockLLM
-        # echoes
-        # the
-        # user
-        # message.
-        assert "hello" in out["result"].lower()
-    finally:
-        llm.get_llm_client = original_get_client
-
-
-# ---------- 8. All 7 tools are registered ----------
-
-
-def test_all_seven_agent_tools_registered() -> None:
-    """The 7 new agent tools
-    are in the global
-    registry."""
+def test_general_agent_tools_registered() -> None:
+    """The general-purpose agent tools are in the global registry
+    (the ``task`` subagent was removed with the Python agent loop
+    in the pi-agent migration)."""
     from manusift.tools import iter_registered_tools
 
     names = {t.name for t in iter_registered_tools()}
@@ -793,7 +737,7 @@ def test_all_seven_agent_tools_registered() -> None:
         "bash",
         "grep",
         "glob",
-        "task",
         "todo_write",
     ):
         assert n in names, f"missing {n!r}"
+    assert "task" not in names

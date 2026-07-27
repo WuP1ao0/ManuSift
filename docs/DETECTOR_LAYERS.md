@@ -8,20 +8,19 @@
 | Layer | Typical count | Notes |
 |-------|--------------:|-------|
 | Registered detectors | **52** | `_DETECTOR_SPECS` / package registry |
-| Offline pipeline | **44** | Batch `manusift screen` / MCP `submit_screen` & `screen_verdict` |
-| Pipeline-excluded | **8** | Still registered; agent/MCP on demand only |
-| MCP tools (default) | **~83** | Detectors-as-tools **plus** helpers (ingest, screen jobs, FS, vault, …) |
-| MCP tools (`--curated`) | **~45** | `manusift.mcp.surface.MCP_DEFAULT_TOOLS` |
+| Offline pipeline | **44** | Batch `manusift screen` / agent `submit_screen` & `screen_verdict` |
+| Pipeline-excluded | **8** | Still registered; agent on demand only |
+| pi agent tools | **~82** | Detectors-as-tools **plus** helpers (ingest, screen jobs, FS, vault, …) |
 
-**52 ≠ 83.** Detector count is not the MCP tool count. See `docs/mcp/README.md`
+**52 ≠ 82.** Detector count is not the agent tool count. See `docs/pi-agent.md`
 and the README **Capabilities** table.
 
 ## Three surfaces
 
 | Surface | What runs | Entry |
 |---------|-----------|--------|
-| **Offline pipeline** | `_BUILTIN_DETECTOR_CLASS_NAMES` in `manusift/pipeline.py` | `run_pipeline` / `manusift screen` / MCP `submit_screen` |
-| **Registry (all)** | `_DETECTOR_SPECS` in `manusift/detectors/__init__.py` | Agent tools, MCP fine-grained detectors |
+| **Offline pipeline** | `_BUILTIN_DETECTOR_CLASS_NAMES` in `manusift/pipeline.py` | `run_pipeline` / `manusift screen` / agent `submit_screen` |
+| **Registry (all)** | `_DETECTOR_SPECS` in `manusift/detectors/__init__.py` | Agent tools, fine-grained detectors |
 | **Intentionally offline-excluded** | `PIPELINE_EXCLUDED` in `pipeline.py` | Still registered; **not** in batch screen (avoids double-count / cost) |
 
 Rule (enforced by `tests/test_pipeline_detector_coverage.py`): every registry
@@ -74,7 +73,7 @@ inside the offline pipeline would duplicate every component finding.
 
 ## Agent runtime note
 
-- Prefer `manusift.agent.create_agent_loop()` → **Pydantic** loop.
+- Agent orchestration now lives on the pi harness (`.pi/extensions/manusift/`); see `docs/pi-agent.md`.
 - `legacy_loop.AgentLoop` is frozen maintenance (tests / fallback only).
 
 ## Chat TUI
@@ -106,7 +105,7 @@ See `docs/REPORT_PATH.md`. Primary offline: `investigation_pairs`.
 Open-source pattern: **one maintained runtime + explicit legacy flag**
 (PydanticAI default; dual-support without dual maintenance).
 
-- Factory: `create_agent_loop()` → `PydanticAgentLoop`
+- Bridge: `manusift/toolserver.py` (JSON-lines stdio for the pi extension)
 - `legacy_loop.AgentLoop`: frozen; DeprecationWarning on construct
 
 ### SIFT / copy-move (P3)

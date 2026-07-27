@@ -57,24 +57,6 @@ python scripts/install_smoke.py    # 安装自检
 manusift screen evals/fixtures/clean_academic.pdf --no-llm --suites fast --workspace ./my_jobs
 ```
 
-### 交互 agent
-
-依赖 Node.js ≥ 20 及一个 LLM provider key（经 pi 认证体系，首次启动引导登录，
-或设置 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`；批处理模式不依赖）。
-
-```bash
-cd agent && npm install --ignore-scripts && cd ..   # 一次性
-manusift                                            # 交互 TUI
-manusift agent -p "对 path/to/paper.pdf 做诚信筛查"  # 单次打印模式
-```
-
-TUI 内：
-
-- 自然语言指令：`对 C:\papers\paper.pdf 做诚信筛查`、`图 3 是否重复`
-- `/screen <pdf>`：全管线异步执行，进度显示于底栏，完成后按 5 段式输出结论
-- `/manusift status | restart`：工具桥状态管理
-- 默认只读工具面（无 bash/edit/write），`--dev` 解除限制
-
 ### 产物布局
 
 ```text

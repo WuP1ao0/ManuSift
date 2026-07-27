@@ -7,10 +7,12 @@
 Screen scholarly **PDFs** and Source Data for research-**integrity** red flags—
 image reuse, table anomalies, metadata—then write findings and HTML reports.
 Runs **offline** by default (`--no-llm`; no API key). Batch CLI for scripted
-runs + an interactive agent on the [pi agent harness](https://github.com/earendil-works/pi).
+runs + a **standalone academic-integrity agent** built on the
+[pi](https://github.com/earendil-works/pi) SDK — type `manusift` to launch
+its branded TUI, or `/screen <pdf>` inside it for the full pipeline.
 
 <p align="center">
-  <strong>Offline integrity screening · Batch CLI · pi-agent orchestration</strong>
+  <strong>Offline integrity screening · Batch CLI · Standalone pi-SDK agent</strong>
 </p>
 
 <p align="center">
@@ -22,12 +24,13 @@ runs + an interactive agent on the [pi agent harness](https://github.com/earendi
 </p>
 
 Signals only—not a misconduct verdict. Use the **batch CLI** for scripted runs
-and **pi** for interactive screening. Pin **`--workspace`** so job outputs are easy to find.
+and the **ManuSift agent** (`manusift`) for interactive screening. Pin
+**`--workspace`** so job outputs are easy to find.
 
 | Surface | What it is |
 |---------|------------|
 | **Batch CLI** | Strong offline `manusift screen` (scripted path) |
-| **pi agent** | Interactive integrity-screening agent on the pi harness (`pi` from the repo root) |
+| **ManuSift agent** | Standalone branded agent on the pi SDK — `manusift` from any directory (`/screen <pdf>` runs the full pipeline) |
 
 ---
 
@@ -57,7 +60,7 @@ without wiring up a chat bot or a cloud key.
 |---------------|---------|
 | Offline-first | Detectors run with `--no-llm`; network only if you opt in |
 | Signals, not judgments | Findings + triage *issues*; humans decide |
-| CLI + pi agent | Batch CLI for scripts, pi harness for interactive screening |
+| CLI + standalone agent | Batch CLI for scripts; branded pi-SDK agent for interactive screening |
 | Fixed workspace | Pin `--workspace` so reports are easy to find after the run |
 | Open benchmarks | Negative controls + fraud suites under `benchmarks/` |
 
@@ -91,6 +94,18 @@ manusift screen evals/fixtures/clean_academic.pdf \
 # Your own PDF
 manusift screen path/to/paper.pdf --no-llm --workspace ./my_jobs
 ```
+
+### Interactive agent (optional)
+
+```bash
+cd agent && npm install --ignore-scripts && cd ..   # one-time (Node.js >= 20)
+manusift                        # branded TUI; needs an LLM provider key (pi auth)
+manusift agent -p "对论文做诚信筛查: path/to/paper.pdf"
+```
+
+Inside the TUI: `/screen <pdf>` runs the full offline pipeline as a background
+job and summarizes the verdict; `/manusift status` shows bridge health.
+Details: [`docs/pi-agent.md`](docs/pi-agent.md).
 
 ### Where results land
 
@@ -331,8 +346,11 @@ PDF (+ optional Source Data)
         ├── LLM enrich / adjudicate   (optional, off by default)
         └── reports + findings.json + steps/<idx>.json
 
-pi agent tool bridge (separate surface): ~82 tools
+ManuSift agent (standalone, pi SDK) — separate surface
+  agent/bin/manusift-agent.mjs → .pi/extensions/manusift (bridge)
+  → python -m manusift.toolserver (JSON-lines stdio) → ~82 domain tools
   = registered detectors-as-tools + screen/job helpers + FS/vault tools
+  /screen <pdf> replays the batch pipeline as an async job inside the agent
 ```
 
 Detectors implement a pipeline `Detector` protocol and are also exposed as agent
